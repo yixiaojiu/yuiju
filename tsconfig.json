@@ -26,5 +26,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["scripts"]
+  "include": ["src/**/*"]
 }

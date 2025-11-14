@@ -46,4 +46,4 @@ function jsonlToJson() {
   }
 }
 
-jsonToJsonl();
+jsonlToJson();
