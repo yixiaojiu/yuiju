@@ -46,4 +46,27 @@ function jsonlToJson() {
   }
 }
 
-jsonlToJson();
+function convertTrainDataToShareGPT() {
+  const jsonPath = path.join(__dirname, '../dataset/train.json');
+  const outPath = path.join(__dirname, '../dataset/sharegpt_train.json');
+
+  const fileContent = fs.readFileSync(jsonPath, 'utf-8');
+  const trainData: TrainData[] = JSON.parse(fileContent);
+
+  const converted = trainData.map(item => {
+    const conversations: any[] = [];
+    for (const pair of item.conversation) {
+      conversations.push({ from: 'human', value: pair.human });
+      conversations.push({ from: 'gpt', value: pair.assistant });
+    }
+
+    return {
+      system: item.system,
+      conversations,
+    };
+  });
+
+  fs.writeFileSync(outPath, JSON.stringify(converted, null, 2), 'utf-8');
+}
+
+convertTrainDataToShareGPT();
