@@ -1,0 +1,20 @@
+{
+  "name": "@yuiju/message",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0",
+  "dependencies": {
+    "@ai-sdk/deepseek": "^1.0.28",
+    "ai": "^5.0.93",
+    "dotenv": "^16.4.5",
+    "node-napcat-ts": "^0.4.20"
+  }
+}
