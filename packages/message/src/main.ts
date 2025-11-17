@@ -4,30 +4,22 @@ import { createDeepSeek } from '@ai-sdk/deepseek';
 import { generateText } from 'ai';
 import { getPromptMessage } from './prompt';
 import { Conversation } from './conversation';
+import { config } from '@/config';
+import { connectDB, saveQQMessage } from './db';
 
 const deepseek = createDeepSeek({
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
 });
 
-const whiteList = [1918418506];
+const whiteList = config.whiteList;
 
 const conversation = new Conversation();
 
 const napcat = new NCWebsocket(
   {
-    protocol: 'ws',
-    host: '192.168.31.10',
-    port: 3001,
+    ...config.napcat,
     accessToken: process.env.NAPCAT_TOKEN || '',
-    // 是否需要在触发 socket.error 时抛出错误, 默认关闭
     throwPromise: true,
-    // ↓ 自动重连(可选)
-    reconnection: {
-      enable: true,
-      attempts: 10,
-      delay: 5000,
-    },
-    // ↓ 是否开启 DEBUG 模式
   },
   false
 );
@@ -53,8 +45,13 @@ async function messageHandler(context: AllHandlers['message.private']) {
   }
 
   console.log(`收到来自 ${context.sender.nickname}(${context.sender.user_id}) 的消息: ${receiveMessage}`);
-
   const userName = context.sender.nickname;
+
+  saveQQMessage({
+    senderName: userName,
+    content: receiveMessage,
+    timestamp: new Date(),
+  });
 
   try {
     if (!process.env.DEEPSEEK_API_KEY) {
@@ -76,9 +73,20 @@ async function messageHandler(context: AllHandlers['message.private']) {
     conversation.add(context.sender.user_id, 'assistant', reply);
     console.log(`回复给 ${context.sender.nickname}(${context.sender.user_id}) 的消息: ${reply}`);
     await context.quick_action([Structs.text(reply)]);
+    saveQQMessage({
+      // TODO
+      senderName: '悠酱',
+      content: receiveMessage,
+      timestamp: new Date(),
+    });
   } catch (error) {
     await context.quick_action([Structs.text('小久刚刚摔了一跤，重试下呀~')]);
   }
 }
 
-napcat.connect();
+async function main() {
+  await connectDB();
+  await napcat.connect();
+}
+
+main();

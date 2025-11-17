@@ -5,7 +5,7 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "start": "tsx src/main.ts"
+    "start": "tsx -r tsconfig-paths/register src/main.ts"
   },
   "keywords": [],
   "author": "",
@@ -13,8 +13,10 @@
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
     "@ai-sdk/deepseek": "^1.0.28",
+    "@types/mongoose": "^5.11.97",
     "ai": "^5.0.93",
     "dotenv": "^16.4.5",
+    "mongoose": "^8.20.0",
     "node-napcat-ts": "^0.4.20"
   }
 }
