@@ -76,7 +76,7 @@ async function messageHandler(context: AllHandlers['message.private']) {
     saveQQMessage({
       // TODO
       senderName: '悠酱',
-      content: receiveMessage,
+      content: reply,
       timestamp: new Date(),
     });
   } catch (error) {
