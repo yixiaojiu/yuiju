@@ -10,7 +10,8 @@
     "lint": "biome lint .",
     "format": "biome format .",
     "format:write": "biome format . --write",
-    "start:message": "pnpm --filter @yuiju/message run start"
+    "start:message": "pnpm --filter @yuiju/message run start",
+    "dev:message": "pnpm --filter @yuiju/message run dev"
   },
   "repository": {
     "type": "git",

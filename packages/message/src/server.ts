@@ -1,19 +1,11 @@
 import 'dotenv/config';
 import { NCWebsocket, Structs, type AllHandlers } from 'node-napcat-ts';
-import { createDeepSeek } from '@ai-sdk/deepseek';
-import { generateText } from 'ai';
 import { getPromptMessage } from './prompt';
-import { Conversation } from './conversation';
 import { config } from '@/config';
 import { connectDB, saveQQMessage } from './db';
-
-const deepseek = createDeepSeek({
-  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
-});
+import { llmManager } from './llm/manager';
 
 const whiteList = config.whiteList;
-
-const conversation = new Conversation();
 
 const napcat = new NCWebsocket(
   {
@@ -60,21 +52,13 @@ async function messageHandler(context: AllHandlers['message.private']) {
     }
 
     const systemPrompt = getPromptMessage(userName);
-    const messages = conversation.getMessages(context.sender.user_id, receiveMessage);
-
-    const { text } = await generateText({
-      model: deepseek('deepseek-chat'),
-      system: systemPrompt,
-      messages,
-    });
+    llmManager.setSystemPrompt(systemPrompt);
+    const { text } = await llmManager.chatWithLLM(receiveMessage, userName);
 
     const reply = (text || '').trim() || '呜…这句话我一时没理解呢。';
-    conversation.add(context.sender.user_id, 'human', receiveMessage);
-    conversation.add(context.sender.user_id, 'assistant', reply);
     console.log(`回复给 ${context.sender.nickname}(${context.sender.user_id}) 的消息: ${reply}`);
     await context.quick_action([Structs.text(reply)]);
     saveQQMessage({
-      // TODO
       senderName: '悠酱',
       content: reply,
       timestamp: new Date(),

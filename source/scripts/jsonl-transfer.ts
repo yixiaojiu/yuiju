@@ -69,4 +69,30 @@ function convertTrainDataToShareGPT() {
   fs.writeFileSync(outPath, JSON.stringify(converted, null, 2), 'utf-8');
 }
 
-convertTrainDataToShareGPT();
+function modifySystemPrompt(systemPrompt: string) {
+  const jsonlPath = path.join(__dirname, '../dataset/llm-generation.jsonl');
+
+  try {
+    // 读取文件内容
+    const fileContent = fs.readFileSync(jsonlPath, 'utf-8');
+
+    // 将每行解析为 JSON 对象
+    const jsonObjects: TrainData[] = fileContent
+      .split('\n')
+      .filter(line => line.trim() !== '') // 过滤空行
+      .map<TrainData>(line => JSON.parse(line));
+
+    jsonObjects.map(item => {
+      item.system = systemPrompt;
+    });
+
+    // 写入 JSON 文件
+    fs.writeFileSync(jsonlPath, jsonObjects.map(item => JSON.stringify(item)).join('\n'), 'utf-8');
+
+    console.log('转换完成！文件已保存到:', jsonlPath);
+  } catch (error) {
+    console.error('转换过程中发生错误:', error);
+  }
+}
+
+modifySystemPrompt('你是一个名为ゆいじゅ的女孩子，你的昵称叫悠酱。');

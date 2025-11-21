@@ -1,9 +1,16 @@
 import type { NCWebsocketOptions } from 'node-napcat-ts';
 
 interface AppConfig {
+  // Napcat 配置
   napcat: NCWebsocketOptions;
+  // QQ 聊天白名单
   whiteList: number[];
+  // MongoDB connection URI
   mongoUri: string;
+  mem0: {
+    apiKey: string;
+    filterScore?: number;
+  };
 }
 
 export const config: AppConfig = {
@@ -19,4 +26,8 @@ export const config: AppConfig = {
   },
   whiteList: [1918418506],
   mongoUri: process.env.MONGO_URI || '',
+  mem0: {
+    apiKey: process.env.MEM0AI_API_KEY || '',
+    filterScore: 0.7,
+  },
 };
