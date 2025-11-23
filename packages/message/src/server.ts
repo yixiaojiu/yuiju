@@ -3,7 +3,6 @@ import { NCWebsocket, Structs, type AllHandlers } from 'node-napcat-ts';
 import { config } from '@/config';
 import { connectDB, saveQQMessage } from './db';
 import { llmManager } from './llm/manager';
-import { getCharacterCardPrompt } from '@yuiju/source';
 
 const whiteList = config.whiteList;
 
@@ -51,8 +50,6 @@ async function messageHandler(context: AllHandlers['message.private']) {
       return;
     }
 
-    const systemPrompt = getCharacterCardPrompt({ userName });
-    llmManager.setSystemPrompt(systemPrompt);
     const { text } = await llmManager.chatWithLLM(receiveMessage, userName);
 
     const reply = (text || '').trim() || '呜…这句话我一时没理解呢。';

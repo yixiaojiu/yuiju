@@ -1,8 +1,6 @@
 import 'dotenv/config';
 import * as readline from 'readline';
 import { llmManager } from './llm/manager';
-import { synthesizeAndPlay } from './tts';
-import { getCharacterCardPrompt } from '@yuiju/source';
 
 // 设置终端输入输出接口
 const rl = readline.createInterface({
@@ -21,11 +19,6 @@ rl.on('line', async input => {
   }
 
   try {
-    const systemPrompt = getCharacterCardPrompt({
-      userName: '翊小久',
-    });
-    llmManager.setSystemPrompt(systemPrompt);
-
     // 调用DeepSeek API生成回复
     const { text } = await llmManager.chatWithLLM(input.trim(), '翊小久');
 
@@ -33,7 +26,6 @@ rl.on('line', async input => {
 
     // 输出回复到终端
     console.log(`悠酱: ${reply}`);
-    await synthesizeAndPlay(reply);
   } catch (error) {
     console.error('发生错误:', error instanceof Error ? error.message : String(error));
   } finally {

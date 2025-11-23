@@ -21,6 +21,7 @@ interface AppConfig {
     media_type: string;
     streaming_mode: boolean;
     volume?: number;
+    temperature?: number;
   };
 }
 
@@ -52,5 +53,6 @@ export const config: AppConfig = {
     media_type: 'wav',
     streaming_mode: false,
     volume: 1.0,
+    temperature: 0.9,
   },
 };

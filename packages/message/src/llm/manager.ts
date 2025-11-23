@@ -4,12 +4,12 @@ import { Conversation } from '../conversation';
 import MemoryClient from 'mem0ai';
 import { config } from '@/config';
 import { memorySearchTool } from '@/llm/tools/memorySearchTool';
+import { getCharacterCardPrompt } from '@yuiju/source';
 
 export class LLMManager {
   private deepseekClient: ReturnType<typeof createDeepSeek>;
   private modelName: string;
   private conversation: Conversation;
-  private systemPrompt: string = '';
   private mem0Client: MemoryClient;
 
   constructor(modelName: string = 'deepseek-chat', conversationLimit: number = 10) {
@@ -21,15 +21,14 @@ export class LLMManager {
     this.mem0Client = new MemoryClient({ apiKey: config.mem0.apiKey });
   }
 
-  public setSystemPrompt(prompt: string) {
-    this.systemPrompt = prompt;
-  }
-
   public addMessage(role: 'user' | 'assistant', content: string) {
     this.conversation.add(role, content);
   }
 
   public async chatWithLLM(input: string, userName: string) {
+    const systemPrompt = getCharacterCardPrompt({
+      userName: '翊小久',
+    });
     // 添加用户输入到对话历史
     this.conversation.add('user', input);
 
@@ -41,7 +40,7 @@ export class LLMManager {
     const result = await generateText({
       model,
       messages,
-      system: this.systemPrompt,
+      system: systemPrompt,
       // stopWhen: stepCountIs(5),
       // tools: {
       //   memorySearchTool,

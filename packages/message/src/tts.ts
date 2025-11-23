@@ -20,6 +20,7 @@ function buildTTSBody(text: string) {
     text_split_method: config.tts.text_split_method,
     media_type: config.tts.media_type,
     streaming_mode: config.tts.streaming_mode,
+    temperature: config.tts.temperature,
   };
 }
 

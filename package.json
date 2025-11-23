@@ -11,7 +11,8 @@
     "format": "biome format .",
     "format:write": "biome format . --write",
     "start:message": "pnpm --filter @yuiju/message run start",
-    "dev:message": "pnpm --filter @yuiju/message run dev"
+    "dev:message": "pnpm --filter @yuiju/message run dev",
+    "dev:action": "pnpm --filter @yuiju/action run dev"
   },
   "repository": {
     "type": "git",
@@ -30,5 +31,8 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.19"
   }
 }
