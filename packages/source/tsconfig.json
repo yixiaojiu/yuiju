@@ -18,9 +18,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": "."
-  }
+    "baseUrl": "./",
+    "paths": {}
+  },
+  "include": ["."]
 }

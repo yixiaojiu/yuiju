@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import { NCWebsocket, Structs, type AllHandlers } from 'node-napcat-ts';
-import { getPromptMessage } from './prompt';
 import { config } from '@/config';
 import { connectDB, saveQQMessage } from './db';
 import { llmManager } from './llm/manager';
+import { getCharacterCardPrompt } from '@yuiju/source';
 
 const whiteList = config.whiteList;
 
@@ -51,7 +51,7 @@ async function messageHandler(context: AllHandlers['message.private']) {
       return;
     }
 
-    const systemPrompt = getPromptMessage(userName);
+    const systemPrompt = getCharacterCardPrompt({ userName });
     llmManager.setSystemPrompt(systemPrompt);
     const { text } = await llmManager.chatWithLLM(receiveMessage, userName);
 

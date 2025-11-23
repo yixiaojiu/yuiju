@@ -32,6 +32,9 @@ importers:
       '@types/mongoose':
         specifier: ^5.11.97
         version: 5.11.97(socks@2.8.7)
+      '@yuiju/source':
+        specifier: workspace:*
+        version: link:../source
       ai:
         specifier: ^5.0.93
         version: 5.0.93(zod@4.1.12)
@@ -50,6 +53,8 @@ importers:
       zod:
         specifier: ^4.1.12
         version: 4.1.12
+
+  packages/source: {}
 
 packages:
 

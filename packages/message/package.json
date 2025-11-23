@@ -20,6 +20,7 @@
     "mem0ai": "^2.1.38",
     "mongoose": "^8.20.0",
     "node-napcat-ts": "^0.4.20",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "@yuiju/source": "workspace:*"
   }
 }

@@ -1,0 +1,12 @@
+{
+  "name": "@yuiju/source",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "main": "prompt/index.ts",
+  "scripts": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0"
+}

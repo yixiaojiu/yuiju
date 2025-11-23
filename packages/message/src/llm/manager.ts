@@ -42,33 +42,28 @@ export class LLMManager {
       model,
       messages,
       system: this.systemPrompt,
-      stopWhen: stepCountIs(5),
-      tools: {
-        memorySearchTool,
-      },
+      // stopWhen: stepCountIs(5),
+      // tools: {
+      //   memorySearchTool,
+      // },
     });
-
-    if (!result.text) {
-      console.log('LLM Response', result);
-      return result;
-    }
 
     // 添加助手回复到对话历史
     this.conversation.add('assistant', result.text);
 
-    this.mem0Client.add(
-      [
-        {
-          role: 'user',
-          content: input,
-        },
-        {
-          role: 'assistant',
-          content: result.text,
-        },
-      ],
-      { user_id: userName }
-    );
+    // this.mem0Client.add(
+    //   [
+    //     {
+    //       role: 'user',
+    //       content: input,
+    //     },
+    //     {
+    //       role: 'assistant',
+    //       content: result.text,
+    //     },
+    //   ],
+    //   { user_id: userName }
+    // );
 
     return result;
   }
