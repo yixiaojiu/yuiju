@@ -1,15 +1,15 @@
-// 统一导出公共 API
-export * from './types'
-export * from './worldState'
-export * from './blackboard'
-export * from './eventBus'
-export * from './behaviorTree'
-export * from './decorators'
-export * from './policy/llm'
-export * from './policy/safetyFilter'
-export * from './policy/scoring'
-export * from './policy/cooling'
-export * from './routine'
-export * from './executor'
-export * from './scheduler'
-export * from './worldViewConstraints'
+import { tickScheduler } from '@/core/tick/TickScheduler';
+import { worldState } from '@/core/state/WorldState';
+import { blackboard } from '@/core/blackboard/Blackboard';
+import { eventBus } from '@/core/events/EventBus';
+import { actionExecutor } from '@/executor/ActionExecutor';
+import { createBehaviourTree, type PolicyProvider } from '@/bt/index';
+
+export function createActionSystem(policy?: PolicyProvider) {
+  const behaviourTree = createBehaviourTree(policy);
+  eventBus.on('tick', () => {
+    behaviourTree.step();
+  });
+  return { scheduler: tickScheduler, worldState, blackboard, eventBus, behaviourTree, executor: actionExecutor };
+}
+

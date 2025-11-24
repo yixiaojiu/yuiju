@@ -4,10 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx -r tsconfig-paths/register src/demo.ts"
+    "dev": "tsx -r tsconfig-paths/register src/demo.ts",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.14.0"
+  "packageManager": "pnpm@10.14.0",
+  "dependencies": {
+    "mistreevous": "^4.3.1"
+  }
 }
