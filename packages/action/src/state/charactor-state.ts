@@ -12,10 +12,12 @@ export class CharactorState {
   }
 
   public setActivity(activity: Activity) {
+    if (this.activity === activity) return;
     this.activity = activity;
   }
 
   public setLocation(location: WorldLocation) {
+    if (this.location === location) return;
     this.location = location;
   }
 

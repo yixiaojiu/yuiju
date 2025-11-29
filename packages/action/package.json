@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx -r tsconfig-paths/register src/demo.ts",
+    "dev": "tsx -r tsconfig-paths/register src/main.ts",
     "test": "vitest run"
   },
   "keywords": [],

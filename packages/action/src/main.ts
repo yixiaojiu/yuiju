@@ -1,9 +1,10 @@
-import { createBehaviourTree } from '@/bt';
+import 'dotenv/config';
+import { charactorState } from '@/state/charactor-state';
+import { startRealtimeLoop } from '@/engine/runner';
 
 async function main() {
-  const tree = createBehaviourTree();
-
-  tree.step();
+  charactorState.reset();
+  await startRealtimeLoop();
 }
 
 main();

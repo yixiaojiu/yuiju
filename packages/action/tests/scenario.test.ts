@@ -1,118 +1,156 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createBehaviourTree } from '@/bt';
-import { charactorState } from '@/state/charactor-state';
-import { worldState } from '@/state/world-state';
-import { Activity, WorldLocation } from '@/types/everything';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import dayjs from 'dayjs';
-// import { State } from 'mistreevous';
+import { worldState } from '@/state/world-state';
+import { charactorState } from '@/state/charactor-state';
+import { Activity, WorldLocation } from '@/types/everything';
+import { timeConfig } from '@/config/time';
+import { getAction } from '@/config/action-registry';
+import { shortTermMemory } from '@/memory/short-term';
 
-describe('scenario', () => {
-  beforeEach(() => {
-    charactorState.reset();
-    worldState.reset();
-  });
+// 通过模块级 mock 控制 LLM 输出，驱动 tick 的行为
+let nextChoice: { action: string; reason: string } = { action: 'NO_CHANGE', reason: 'default' };
+vi.mock('@/llm/llm-client', () => {
+  return {
+    llmClient: {
+      chooseAction: async () => nextChoice,
+    },
+  };
+});
 
-  it('wake up', () => {
-    const tree = createBehaviourTree();
+// 在 mock 完成后再导入 tick，确保其使用到被替换的 llmClient
+import { tick } from '@/engine/tick';
 
-    worldState.updateTime(dayjs('2025-01-01 07:00:00'));
+beforeEach(() => {
+  worldState.updateTime(dayjs().hour(6).minute(0).second(0));
+  charactorState.reset();
+  shortTermMemory.clear();
+  nextChoice = { action: 'NO_CHANGE', reason: 'default' };
+});
+
+describe('tick with mocked LLM', () => {
+  it('MORNING_WAKE gate: choose WAKE_UP updates activity and memory', async () => {
+    worldState.updateTime(dayjs().hour(6).minute(30));
     charactorState.setLocation(WorldLocation.HOME);
     charactorState.setActivity(Activity.SLEEPING);
+    nextChoice = { action: 'WAKE_UP', reason: '起床开始新一天' };
 
-    tree.step();
-
+    const res = await tick();
+    expect(res.executed).toBe('WAKE_UP');
+    expect(res.reason).toBe('起床开始新一天');
     expect(charactorState.activity).toBe(Activity.WAKE_UP);
+    const meta = getAction('WAKE_UP')!;
+    expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
+    const last = shortTermMemory.list().at(-1)!;
+    expect(last.action).toBe('WAKE_UP');
+    expect(last.reason).toBe('起床开始新一天');
   });
 
-  it('go to school', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 7:00:00'));
+  it('GO_TO_SCHOOL gate: choose NO_CHANGE keeps state, delay uses gate config', async () => {
+    worldState.updateTime(dayjs().hour(9).minute(0));
     charactorState.setLocation(WorldLocation.HOME);
     charactorState.setActivity(Activity.WAKE_UP);
+    nextChoice = { action: 'NO_CHANGE', reason: '再等一会出发' };
 
-    tree.step();
-
-    expect(charactorState.location).toBe(WorldLocation.SCHEOOL);
+    const res = await tick();
+    expect(res.executed).toBe('NO_CHANGE');
+    expect(res.reason).toBe('再等一会出发');
+    expect(charactorState.location).toBe(WorldLocation.HOME);
+    expect(charactorState.activity).toBe(Activity.WAKE_UP);
+    expect(res.nextDelayMs).toBe(timeConfig.gates.noChangeNextSec.GO_TO_SCHOOL * 1000);
+    const last = shortTermMemory.list().at(-1)!;
+    expect(last.action).toBe('NO_CHANGE');
+    expect(last.reason).toBe('再等一会出发');
   });
 
-  it('study at school', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 7:00:00'));
-    charactorState.setLocation(WorldLocation.SCHEOOL);
+  it('GO_TO_SCHOOL gate: choose GO_TO_SCHOOL moves to school and study', async () => {
+    worldState.updateTime(dayjs().hour(9).minute(0));
+    charactorState.setLocation(WorldLocation.HOME);
     charactorState.setActivity(Activity.WAKE_UP);
+    nextChoice = { action: 'GO_TO_SCHOOL', reason: '按时到校' };
 
-    tree.step();
-
+    const res = await tick();
+    expect(res.executed).toBe('GO_TO_SCHOOL');
+    expect(res.reason).toBe('按时到校');
+    expect(charactorState.location).toBe(WorldLocation.SCHEOOL);
     expect(charactorState.activity).toBe(Activity.STUDY_AT_SCHOOL);
+    const meta = getAction('GO_TO_SCHOOL')!;
+    expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
+    const last = shortTermMemory.list().at(-1)!;
+    expect(last.action).toBe('GO_TO_SCHOOL');
+    expect(last.reason).toBe('按时到校');
   });
 
-  it('go home from school', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 16:00:00'));
+  it('GO_HOME gate: choose GO_HOME returns home and idle', async () => {
+    worldState.updateTime(dayjs().hour(timeConfig.gates.goHomeAfterHour).minute(0));
     charactorState.setLocation(WorldLocation.SCHEOOL);
     charactorState.setActivity(Activity.STUDY_AT_SCHOOL);
+    nextChoice = { action: 'GO_HOME', reason: '放学回家' };
 
-    tree.step();
-
+    const res = await tick();
+    expect(res.executed).toBe('GO_HOME');
+    expect(res.reason).toBe('放学回家');
     expect(charactorState.location).toBe(WorldLocation.HOME);
-  });
-
-  it('idle at home', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 10:00:00'));
-    charactorState.setLocation(WorldLocation.HOME);
-    charactorState.setActivity(Activity.IDLE_AT_HOME);
-
-    tree.step();
-
     expect(charactorState.activity).toBe(Activity.IDLE_AT_HOME);
+    const meta = getAction('GO_HOME')!;
+    expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
   });
 
-  it('evening sleep', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 19:00:00'));
+  it('EVENING_SLEEP gate: choose SLEEP sets sleeping', async () => {
+    worldState.updateTime(dayjs().hour(timeConfig.scenes.eveningStartHour).minute(0));
     charactorState.setLocation(WorldLocation.HOME);
     charactorState.setActivity(Activity.IDLE_AT_HOME);
+    nextChoice = { action: 'SLEEP', reason: '困了要睡觉' };
 
-    tree.step();
-
+    const res = await tick();
+    expect(res.executed).toBe('SLEEP');
+    expect(res.reason).toBe('困了要睡觉');
     expect(charactorState.activity).toBe(Activity.SLEEPING);
+    const meta = getAction('SLEEP')!;
+    expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
   });
+});
 
-  it('a day flow', () => {
-    const tree = createBehaviourTree();
-
-    worldState.updateTime(dayjs('2025-01-01 07:00:00'));
+describe('full day flow', () => {
+  it('from wake up to sleep in one day', async () => {
+    // 06:30 起床
+    worldState.updateTime(dayjs().hour(6).minute(30));
     charactorState.setLocation(WorldLocation.HOME);
     charactorState.setActivity(Activity.SLEEPING);
-
-    tree.step();
+    nextChoice = { action: 'WAKE_UP', reason: '起床' };
+    const r1 = await tick();
+    expect(r1.executed).toBe('WAKE_UP');
     expect(charactorState.activity).toBe(Activity.WAKE_UP);
 
-    worldState.updateTime(dayjs('2025-01-01 07:30:00'));
-    tree.step();
+    // 09:00 去学校
+    worldState.updateTime(dayjs().hour(9).minute(0));
+    charactorState.setLocation(WorldLocation.HOME);
+    charactorState.setActivity(Activity.WAKE_UP);
+    nextChoice = { action: 'GO_TO_SCHOOL', reason: '去学校' };
+    const r2 = await tick();
+    expect(r2.executed).toBe('GO_TO_SCHOOL');
     expect(charactorState.location).toBe(WorldLocation.SCHEOOL);
-
-    tree.step();
     expect(charactorState.activity).toBe(Activity.STUDY_AT_SCHOOL);
 
-    worldState.updateTime(dayjs('2025-01-01 16:00:00'));
-    tree.step();
+    // 17:00 放学回家
+    worldState.updateTime(dayjs().hour(timeConfig.gates.goHomeAfterHour).minute(0));
+    charactorState.setLocation(WorldLocation.SCHEOOL);
+    charactorState.setActivity(Activity.STUDY_AT_SCHOOL);
+    nextChoice = { action: 'GO_HOME', reason: '回家' };
+    const r3 = await tick();
+    expect(r3.executed).toBe('GO_HOME');
     expect(charactorState.location).toBe(WorldLocation.HOME);
-
-    worldState.updateTime(dayjs('2025-01-01 17:00:00'));
-    tree.step();
     expect(charactorState.activity).toBe(Activity.IDLE_AT_HOME);
-    expect(charactorState.location).toBe(WorldLocation.HOME);
 
-    worldState.updateTime(dayjs('2025-01-01 19:00:00'));
-    tree.step();
+    // 21:00 晚上睡觉
+    worldState.updateTime(dayjs().hour(timeConfig.scenes.eveningStartHour).minute(0));
+    charactorState.setLocation(WorldLocation.HOME);
+    charactorState.setActivity(Activity.IDLE_AT_HOME);
+    nextChoice = { action: 'SLEEP', reason: '睡觉' };
+    const r4 = await tick();
+    expect(r4.executed).toBe('SLEEP');
     expect(charactorState.activity).toBe(Activity.SLEEPING);
-    expect(charactorState.location).toBe(WorldLocation.HOME);
+
+    const mem = shortTermMemory.list();
+    expect(mem.map(m => m.action)).toEqual(['WAKE_UP', 'GO_TO_SCHOOL', 'GO_HOME', 'SLEEP']);
   });
 });
