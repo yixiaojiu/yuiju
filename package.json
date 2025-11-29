@@ -37,6 +37,12 @@
     "vitest": "^4.0.13"
   },
   "dependencies": {
-    "dayjs": "^1.11.19"
+    "@ai-sdk/deepseek": "^1.0.28",
+    "@types/mongoose": "^5.11.97",
+    "ai": "^5.0.93",
+    "dayjs": "^1.11.19",
+    "dotenv": "^16.6.1",
+    "mongoose": "^8.20.0",
+    "zod": "^4.1.13"
   }
 }
