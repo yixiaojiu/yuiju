@@ -1,11 +1,9 @@
-import type { Config, SchoolWindow } from '@/types';
+import { PartOfDay, TimeWindow, WorldActivity } from '@/types/time';
 
-export const defaultSchoolWindow: SchoolWindow = { startMinutes: 7 * 60 + 20, endMinutes: 7 * 60 + 40 };
-
-export const defaultConfig: Config = {
-  timezoneOffsetHours: 8,
-  schoolWindow: defaultSchoolWindow,
-  rateLimitPerMinutes: 1,
-  cooldownMs: 180000,
+export const PartOfDayWindow: Record<PartOfDay | WorldActivity, TimeWindow> = {
+  [PartOfDay.NIGHT]: { startHour: 0, endHour: 6 },
+  [PartOfDay.MORNING]: { startHour: 6, endHour: 12 },
+  [PartOfDay.AFTERNOON]: { startHour: 12, endHour: 18 },
+  [PartOfDay.EVENING]: { startHour: 18, endHour: 24 },
+  [WorldActivity.SCHEOOL]: { startHour: 8, endHour: 15 },
 };
-
