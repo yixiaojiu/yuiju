@@ -6,6 +6,7 @@ import { getAllowedActions, getDefaultAction, resolveScene, getDefaultSceneCoold
 import { shortTermMemory } from '@/memory/short-term';
 import { llmClient } from '@/llm/llm-client';
 import { resolveDecisionCandidates, nextGateDelayMs } from '@/config/decision-gates';
+import { logger } from '@/utils/logger';
 
 // 过滤当前场景允许且满足前置条件的动作集合
 function filterExecutable(scene: ReturnType<typeof resolveScene>) {
@@ -36,6 +37,7 @@ function isValidChoice(choice: LLMChoiceResult, allowedIds: Set<ActionId>) {
 export async function tick(
   retry = 2
 ): Promise<{ executed: DecisionId; reason: string; scene: string; nextDelayMs: number }> {
+  
   const scene = resolveScene();
   let executables = filterExecutable(scene);
 
@@ -43,6 +45,7 @@ export async function tick(
   if (!gate) {
     const delay = nextGateDelayMs();
     const def = getDefaultAction(scene);
+    logger.debug({ event: 'gate.none', scene, nextDelayMs: delay, default: def });
     return { executed: def as DecisionId, reason: 'no-decision-needed', scene, nextDelayMs: delay } as any;
   }
 
@@ -66,6 +69,7 @@ export async function tick(
       const c = candidates.find(x => x.id === 'NO_CHANGE');
       shortTermMemory.push({ action: 'NO_CHANGE', reason: choice.reason, ts: Date.now() });
       const cd = (c?.nextCheckSec ?? getDefaultSceneCooldownSec(scene)) * 1000;
+      logger.info({ event: 'decision.no_change', scene, reason: choice.reason, nextDelayMs: cd });
       return { executed: 'NO_CHANGE', reason: choice.reason, scene, nextDelayMs: cd };
     }
     if (isValidChoice(choice as any, allowedReal)) {
@@ -73,6 +77,7 @@ export async function tick(
       meta.executor();
       shortTermMemory.push({ action: choice.action, reason: choice.reason, ts: Date.now() });
       const cd = (meta.cooldownSec ?? getDefaultSceneCooldownSec(scene)) * 1000;
+      logger.info({ event: 'decision.executed', scene, action: choice.action, reason: choice.reason, nextDelayMs: cd });
       return { executed: choice.action, reason: choice.reason, scene, nextDelayMs: cd };
     }
   }
@@ -85,6 +90,7 @@ export async function tick(
     const reason = `fallback: default action for scene ${scene}`;
     shortTermMemory.push({ action: def, reason, ts: Date.now() });
     const cd = (meta.cooldownSec ?? getDefaultSceneCooldownSec(scene)) * 1000;
+    logger.warn({ event: 'decision.fallback.default', scene, action: def, reason, nextDelayMs: cd });
     return { executed: def as DecisionId, reason, scene, nextDelayMs: cd };
   }
 
@@ -96,9 +102,11 @@ export async function tick(
     const reason = 'fallback: first executable';
     shortTermMemory.push({ action: m.id as ActionId, reason, ts: Date.now() });
     const cd = (m.cooldownSec ?? getDefaultSceneCooldownSec(scene)) * 1000;
+    logger.warn({ event: 'decision.fallback.first', scene, action: m.id, reason, nextDelayMs: cd });
     return { executed: m.id as DecisionId, reason, scene, nextDelayMs: cd };
   }
 
   const cd = getDefaultSceneCooldownSec(scene) * 1000;
+  logger.error({ event: 'decision.none', scene, nextDelayMs: cd });
   return { executed: def as DecisionId, reason: 'no-valid-choice-and-no-fallback', scene, nextDelayMs: cd } as any;
 }

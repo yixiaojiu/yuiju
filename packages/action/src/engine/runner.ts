@@ -3,6 +3,7 @@ import { tick } from '@/engine/tick';
 import { worldState } from '@/state/world-state';
 import { charactorState } from '@/state/charactor-state';
 import { timeConfig } from '@/config/time';
+import { logger } from '@/utils/logger';
 
 let running = false;
 let stopped = false;
@@ -17,13 +18,26 @@ export async function startRealtimeLoop() {
     let delayMs = timeConfig.runner.initialDelayMs;
     try {
       const result = await tick();
-      console.log(
-        `[${worldState.time.format('HH:mm')}] scene=${result.scene} executed=${result.executed} reason=${
-          result.reason
-        } ` + `location=${charactorState.location} activity=${charactorState.activity}`
-      );
+      logger.info({
+        event: 'tick.result',
+        time: worldState.time.format('HH:mm'),
+        scene: result.scene,
+        executed: result.executed,
+        reason: result.reason,
+        location: charactorState.location,
+        activity: charactorState.activity,
+      });
       delayMs = result.nextDelayMs;
-    } catch {}
+    } catch (err: any) {
+      logger.error({
+        event: 'tick.error',
+        time: worldState.time.format('HH:mm'),
+        location: charactorState.location,
+        activity: charactorState.activity,
+        error: String(err),
+        stack: err?.stack,
+      });
+    }
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 
@@ -45,9 +59,14 @@ export async function simulateDay(
   for (let h = startHour; h <= endHour; h += stepHours) {
     worldState.updateTime(dayjs().hour(h).minute(0).second(0));
     const result = await tick();
-    console.log(
-      `[${h}:00] scene=${result.scene} executed=${result.executed} reason=${result.reason} ` +
-        `location=${charactorState.location} activity=${charactorState.activity}`
-    );
+    logger.info({
+      event: 'simulate.result',
+      time: `${h}:00`,
+      scene: result.scene,
+      executed: result.executed,
+      reason: result.reason,
+      location: charactorState.location,
+      activity: charactorState.activity,
+    });
   }
 }

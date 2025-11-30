@@ -1,5 +1,6 @@
 import type { ActionContext, LLMChoiceResult } from '@/types/action';
 import { generateText, tool, hasToolCall } from 'ai';
+import { logger } from '@/utils/logger';
 // deepseek 提供方，需在环境变量中配置 DEEPSEEK_API_KEY
 import { createDeepSeek } from '@ai-sdk/deepseek';
 import z from 'zod';
@@ -33,7 +34,9 @@ export class LLMClient {
   async chooseAction(ctx: ActionContext): Promise<LLMChoiceResult> {
     if ((!this.apiKey && !this.executor) || ctx.allowed.length === 0) {
       const id = (ctx.allowed[0]?.id || 'IDLE_AT_HOME') as any;
-      return { action: id, reason: 'fallback: no-api-key or empty-allowed' } as LLMChoiceResult;
+      const out = { action: id, reason: 'fallback: no-api-key or empty-allowed' } as LLMChoiceResult;
+      logger.warn({ event: 'llm.fallback', msg: out.reason, chosen: out.action, allowedCount: ctx.allowed.length });
+      return out;
     }
 
     const submit_choice = tool({
@@ -69,14 +72,30 @@ export class LLMClient {
       temperature: 0.2,
     };
 
-    const res = this.executor ? await this.executor(args) : await generateText(args);
+    logger.debug({
+      event: 'llm.request',
+      model: 'deepseek-chat',
+      allowed: ctx.allowed.map(a => a.id),
+      scene: ctx.scene,
+      worldHour: ctx.worldHour,
+      memorySize: ctx.memory.length,
+      promptPreview: args.prompt.slice(0, 120),
+      promptLength: args.prompt.length,
+    });
+
+    const res = await (this.executor ? this.executor(args) : generateText(args));
 
     const call = res.toolCalls.find(t => t.toolName === 'submit_choice');
-    if (!call) throw new Error('No tool call received for submit_choice');
+    if (!call) {
+      logger.error({ event: 'llm.error', msg: 'No tool call received for submit_choice' });
+      throw new Error('No tool call received for submit_choice');
+    }
     const out = call.input as LLMChoiceResult;
     if (!ctx.allowed.some(a => a.id === out.action)) {
+      logger.error({ event: 'llm.invalid', returned: out.action, allowed: ctx.allowed.map(a => a.id) });
       throw new Error(`Invalid action returned: ${out.action}`);
     }
+    logger.info({ event: 'llm.response', action: out.action, reason: out.reason });
     return out;
   }
 }
