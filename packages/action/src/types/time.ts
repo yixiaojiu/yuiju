@@ -1,15 +1,4 @@
-import type { ActionId, SceneId, GateId } from '@/types/action';
-
-export enum PartOfDay {
-  NIGHT = 'night',
-  MORNING = 'morning',
-  AFTERNOON = 'afternoon',
-  EVENING = 'evening',
-}
-
-export enum WorldActivity {
-  SCHEOOL = 'school',
-}
+import type { ActionId, SceneId } from '@/types/action';
 
 export interface TimeWindow {
   startHour: number;
@@ -23,7 +12,7 @@ export interface GatesConfig {
   goToSchoolWindow: TimeWindow;
   goHomeAfterHour: number;
   eveningSleepAfterHour: number;
-  noChangeNextSec: Record<GateId, number>;
+  noChangeNextSec: Record<ActionId, number>;
   nextGateTargets: Array<{ hour: number; minute: number }>;
   minNextGateDelayMs: number;
 }

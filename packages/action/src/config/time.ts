@@ -1,4 +1,5 @@
 import type { TimeConfig } from '@/types/time';
+import { ActionId, SceneId } from '@/types/action';
 
 export const timeConfig: TimeConfig = {
   gates: {
@@ -7,10 +8,12 @@ export const timeConfig: TimeConfig = {
     goHomeAfterHour: 17,
     eveningSleepAfterHour: 21,
     noChangeNextSec: {
-      MORNING_WAKE: 300,
-      GO_TO_SCHOOL: 600,
-      GO_HOME: 900,
-      EVENING_SLEEP: 900,
+      [ActionId.WAKE_UP]: 300,
+      [ActionId.GO_TO_SCHOOL]: 600,
+      [ActionId.GO_HOME]: 900,
+      [ActionId.SLEEP]: 900,
+      [ActionId.STUDY_AT_SCHOOL]: 600,
+      [ActionId.IDLE_AT_HOME]: 300,
     },
     nextGateTargets: [
       { hour: 6, minute: 0 },
@@ -26,10 +29,11 @@ export const timeConfig: TimeConfig = {
     afterSchoolWindow: { startHour: 17, startMinute: 0, endHour: 21, endMinute: 0 },
     eveningStartHour: 21,
     defaultSceneCooldownSec: {
-      MORNING: 30,
-      SCHOOL: 1800,
-      HOME: 300,
-      EVENING: 600,
+      [SceneId.MORNING]: 30,
+      [SceneId.SCHOOL]: 1800,
+      [SceneId.HOME]: 300,
+      [SceneId.EVENING]: 600,
+      [SceneId.WEEKEND]: 300,
     },
   },
   actionsTime: {

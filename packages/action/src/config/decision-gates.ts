@@ -1,7 +1,7 @@
 import { worldState } from '@/state/world-state';
 import { charactorState } from '@/state/charactor-state';
 import { Activity, WorldLocation } from '@/types/everything';
-import type { ActionId, GateId } from '@/types/action';
+import { ActionId } from '@/types/action';
 import { timeConfig } from '@/config/time';
 
 export interface DecisionCandidate {
@@ -11,7 +11,7 @@ export interface DecisionCandidate {
 }
 
 export interface DecisionGate {
-  gateId: GateId;
+  gateId: ActionId;
   candidates: DecisionCandidate[];
 }
 
@@ -27,6 +27,7 @@ const inRange = (startHour: number, startMinute: number, endHour: number, endMin
 
 export function resolveDecisionCandidates(): DecisionGate | null {
   const h = worldState.time.hour();
+  const isWeekend = [0, 6].includes(worldState.time.day());
   if (
     inRange(
       timeConfig.gates.morningWakeWindow.startHour,
@@ -38,10 +39,10 @@ export function resolveDecisionCandidates(): DecisionGate | null {
     charactorState.activity === Activity.SLEEPING
   ) {
     return {
-      gateId: 'MORNING_WAKE',
+      gateId: ActionId.WAKE_UP,
       candidates: [
-        { id: 'WAKE_UP', description: '在家醒来，开始新的一天。' },
-        { id: 'NO_CHANGE', description: '再睡 5 分钟', nextCheckSec: timeConfig.gates.noChangeNextSec.MORNING_WAKE },
+        { id: ActionId.WAKE_UP, description: '在家醒来，开始新的一天。' },
+        { id: 'NO_CHANGE', description: '再睡 5 分钟', nextCheckSec: timeConfig.gates.noChangeNextSec[ActionId.WAKE_UP] },
       ],
     };
   }
@@ -53,34 +54,35 @@ export function resolveDecisionCandidates(): DecisionGate | null {
       timeConfig.gates.goToSchoolWindow.endHour,
       timeConfig.gates.goToSchoolWindow.endMinute
     ) &&
+    !isWeekend &&
     charactorState.location === WorldLocation.HOME &&
     (charactorState.activity === Activity.WAKE_UP || charactorState.activity === Activity.IDLE_AT_HOME)
   ) {
     return {
-      gateId: 'GO_TO_SCHOOL',
+      gateId: ActionId.GO_TO_SCHOOL,
       candidates: [
-        { id: 'GO_TO_SCHOOL', description: '醒来后从家前往学校。' },
-        { id: 'NO_CHANGE', description: '再等一会', nextCheckSec: timeConfig.gates.noChangeNextSec.GO_TO_SCHOOL },
+        { id: ActionId.GO_TO_SCHOOL, description: '醒来后从家前往学校。' },
+        { id: 'NO_CHANGE', description: '再等一会', nextCheckSec: timeConfig.gates.noChangeNextSec[ActionId.GO_TO_SCHOOL] },
       ],
     };
   }
 
   if (h >= timeConfig.gates.goHomeAfterHour && charactorState.activity === Activity.STUDY_AT_SCHOOL) {
     return {
-      gateId: 'GO_HOME',
+      gateId: ActionId.GO_HOME,
       candidates: [
-        { id: 'GO_HOME', description: '放学后从学校回家。' },
-        { id: 'NO_CHANGE', description: '再学一会', nextCheckSec: timeConfig.gates.noChangeNextSec.GO_HOME },
+        { id: ActionId.GO_HOME, description: '放学后从学校回家。' },
+        { id: 'NO_CHANGE', description: '再学一会', nextCheckSec: timeConfig.gates.noChangeNextSec[ActionId.GO_HOME] },
       ],
     };
   }
 
   if (h >= timeConfig.gates.eveningSleepAfterHour && charactorState.location === WorldLocation.HOME && charactorState.activity !== Activity.SLEEPING) {
     return {
-      gateId: 'EVENING_SLEEP',
+      gateId: ActionId.SLEEP,
       candidates: [
-        { id: 'SLEEP', description: '晚间在家睡觉。' },
-        { id: 'NO_CHANGE', description: '再熬一会', nextCheckSec: timeConfig.gates.noChangeNextSec.EVENING_SLEEP },
+        { id: ActionId.SLEEP, description: '晚间在家睡觉。' },
+        { id: 'NO_CHANGE', description: '再熬一会', nextCheckSec: timeConfig.gates.noChangeNextSec[ActionId.SLEEP] },
       ],
     };
   }
@@ -98,4 +100,3 @@ export function nextGateDelayMs(): number {
   const diffMs = diffMin * 60 * 1000;
   return Math.max(diffMs, timeConfig.gates.minNextGateDelayMs);
 }
-

@@ -19,6 +19,7 @@ vi.mock('@/llm/llm-client', () => {
 
 // 在 mock 完成后再导入 tick，确保其使用到被替换的 llmClient
 import { tick } from '@/engine/tick';
+import { ActionId } from '@/types/action';
 
 beforeEach(() => {
   worldState.updateTime(dayjs().hour(6).minute(0).second(0));
@@ -38,7 +39,7 @@ describe('tick with mocked LLM', () => {
     expect(res.executed).toBe('WAKE_UP');
     expect(res.reason).toBe('起床开始新一天');
     expect(charactorState.activity).toBe(Activity.WAKE_UP);
-    const meta = getAction('WAKE_UP')!;
+    const meta = getAction(ActionId.WAKE_UP)!;
     expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
     const last = shortTermMemory.list().at(-1)!;
     expect(last.action).toBe('WAKE_UP');
@@ -71,9 +72,9 @@ describe('tick with mocked LLM', () => {
     const res = await tick();
     expect(res.executed).toBe('GO_TO_SCHOOL');
     expect(res.reason).toBe('按时到校');
-    expect(charactorState.location).toBe(WorldLocation.SCHEOOL);
+    expect(charactorState.location).toBe(WorldLocation.SCHOOL);
     expect(charactorState.activity).toBe(Activity.STUDY_AT_SCHOOL);
-    const meta = getAction('GO_TO_SCHOOL')!;
+    const meta = getAction(ActionId.GO_TO_SCHOOL)!;
     expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
     const last = shortTermMemory.list().at(-1)!;
     expect(last.action).toBe('GO_TO_SCHOOL');
@@ -82,7 +83,7 @@ describe('tick with mocked LLM', () => {
 
   it('GO_HOME gate: choose GO_HOME returns home and idle', async () => {
     worldState.updateTime(dayjs().hour(timeConfig.gates.goHomeAfterHour).minute(0));
-    charactorState.setLocation(WorldLocation.SCHEOOL);
+    charactorState.setLocation(WorldLocation.SCHOOL);
     charactorState.setActivity(Activity.STUDY_AT_SCHOOL);
     nextChoice = { action: 'GO_HOME', reason: '放学回家' };
 
@@ -91,7 +92,7 @@ describe('tick with mocked LLM', () => {
     expect(res.reason).toBe('放学回家');
     expect(charactorState.location).toBe(WorldLocation.HOME);
     expect(charactorState.activity).toBe(Activity.IDLE_AT_HOME);
-    const meta = getAction('GO_HOME')!;
+    const meta = getAction(ActionId.GO_HOME)!;
     expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
   });
 
@@ -105,7 +106,7 @@ describe('tick with mocked LLM', () => {
     expect(res.executed).toBe('SLEEP');
     expect(res.reason).toBe('困了要睡觉');
     expect(charactorState.activity).toBe(Activity.SLEEPING);
-    const meta = getAction('SLEEP')!;
+    const meta = getAction(ActionId.SLEEP)!;
     expect(res.nextDelayMs).toBe((meta.cooldownSec ?? 0) * 1000);
   });
 });
@@ -128,12 +129,12 @@ describe('full day flow', () => {
     nextChoice = { action: 'GO_TO_SCHOOL', reason: '去学校' };
     const r2 = await tick();
     expect(r2.executed).toBe('GO_TO_SCHOOL');
-    expect(charactorState.location).toBe(WorldLocation.SCHEOOL);
+    expect(charactorState.location).toBe(WorldLocation.SCHOOL);
     expect(charactorState.activity).toBe(Activity.STUDY_AT_SCHOOL);
 
     // 17:00 放学回家
     worldState.updateTime(dayjs().hour(timeConfig.gates.goHomeAfterHour).minute(0));
-    charactorState.setLocation(WorldLocation.SCHEOOL);
+    charactorState.setLocation(WorldLocation.SCHOOL);
     charactorState.setActivity(Activity.STUDY_AT_SCHOOL);
     nextChoice = { action: 'GO_HOME', reason: '回家' };
     const r3 = await tick();

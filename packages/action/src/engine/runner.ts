@@ -20,7 +20,7 @@ export async function startRealtimeLoop() {
       const result = await tick();
       logger.info({
         event: 'tick.result',
-        time: worldState.time.format('HH:mm'),
+        time: worldState.time.format('YYYY-MM-DD HH:mm:ss'),
         scene: result.scene,
         executed: result.executed,
         reason: result.reason,
@@ -31,7 +31,7 @@ export async function startRealtimeLoop() {
     } catch (err: any) {
       logger.error({
         event: 'tick.error',
-        time: worldState.time.format('HH:mm'),
+        time: worldState.time.format('YYYY-MM-DD HH:mm:ss'),
         location: charactorState.location,
         activity: charactorState.activity,
         error: String(err),

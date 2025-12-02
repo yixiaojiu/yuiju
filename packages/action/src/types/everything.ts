@@ -1,6 +1,6 @@
 export enum WorldLocation {
   HOME = 'home',
-  SCHEOOL = 'school',
+  SCHOOL = 'school',
 }
 
 export enum Activity {

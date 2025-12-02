@@ -1,17 +1,22 @@
 // 动作与场景相关类型定义，供决策与执行层使用
-export type ActionId =
-  | 'WAKE_UP'
-  | 'GO_TO_SCHOOL'
-  | 'STUDY_AT_SCHOOL'
-  | 'GO_HOME'
-  | 'IDLE_AT_HOME'
-  | 'SLEEP';
+export enum ActionId {
+  WAKE_UP = 'WAKE_UP',
+  GO_TO_SCHOOL = 'GO_TO_SCHOOL',
+  STUDY_AT_SCHOOL = 'STUDY_AT_SCHOOL',
+  GO_HOME = 'GO_HOME',
+  IDLE_AT_HOME = 'IDLE_AT_HOME',
+  SLEEP = 'SLEEP',
+}
 
-export type SceneId = 'MORNING' | 'SCHOOL' | 'HOME' | 'EVENING';
+export enum SceneId {
+  MORNING = 'MORNING',
+  SCHOOL = 'SCHOOL',
+  HOME = 'HOME',
+  EVENING = 'EVENING',
+  WEEKEND = 'WEEKEND',
+}
 
 export type DecisionId = ActionId | 'NO_CHANGE';
-
-export type GateId = 'MORNING_WAKE' | 'GO_TO_SCHOOL' | 'GO_HOME' | 'EVENING_SLEEP';
 
 export interface ActionContext {
   worldHour: number;
