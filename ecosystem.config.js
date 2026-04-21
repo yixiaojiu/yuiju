@@ -35,16 +35,5 @@ module.exports = {
       watch: false,
       max_memory_restart: "1024M",
     },
-    {
-      name: "yuiju-python",
-      script: "pnpm run start:python",
-      cwd: __dirname,
-      env: {
-        NODE_ENV: "production",
-      },
-      autorestart: false,
-      watch: false,
-      max_memory_restart: "1024M",
-    },
   ],
 };

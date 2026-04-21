@@ -4,7 +4,7 @@ const config = defineYuijuConfig({
   app: {
     publicDeployment: false,
     timezone: "Asia/Shanghai",
-    memoryDir: "memory",
+    memoryDir: "~/.local/share/yuiju/memory",
   },
   database: {
     mongoUri: "mongodb://localhost:27017/yuiju?authSource=admin",

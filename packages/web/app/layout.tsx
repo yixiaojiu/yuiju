@@ -20,7 +20,11 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="antialiased">
-        <Navbar showActivity={showInternalPages} showDiary={showInternalPages} />
+        <Navbar
+          showActivity={showInternalPages}
+          showDiary={showInternalPages}
+          showLogs={showInternalPages}
+        />
         <div>{children}</div>
         <Toaster />
       </body>

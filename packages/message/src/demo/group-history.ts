@@ -2,7 +2,7 @@ import "@yuiju/utils/env";
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { getYuijuConfig, getYuijuProjectRoot } from "@yuiju/utils";
+import { getYuijuConfig } from "@yuiju/utils";
 import { NCWebsocket } from "node-napcat-ts";
 import { stickerState } from "../state/sticker";
 import type { ChatWindowState } from "../memory/person-memory";
@@ -16,12 +16,7 @@ const TARGET_GROUP_ID = 1083608109;
 const MESSAGE_COUNT = 15;
 
 function getOutputPath() {
-  return resolve(
-    getYuijuProjectRoot(),
-    getYuijuConfig().app.memoryDir,
-    "demo",
-    `group-history-${TARGET_GROUP_ID}.json`,
-  );
+  return resolve(getYuijuConfig().app.memoryDir, "demo", `group-history-${TARGET_GROUP_ID}.json`);
 }
 
 export async function main() {

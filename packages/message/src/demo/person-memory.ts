@@ -6,7 +6,6 @@ import {
   getPersonMemory,
   getPersonMemoryFilePath,
   getYuijuConfig,
-  getYuijuProjectRoot,
   updatePersonMemory,
 } from "@yuiju/utils";
 import type { ChatWindowState } from "../memory/person-memory";
@@ -16,12 +15,7 @@ import type { StoredGroupMessage } from "../utils/message";
 const TARGET_GROUP_ID = 1083608109;
 
 function getSnapshotPath() {
-  return resolve(
-    getYuijuProjectRoot(),
-    getYuijuConfig().app.memoryDir,
-    "demo",
-    `group-history-${TARGET_GROUP_ID}.json`,
-  );
+  return resolve(getYuijuConfig().app.memoryDir, "demo", `group-history-${TARGET_GROUP_ID}.json`);
 }
 
 async function readChatWindowSnapshot(): Promise<ChatWindowState<StoredGroupMessage>> {

@@ -1,10 +1,11 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { generateText, Output, stepCountIs, tool } from "ai";
+import { Output, stepCountIs, tool } from "ai";
 import dayjs from "dayjs";
 import { z } from "zod";
-import { getYuijuConfig, getYuijuProjectRoot } from "../config";
-import { deepseekProvider } from "../llm/models";
+import { getYuijuConfig } from "../config";
+import { generateStructuredOutput } from "../llm";
+import { qwen3Model } from "../llm/models";
 import { buildPersonMemoryProposalPrompt, buildPersonMemoryReviewPrompt } from "../prompt";
 import { formatProjectTime } from "../time";
 
@@ -127,7 +128,7 @@ export class PersonMemoryFormatError extends Error {
 }
 
 export async function getPersonMemoryDirectoryPath(): Promise<string> {
-  const directoryPath = resolve(getYuijuProjectRoot(), getYuijuConfig().app.memoryDir, "people");
+  const directoryPath = resolve(getYuijuConfig().app.memoryDir, "people");
 
   try {
     const stats = await stat(directoryPath);
@@ -312,8 +313,13 @@ export async function updatePersonMemory(
 async function generatePersonMemoryProposal(
   input: PersonMemoryProposalContext,
 ): Promise<PersonMemoryProposal | null> {
-  const { output } = await generateText({
-    model: deepseekProvider("deepseek-chat"),
+  const { output } = await generateStructuredOutput({
+    model: qwen3Model,
+    providerOptions: {
+      Siliconflow: {
+        enable_thinking: false,
+      },
+    },
     tools: {
       reviewPersonMemoryProposal: reviewPersonMemoryProposalTool({
         personId: input.personId,
@@ -351,8 +357,13 @@ function reviewPersonMemoryProposalTool(input: Omit<PersonMemoryReviewContext, "
     }),
     execute: async ({ proposal }) => {
       const normalizedProposal = normalizeProposal(proposal);
-      const { output } = await generateText({
-        model: deepseekProvider("deepseek-chat"),
+      const { output } = await generateStructuredOutput({
+        model: qwen3Model,
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: false,
+          },
+        },
         output: Output.object({
           schema: personMemoryReviewSchema,
         }),

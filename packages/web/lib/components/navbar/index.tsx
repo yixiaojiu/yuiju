@@ -7,15 +7,17 @@ const navItems = [
   { key: "home", href: "/", label: "首页" },
   { key: "activity", href: "/activity", label: "动态" },
   { key: "diary", href: "/diary", label: "日记" },
+  { key: "logs", href: "/logs", label: "日志" },
   { key: "settings", href: "/settings", label: "设置" },
 ];
 
 type NavbarProps = {
   showActivity?: boolean;
   showDiary?: boolean;
+  showLogs?: boolean;
 };
 
-export const Navbar = ({ showActivity = true, showDiary = true }: NavbarProps) => {
+export const Navbar = ({ showActivity = true, showDiary = true, showLogs = true }: NavbarProps) => {
   const pathname = usePathname();
   const baseLinkClass = "rounded-full px-3.5 py-2.5 text-sm transition-colors";
   const activeLinkClass =
@@ -27,6 +29,9 @@ export const Navbar = ({ showActivity = true, showDiary = true }: NavbarProps) =
     }
     if (item.key === "diary") {
       return showDiary;
+    }
+    if (item.key === "logs") {
+      return showLogs;
     }
     return true;
   });

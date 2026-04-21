@@ -7,24 +7,6 @@ import type {
 } from "../../memory/episode";
 import { connectDB } from "../connect";
 
-declare global {
-  var __yuiju_in_memory_memory_episodes: unknown[] | undefined;
-}
-
-function isMongoDisabled(): boolean {
-  return process.env.YUIJU_DISABLE_MONGO === "1" || process.env.VITEST === "true";
-}
-
-type InMemoryEpisode = Omit<IMemoryEpisode, keyof Document> & { id: string };
-
-function getInMemoryEpisodeStore(): InMemoryEpisode[] {
-  globalThis.__yuiju_in_memory_memory_episodes ??= [];
-  return globalThis.__yuiju_in_memory_memory_episodes as InMemoryEpisode[];
-}
-
-function isOnlyTodayOptions(options: GetRecentMemoryEpisodesOptions): boolean {
-  return (options as { onlyToday?: boolean }).onlyToday === true;
-}
 /**
  * MongoDB 中的统一 Episode 文档。
  *
@@ -105,25 +87,6 @@ export interface GetRecentMemoryEpisodesOptions {
  * 保存统一 Episode 到 MongoDB。
  */
 export async function saveMemoryEpisode(input: MemoryEpisodeWriteInput): Promise<IMemoryEpisode> {
-  if (isMongoDisabled()) {
-    const now = new Date();
-    const episode: InMemoryEpisode = {
-      id: `mem_ep_${now.getTime()}_${Math.random().toString(16).slice(2)}`,
-      source: input.source,
-      type: input.type,
-      subject: input.subject,
-      happenedAt: input.happenedAt,
-      summaryText: input.summaryText,
-      payload: (input.payload ?? {}) as Record<string, unknown>,
-      isDev: input.isDev ?? false,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    getInMemoryEpisodeStore().push(episode);
-    return episode as any;
-  }
-
   await connectDB();
   const episode = new MemoryEpisodeModel({
     ...input,
@@ -143,60 +106,6 @@ export async function saveMemoryEpisode(input: MemoryEpisodeWriteInput): Promise
 export async function getRecentMemoryEpisodes(
   options: GetRecentMemoryEpisodesOptions = {},
 ): Promise<IMemoryEpisode[]> {
-  if (isMongoDisabled()) {
-    let items = getInMemoryEpisodeStore().slice();
-
-    if (options.types?.length) {
-      const types = new Set(options.types);
-      items = items.filter((item) => types.has(item.type));
-    }
-    if (options.subject) {
-      items = items.filter((item) => item.subject === options.subject);
-    }
-    if (typeof options.isDev === "boolean") {
-      items = items.filter((item) => item.isDev === options.isDev);
-    }
-    if (options.onlyDate) {
-      const startOfTargetDate = dayjs(options.onlyDate).startOf("day");
-      const startOfNextDate = startOfTargetDate.add(1, "day");
-      items = items.filter(
-        (item) =>
-          item.happenedAt >= startOfTargetDate.toDate() &&
-          item.happenedAt < startOfNextDate.toDate(),
-      );
-    } else if (isOnlyTodayOptions(options)) {
-      const startOfToday = dayjs().startOf("day");
-      const startOfTomorrow = startOfToday.add(1, "day");
-      items = items.filter(
-        (item) =>
-          item.happenedAt >= startOfToday.toDate() && item.happenedAt < startOfTomorrow.toDate(),
-      );
-    } else if (options.happenedAfter || options.happenedBefore) {
-      items = items.filter((item) => {
-        if (options.happenedAfter && item.happenedAt < options.happenedAfter) return false;
-        if (options.happenedBefore && item.happenedAt >= options.happenedBefore) return false;
-        return true;
-      });
-    }
-
-    const sortDirection = options.sortDirection === "asc" ? 1 : -1;
-    const sortField = options.sortField ?? "happenedAt";
-
-    items.sort((left, right) => {
-      const primaryDiff =
-        sortDirection *
-        (sortField === "createdAt"
-          ? left.createdAt.getTime() - right.createdAt.getTime()
-          : left.happenedAt.getTime() - right.happenedAt.getTime());
-      if (primaryDiff !== 0) return primaryDiff;
-      return sortDirection * (left.createdAt.getTime() - right.createdAt.getTime());
-    });
-
-    const skip = options.skip ?? 0;
-    const limit = options.limit ?? 10;
-    return items.slice(skip, skip + limit) as any;
-  }
-
   await connectDB();
   const filter = buildRecentMemoryEpisodesFilter(options);
 
@@ -217,15 +126,6 @@ export async function getRecentMemoryEpisodes(
 export async function countRecentMemoryEpisodes(
   options: GetRecentMemoryEpisodesOptions = {},
 ): Promise<number> {
-  if (isMongoDisabled()) {
-    const all = await getRecentMemoryEpisodes({
-      ...options,
-      limit: Number.MAX_SAFE_INTEGER,
-      skip: 0,
-    });
-    return all.length;
-  }
-
   await connectDB();
 
   return await MemoryEpisodeModel.countDocuments(buildRecentMemoryEpisodesFilter(options)).exec();
@@ -251,13 +151,6 @@ function buildRecentMemoryEpisodesFilter(
     filter.happenedAt = {
       $gte: startOfTargetDate.toDate(),
       $lt: startOfNextDate.toDate(),
-    };
-  } else if (isOnlyTodayOptions(options)) {
-    const startOfToday = dayjs().startOf("day");
-    const startOfTomorrow = startOfToday.add(1, "day");
-    filter.happenedAt = {
-      $gte: startOfToday.toDate(),
-      $lt: startOfTomorrow.toDate(),
     };
   } else if (options.happenedAfter || options.happenedBefore) {
     filter.happenedAt = {};

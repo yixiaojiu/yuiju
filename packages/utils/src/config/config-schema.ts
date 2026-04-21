@@ -78,6 +78,13 @@ export interface YuijuLlmConfig {
 export interface YuijuAppConfig {
   publicDeployment: boolean;
   timezone: string;
+  /**
+   * 记忆目录绝对路径。
+   *
+   * 说明：
+   * - 配置文件里必须直接填写绝对路径；
+   * - 业务代码会在这个目录下继续拼接 `people`、`demo` 等子目录。
+   */
   memoryDir: string;
 }
 

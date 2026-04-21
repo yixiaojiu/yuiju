@@ -1,6 +1,7 @@
 import {
   buildMessageHistoryUserPrompt,
   diarySearchTool,
+  generateStructuredOutput,
   getCharacterCardPrompt,
   getGroupReplyDecisionSystemPrompt,
   getPersonMemoryTool,
@@ -124,7 +125,7 @@ export class LLMManager {
       10,
     );
 
-    const { output } = await generateText({
+    const { output } = await generateStructuredOutput({
       model: minimaxModel,
       // providerOptions: {
       //   Siliconflow: {

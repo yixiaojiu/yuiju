@@ -13,14 +13,16 @@ import {
   chooseShopProductPrompt,
   chooseShrinePrayerPrompt,
   diarySearchTool,
+  generateStructuredOutput,
   getPersonMemoryTool,
   listPersonMemoriesTool,
   queryWorldMapTool,
+  qwen3Model,
   reviewPlanChangesTool,
   strongModel,
   todayEventSearchTool,
 } from "@yuiju/utils";
-import { generateText, Output, stepCountIs } from "ai";
+import { Output, stepCountIs } from "ai";
 import dayjs from "dayjs";
 import { z } from "zod";
 import { logger } from "@/utils/logger";
@@ -80,8 +82,13 @@ export async function chooseActionAgent(
 
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
-      const { output } = await generateText({
-        model: strongModel,
+      const { output } = await generateStructuredOutput({
+        model: qwen3Model,
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: true,
+          },
+        },
         tools: {
           todayEventSearch: todayEventSearchTool,
           diarySearch: diarySearchTool,
@@ -135,7 +142,7 @@ export async function chooseFoodAgent(
   context: ActionContext,
   actionMemoryList: BehaviorRecord[],
   planState: PlanState,
-) {
+): Promise<ParameterAgentSelectedItem[] | undefined> {
   const systemPrompt = chooseFoodPrompt({
     availableFood: foodList,
     characterState: context.characterState,
@@ -151,13 +158,13 @@ export async function chooseFoodAgent(
 
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
-      const { output } = await generateText({
+      const { output } = await generateStructuredOutput({
         model: strongModel,
-        // providerOptions: {
-        //   Siliconflow: {
-        //     enable_thinking: true,
-        //   },
-        // },
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: false,
+          },
+        },
         output: Output.object({
           schema: z.array(
             z.object({
@@ -186,7 +193,7 @@ export async function chooseShopProductAgent(
   context: ActionContext,
   actionMemoryList: BehaviorRecord[],
   planState: PlanState,
-) {
+): Promise<ParameterAgentSelectedItem | undefined> {
   if (productList.length === 0) {
     return;
   }
@@ -206,8 +213,13 @@ export async function chooseShopProductAgent(
 
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
-      const { output } = await generateText({
-        model: strongModel,
+      const { output } = await generateStructuredOutput({
+        model: qwen3Model,
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: false,
+          },
+        },
         output: Output.object({
           schema: z.object({
             value: z.enum(productList.map((item) => item.value)).describe("选择的商品名称"),
@@ -234,7 +246,7 @@ export async function chooseCafeCoffeeAgent(
   context: ActionContext,
   actionMemoryList: BehaviorRecord[],
   planState: PlanState,
-) {
+): Promise<ParameterAgentSelectedItem | undefined> {
   if (coffeeList.length === 0) {
     return;
   }
@@ -254,8 +266,13 @@ export async function chooseCafeCoffeeAgent(
 
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
-      const { output } = await generateText({
-        model: strongModel,
+      const { output } = await generateStructuredOutput({
+        model: qwen3Model,
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: false,
+          },
+        },
         output: Output.object({
           schema: z.object({
             value: z.enum(coffeeList.map((item) => item.value)).describe("选择的咖啡名称"),
@@ -300,8 +317,13 @@ export async function chooseShrinePrayerAgent(
 
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
-      const { output } = await generateText({
+      const { output } = await generateStructuredOutput({
         model: strongModel,
+        providerOptions: {
+          Siliconflow: {
+            enable_thinking: false,
+          },
+        },
         output: Output.object({
           schema: z.object({
             shouldOffer: z.boolean().describe("这次是否投币参拜"),
