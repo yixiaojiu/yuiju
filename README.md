@@ -22,16 +22,40 @@
 
 # Get Started
 
-[部署文档](./docs/get-started.md)
+
+- [部署文档](./docs/get-started.md)
+- [新同学上手](./docs/onboarding.md)
+- [本地基础设施（Docker）](./docs/local-infra-docker.md)
 
 # Architecture
 
-> 项目还处于早期开发阶段，有些功能并为按照架构图实现
+> 项目还处于早期开发阶段，部分功能尚未完全按架构图实现。
 
 ![](./docs/architecture.png)
 
 # 相关文档
 
-项目目前处于早期开发阶段，文档建设比较少，详细内容可以问 AI（呜呜）。
+项目目前处于早期开发阶段，文档在持续补充中。下面是当前可用文档入口：
 
-每个子应用内可能有自己的 READEME.md 文件
+## 项目文档（`docs/`）
+
+- [需求草案](./docs/spec/requirement.md)
+- [规划草案](./docs/spec/plan.md)
+- [开发笔记](./docs/note.md)
+- [想法记录](./docs/idea.md)
+- [待办事项](./docs/todo.md)
+- [问题记录：Graphiti](./docs/problem/graphiti.md)
+
+## 开发规范
+
+- [实现风格](./docs/rules/implementation-style.md)
+- [重构风格](./docs/rules/refactor-style.md)
+
+## 子包文档
+
+- [world](./packages/world/README.md)
+- [web](./packages/web/README.md)
+- [message](./packages/message/README.md)
+- [utils](./packages/utils/README.md)
+- [python](./packages/python/README.md)
+- [source](./packages/source/README.md)

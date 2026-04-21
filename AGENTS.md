@@ -12,7 +12,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 项目采用 Monorepo 架构，使用 pnpm 作为包管理器，包含以下核心子包：
 
-### 1. @yuiju/world（世界模拟引擎）
+### 1. @yuiju/world (packages/world) - 世界模拟引擎
 
 - **核心功能**：负责角色决策、行为执行、状态管理的主引擎
 - **关键特性**：LLM 驱动决策、状态持久化（Redis + MongoDB）、参数化行为、动态时间系统
@@ -23,30 +23,30 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
   - `src/llm/`：LLM 决策和工具调用
 - **开发命令**：`pnpm run dev:world`、`pnpm run start:world`、`pnpm run test:world`
 
-### 2. @yuiju/message（消息服务）
+### 2. @yuiju/message (packages/message) - 消息服务
 
 - **核心功能**：提供与外部系统的消息通信功能
 - **技术栈**：使用 node-napcat-ts 进行消息处理
 - **开发命令**：`pnpm run dev:message`、`pnpm run start:message`
 
-### 3. @yuiju/web（Web 界面）
+### 3. @yuiju/web (packages/web) - Web 界面
 
 - **核心功能**：提供可视化界面，用于观察角色状态和世界运行
-- **技术栈**：Next.js 16 + React 19 + Tailwind CSS 4
+- **技术栈**：Next.js 15 + React 19 + Tailwind CSS 4
 - **开发命令**：`pnpm run dev:web`、`pnpm run start:web`、`pnpm run build:web`
 
-### 4. @yuiju/utils（工具库）
+### 4. @yuiju/utils (packages/utils) - 工具库
 
-- **核心功能**：通用工具函数和类型定义
+- **核心功能**：通用工具函数、数据库 Schema、长期记忆系统 (Person Memory)
 - **开发命令**：`pnpm run type-check:utils`
 
-### 5. @yuiju/source（数据源）
+### 5. @yuiju/source (packages/source) - 数据源
 
-- **核心功能**：提供项目的静态资源和数据源
+- **核心功能**：提供项目的静态资源、Prompt 模板、微调数据集
 
-### 6. packages/python（Python 服务）
+### 6. packages/python [DEPRECATED] - Python 服务
 
-- **核心功能**：提供 Graphiti 长期记忆服务，已废弃
+- **核心功能**：提供 Graphiti 长期记忆服务，已废弃，由 `@yuiju/utils` 中的 Person Memory 系统取代
 - **开发命令**：`pnpm run start:python`
 
 ## 常用开发命令
@@ -82,7 +82,7 @@ pnpm run type-check:world # 只检查 world 包
 pnpm run dev:world       # 启动世界模拟引擎
 pnpm run dev:web         # 启动 Web 界面（端口 3010）
 pnpm run dev:message     # 按需启动消息服务
-pnpm run start:python    # 仅在需要 Python 能力时启动
+# pnpm run start:python  # [DEPRECATED] 仅在需要旧版 Python 能力时启动
 ```
 
 ### 运行测试
