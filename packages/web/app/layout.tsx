@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import "./globals.css";
-import { Navbar } from "@/lib/components/navbar";
 import { Toaster } from "@/components/ui/sonner";
+import { Navbar } from "@/lib/components/navbar";
 import { isPublicDeployment } from "@/lib/public-deployment";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "悠酱 - 角色自主生活模拟",
@@ -24,6 +24,7 @@ export default function RootLayout({
           showActivity={showInternalPages}
           showDiary={showInternalPages}
           showLogs={showInternalPages}
+          showMemory={showInternalPages}
         />
         <div>{children}</div>
         <Toaster />

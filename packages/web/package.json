@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.118",
+    "@monaco-editor/react": "^4.7.0",
     "@yuiju/source": "workspace:*",
     "@yuiju/utils": "workspace:*",
     "class-variance-authority": "^0.7.1",
