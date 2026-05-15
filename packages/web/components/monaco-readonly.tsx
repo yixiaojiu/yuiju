@@ -18,8 +18,6 @@ declare global {
 type MonacoEditorInstance = {
   dispose: () => void;
   getModel: () => { setValue: (value: string) => void } | null;
-  onDidChangeModelContent: (listener: () => void) => { dispose: () => void };
-  getValue: () => string;
 };
 
 const MONACO_LOADER_SRC = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js";
@@ -68,31 +66,17 @@ const ensureMonacoReady = async () => {
   });
 };
 
-type MonacoEditorPanelProps = {
+type MonacoReadonlyProps = {
   value: string;
-  readOnly?: boolean;
-  minHeightClassName?: string;
-  onChange?: (nextValue: string) => void;
 };
 
-export function MonacoEditorPanel({
-  value,
-  readOnly = true,
-  minHeightClassName = "min-h-[460px]",
-  onChange,
-}: MonacoEditorPanelProps) {
+export function MonacoReadonly({ value }: MonacoReadonlyProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<MonacoEditorInstance | null>(null);
-  const onChangeRef = useRef<((nextValue: string) => void) | undefined>(onChange);
-  const latestValueRef = useRef(value);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  onChangeRef.current = onChange;
-  latestValueRef.current = value;
 
   useEffect(() => {
     let cancelled = false;
-    let contentChangeSubscription: { dispose: () => void } | null = null;
 
     const setupEditor = async () => {
       try {
@@ -102,21 +86,14 @@ export function MonacoEditorPanel({
         }
 
         editorRef.current = window.monaco.editor.create(containerRef.current, {
-          value: latestValueRef.current,
+          value: "",
           language: "plaintext",
-          readOnly,
+          readOnly: true,
           minimap: { enabled: false },
           lineNumbersMinChars: 3,
           fontSize: 12,
           automaticLayout: true,
           scrollBeyondLastLine: false,
-        });
-
-        contentChangeSubscription = editorRef.current.onDidChangeModelContent(() => {
-          const nextValue = editorRef.current?.getValue();
-          if (typeof nextValue === "string") {
-            onChangeRef.current?.(nextValue);
-          }
         });
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Monaco 初始化失败");
@@ -127,11 +104,10 @@ export function MonacoEditorPanel({
 
     return () => {
       cancelled = true;
-      contentChangeSubscription?.dispose();
       editorRef.current?.dispose();
       editorRef.current = null;
     };
-  }, [readOnly]);
+  }, []);
 
   useEffect(() => {
     const model = editorRef.current?.getModel();
@@ -140,9 +116,7 @@ export function MonacoEditorPanel({
 
   if (errorMessage) {
     return (
-      <div
-        className={`h-full ${minHeightClassName} rounded-xl border border-[rgba(217,230,245,0.95)] bg-white/85 p-3 text-xs text-[#6b7480]`}
-      >
+      <div className="h-full min-h-[460px] rounded-xl border border-[rgba(217,230,245,0.95)] bg-white/85 p-3 text-xs text-[#6b7480]">
         {errorMessage}
       </div>
     );
@@ -151,15 +125,7 @@ export function MonacoEditorPanel({
   return (
     <div
       ref={containerRef}
-      className={`h-full ${minHeightClassName} rounded-xl border border-[rgba(217,230,245,0.95)]`}
+      className="h-full min-h-[460px] rounded-xl border border-[rgba(217,230,245,0.95)]"
     />
   );
-}
-
-type MonacoReadonlyProps = {
-  value: string;
-};
-
-export function MonacoReadonly({ value }: MonacoReadonlyProps) {
-  return <MonacoEditorPanel value={value} readOnly />;
 }

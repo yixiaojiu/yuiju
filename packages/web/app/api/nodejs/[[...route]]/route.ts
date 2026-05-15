@@ -5,7 +5,6 @@ import { activityRoute } from "./activity";
 import { diaryRoute } from "./diary";
 import { homeRoute } from "./home";
 import { logsRoute } from "./logs";
-import { memoryRoute } from "./memory";
 import { stateRoute } from "./state";
 
 // 数据库连接状态管理
@@ -79,7 +78,6 @@ app.route("/activity", activityRoute);
 app.route("/diary", diaryRoute);
 app.route("/state", stateRoute);
 app.route("/logs", logsRoute);
-app.route("/memory", memoryRoute);
 
 // 全局错误处理
 app.onError((err, context) => {
