@@ -53,6 +53,9 @@ export const coastAction: ActionMetadata[] = [
     action: ActionId.Walk_In_Coast,
     description:
       "在月汐海岸散步放松，可以按 10/30/60/120 分钟四档安排时长，时间越久心情提升越多。[耗时需要给出]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return isAtCoast(context.characterState.location.major);
     },

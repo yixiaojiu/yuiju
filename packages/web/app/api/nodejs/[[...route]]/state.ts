@@ -1,10 +1,11 @@
 import {
+  changeCharacterMoney,
   emitMemoryEpisode,
-  getRedis,
   initCharacterStateData,
   isDev,
-  REDIS_KEY_CHARACTER_STATE,
   SUBJECT_NAME,
+  setCharacterMoney,
+  syncCharacterMoney,
 } from "@yuiju/utils";
 import { Hono } from "hono";
 import { rejectPublicRequest } from "./public-guard";
@@ -17,6 +18,14 @@ const parseAmount = (value: unknown): number | null => {
 };
 
 export const stateRoute = new Hono();
+
+stateRoute.use("*", async (context, next) => {
+  const blocked = rejectPublicRequest(context);
+  if (blocked) {
+    return blocked;
+  }
+  await next();
+});
 
 stateRoute.post("/allowance", async (context) => {
   const blocked = rejectPublicRequest(context);
@@ -93,38 +102,20 @@ stateRoute.post("/allowance", async (context) => {
 
   await initCharacterStateData();
 
-  const redis = getRedis();
   let previousMoney = 0;
   let currentMoney = 0;
   let delta = 0;
 
   if (mode === "add") {
-    currentMoney = await redis.hincrby(REDIS_KEY_CHARACTER_STATE, "money", amount);
-    previousMoney = currentMoney - amount;
-    delta = amount;
+    const moneyChange = await changeCharacterMoney(amount);
+    previousMoney = moneyChange.previousMoney;
+    currentMoney = moneyChange.currentMoney;
+    delta = moneyChange.delta;
   } else {
-    const results = await redis
-      .multi()
-      .hget(REDIS_KEY_CHARACTER_STATE, "money")
-      .hset(REDIS_KEY_CHARACTER_STATE, "money", amount)
-      .hget(REDIS_KEY_CHARACTER_STATE, "money")
-      .exec();
-
-    if (!results) {
-      throw new Error("redis transaction failed");
-    }
-
-    const [oldErr, oldValue] = results?.[0] ?? [];
-    const [setErr] = results?.[1] ?? [];
-    const [newErr, newValue] = results?.[2] ?? [];
-
-    if (oldErr || setErr || newErr) {
-      throw oldErr || setErr || newErr;
-    }
-
-    previousMoney = Number.parseInt(String(oldValue ?? "0"), 10);
-    currentMoney = Number.parseInt(String(newValue ?? "0"), 10);
-    delta = currentMoney - previousMoney;
+    const moneyChange = await setCharacterMoney(amount);
+    previousMoney = moneyChange.previousMoney;
+    currentMoney = moneyChange.currentMoney;
+    delta = moneyChange.delta;
   }
 
   const descriptionBase =
@@ -149,13 +140,15 @@ stateRoute.post("/allowance", async (context) => {
         reason: reason || undefined,
       },
     });
+    await syncCharacterMoney(currentMoney);
   } catch (err) {
     try {
       if (mode === "add") {
-        await redis.hincrby(REDIS_KEY_CHARACTER_STATE, "money", -amount);
+        await changeCharacterMoney(-amount);
       } else {
-        await redis.hset(REDIS_KEY_CHARACTER_STATE, "money", previousMoney);
+        await setCharacterMoney(previousMoney);
       }
+      await syncCharacterMoney(previousMoney);
     } catch {}
 
     throw err;

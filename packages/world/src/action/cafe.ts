@@ -67,6 +67,9 @@ export const cafeAction: ActionMetadata[] = [
   {
     action: ActionId.Order_Coffee,
     description: "在薄暮咖啡馆点单。[金币-?][耗时10分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([
         () => isAtCafe(context.characterState.location.major),
@@ -163,6 +166,9 @@ export const cafeAction: ActionMetadata[] = [
   {
     action: ActionId.Drink_Coffee,
     description: "喝咖啡。[体力+?][饱腹+?][心情+?][耗时30分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(_context) {
       return false;
     },
@@ -224,6 +230,9 @@ export const cafeAction: ActionMetadata[] = [
   {
     action: ActionId.Work_At_Cafe,
     description: "在薄暮咖啡馆打工。[金币+200][体力-10][心情-5][饱腹-10][耗时60分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([
         () => isAtCafe(context.characterState.location.major),
@@ -238,7 +247,15 @@ export const cafeAction: ActionMetadata[] = [
       await context.characterState.changeStamina(-10);
       await context.characterState.changeSatiety(-10);
       await context.characterState.changeMood(-5);
-      return { eventDescription: "在薄暮咖啡馆打工1小时，赚了200元" };
+      return {
+        completionContext: {
+          earnedMoney: 200,
+          staminaDelta: -10,
+          satietyDelta: -10,
+          moodDelta: -5,
+        },
+        eventDescription: "在薄暮咖啡馆打工1小时，赚了200元",
+      };
     },
     durationMin: 60,
   },

@@ -42,6 +42,9 @@ export const anywhereAction: ActionMetadata[] = [
   {
     action: ActionId.Eat_Lunch,
     description: "吃午饭。[体力+50][饱腹+50][耗时20分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       const hour = context.worldState.time.get("hour");
       return allTrue([
@@ -64,6 +67,9 @@ export const anywhereAction: ActionMetadata[] = [
     action: ActionId.Eat_Item,
     description:
       "吃食物。[体力+?][饱腹+?][心情+?][耗时10分钟]（可调用 queryAvailableFood 查看可用食物）",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition: (context) => {
       return allTrue([
         () => {

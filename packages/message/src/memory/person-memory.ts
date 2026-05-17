@@ -26,7 +26,7 @@ interface ChatWindowTranscriptItem {
 
 interface GroupPersonCandidate {
   personId: string;
-  displayName: string;
+  nickname: string;
   interactionCount: number;
 }
 
@@ -40,7 +40,7 @@ export function buildPrivatePersonMemoryUpdateInput(
 
   return {
     personId: String(counterpartyUserId),
-    displayName: state.sessionLabel,
+    nickname: state.sessionLabel,
     interactionCount: state.messages.filter(
       (message) => message.sender.user_id === counterpartyUserId,
     ).length,
@@ -70,14 +70,14 @@ export function buildGroupPersonMemoryUpdateInputs(
 
     candidateByPersonId.set(personId, {
       personId,
-      displayName: getProtocolMessageSenderName(message),
+      nickname: getProtocolMessageSenderName(message),
       interactionCount: existingCandidate ? existingCandidate.interactionCount + 1 : 1,
     });
   }
 
   return Array.from(candidateByPersonId.values()).map((candidate) => ({
     personId: candidate.personId,
-    displayName: candidate.displayName,
+    nickname: candidate.nickname,
     interactionCount: candidate.interactionCount,
     interactionMaterial: buildInteractionMaterial({
       scene: "group",
@@ -122,7 +122,7 @@ function buildInteractionMaterial(input: {
   const transcript = input.messages.map((message) => buildTranscriptItem(message));
   const sceneLabel = input.scene === "private" ? "私聊" : "群聊";
   const candidateText = input.candidate
-    ? `\n当前正在判断的人物：${input.candidate.displayName}（${input.candidate.personId}）`
+    ? `\n当前正在判断的人物：${input.candidate.nickname}（${input.candidate.personId}）`
     : "";
 
   return [

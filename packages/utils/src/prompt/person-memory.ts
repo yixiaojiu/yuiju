@@ -1,7 +1,7 @@
 export interface PersonMemoryProposalPromptInput {
   personId: string;
   scene: "private" | "group";
-  displayName: string;
+  nickname: string;
   interactionMaterial: string;
   existingMemoryText: string;
   sectionKeys: readonly string[];
@@ -22,7 +22,7 @@ export function buildPersonMemoryProposalPrompt(input: PersonMemoryProposalPromp
 ## 当前人物
 - personId: ${input.personId}
 - scene: ${input.scene}
-- 当前显示名候选: ${input.displayName}
+- 当前程序昵称: ${input.nickname}
 
 ## 旧人物记忆 JSON 对象
 ${input.existingMemoryText}
@@ -51,9 +51,9 @@ ${input.sectionKeys.map((section) => `- ${section}`).join("\n")}
 - 其他补充 只承接稳定事实、重要背景或未来互动确实会用到的信息；不能当垃圾桶，也不能写成流水账。
 - 更新 section 时要保留旧内容中仍然有效的信息，只合并或覆盖有明确依据的部分；不要为了改写风格而无故删除旧记忆。
 - 如果信息不足、只是普通寒暄、只是重复已有认知、对象不明确，就应该 shouldUpdate=false。
-- displayName 必须是简洁、稳定、可展示的纯文本。
+- 当前程序昵称来自聊天平台的群名片或昵称，只是协议展示名，不等于悠酱应该如何称呼这个人。
+- 不要仅因为当前程序昵称存在，就把它写入“称呼”；“称呼”只记录悠酱、该人物或群聊中稳定使用且上下文明确的称谓习惯。
 - content 必须是纯文本，不要写列表、表格、额外标题。
-- 如果这是新建人物记忆，且 changes 没有显式修改“称呼”，系统会自动用 displayName 回填“称呼”。
 - 首次建档不要求一次写出完整立体画像；允许只写称呼，以及“最近在忙什么”或“最近一次值得记住的互动”等低风险字段，其余字段保持“（暂无）”。
 - 当 shouldUpdate=true 时，你必须先调用 "reviewPersonMemoryProposal" 审查当前 proposal。
 - 如果审查驳回，你必须根据 tool 返回的问题修正 proposal，并再次调用 "reviewPersonMemoryProposal"。

@@ -4,6 +4,7 @@ import {
   getTimeWithWeekday,
   isDev,
   smallModel,
+  summarizeConversationMessages,
 } from "@yuiju/utils";
 import { generateText } from "ai";
 import dayjs from "dayjs";
@@ -126,7 +127,7 @@ export interface EpisodeWindowState<TMessage> {
 
 interface BaseChatSessionManagerInput<TMessage extends StoredProtocolMessage> {
   options: ChatSessionManagerOptions;
-  sceneLabel: string;
+  sceneLabel: "group" | "private";
 }
 
 /**
@@ -151,7 +152,7 @@ export class BaseChatSessionManager<
   private episodeIdleMs: number;
   private episodeMessageCountLimit: number;
   private isDev: boolean;
-  private sceneLabel: string;
+  private sceneLabel: "group" | "private";
 
   constructor(input: BaseChatSessionManagerInput<TMessage>) {
     super();
@@ -411,10 +412,22 @@ export class BaseChatSessionManager<
     state: EpisodeWindowState<TMessage>;
     isDev: boolean;
   }) {
+    let summaryText: string | null = null;
+    try {
+      summaryText = await summarizeConversationMessages({
+        scene: this.sceneLabel,
+        sessionLabel: input.sessionLabel,
+        historyJson: JSON.stringify(this.buildHistoryItems(input.state.messages), null, 2),
+      });
+    } catch (error) {
+      console.error(`Failed to summarize ${this.sceneLabel} chat window episode:`, error);
+    }
+
     const episode = buildConversationEpisode({
       sessionLabel: input.sessionLabel,
       state: input.state,
       isDev: input.isDev,
+      summaryText: summaryText ?? undefined,
     });
 
     await Promise.all([

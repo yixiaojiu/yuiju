@@ -39,6 +39,9 @@ export const shopAction: ActionMetadata[] = [
   {
     action: ActionId.Buy_Item_At_Shop,
     description: "在小町商店购买零食，一次只能购买一件商品。[耗时10分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([
         () => isAtShop(context.characterState.location.major),

@@ -127,6 +127,9 @@ export const homeAction: ActionMetadata[] = [
   {
     action: ActionId.Eat_Breakfast,
     description: "吃早餐[饱腹+40][体力+10][耗时20分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([isMorning(context), () => notDoneToday(context, ActionId.Eat_Breakfast)]);
     },
@@ -208,6 +211,9 @@ export const homeAction: ActionMetadata[] = [
   {
     action: ActionId.Eat_Dinner,
     description: "吃晚餐。[饱腹+40][体力+10][耗时20分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([isEvening(context), () => notDoneToday(context, ActionId.Eat_Dinner)]);
     },
@@ -225,6 +231,9 @@ export const homeAction: ActionMetadata[] = [
   {
     action: ActionId.Cook_At_Home,
     description: "在家做饭，从背包中选择食材，完成后获得料理。[耗时30分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       // TODO：这个 Action 先关闭
       return false;
@@ -366,6 +375,9 @@ export const homeAction: ActionMetadata[] = [
   {
     action: ActionId.Stay_At_Home,
     description: "待在家中，放松、学习。[体力+20][饱腹-10][心情+5][耗时60分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       if (isWeekend(context)) {
         return true;
@@ -389,6 +401,7 @@ export const homeAction: ActionMetadata[] = [
     },
     async executor(context) {
       await context.characterState.setAction(ActionId.Sleep);
+      await context.characterState.clearDailyActions();
 
       // 进入正式睡眠后，后台异步生成“当天日记”，不阻塞行为主链路。
       generateDiaryForDate({

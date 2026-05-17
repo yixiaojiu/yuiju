@@ -2,7 +2,6 @@ import type { AgentPlanChange, PlanState } from "../types";
 
 export interface PlanChangeReviewChatContextPromptInput {
   scene: "private" | "group";
-  sessionLabel: string;
   summary?: string;
   historyJson: string;
 }
@@ -46,7 +45,6 @@ function formatChatContext(chatContext?: PlanChangeReviewChatContextPromptInput)
   const sceneText = chatContext.scene === "private" ? "私聊" : "群聊";
 
   return `场景：${sceneText}
-会话对象：${chatContext.sessionLabel}
 会话摘要：${chatContext.summary || "（无）"}
 最近聊天记录：
 \`\`\`json

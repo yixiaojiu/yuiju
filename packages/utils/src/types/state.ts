@@ -1,5 +1,5 @@
 import type { Dayjs } from "dayjs";
-import type { ActionId } from "./action";
+import type { ActionId, ActionProactiveShareIntent } from "./action";
 import type { WeatherSnapshot } from "./weather";
 
 // 大场景
@@ -97,6 +97,8 @@ export interface RunningActionState {
   behaviorEpisodeId: string;
   /** 完成结算需要读取的开始上下文 */
   startContext?: Record<string, unknown>;
+  /** Action 决策阶段产生的主动分享意图 */
+  proactiveShareIntent?: ActionProactiveShareIntent;
 }
 
 export interface CharacterStateData {

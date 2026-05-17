@@ -1,10 +1,11 @@
 "use client";
 
-import dayjs from "dayjs";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { DateRange } from "react-day-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Input } from "@/components/ui/input";
 import {
   Pagination,
@@ -23,25 +24,45 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { ActivityItem, ActivityPagination } from "./activity-data";
+import {
+  type ActivityEpisodeTypeFilter,
+  type ActivityItem,
+  type ActivityPagination,
+  type ActivityQueryFilters,
+  type ActivityTriggerFilter,
+  DEFAULT_ACTIVITY_QUERY_FILTERS,
+} from "./activity-data";
 
 interface ActivityTimelineCardProps {
   events?: ActivityItem[];
   pagination?: ActivityPagination;
+  filters: ActivityQueryFilters;
   isLoading: boolean;
   errorMessage?: string;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  onFilterSubmit: (filters: ActivityQueryFilters) => void;
   onPageChange: (page: number) => void;
 }
 
-type TimeRangeOption = "today" | "last7" | "all";
-type TriggerFilter = "all" | ActivityItem["trigger"];
-type EpisodeTypeFilter = "all" | ActivityItem["episodeType"];
+const parseDate = (value: string): Date | undefined => {
+  if (!value) return undefined;
+  const [year, month, day] = value.split("-").map((item) => Number.parseInt(item, 10));
+  if (!year || !month || !day) return undefined;
 
-const DEFAULT_TIME_RANGE: TimeRangeOption = "all";
-const DEFAULT_TRIGGER: TriggerFilter = "all";
-const DEFAULT_EPISODE_TYPE: EpisodeTypeFilter = "all";
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return undefined;
+  }
+  return date;
+};
+
+const formatDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 /**
  * 动态时间线卡片。
@@ -53,113 +74,94 @@ const DEFAULT_EPISODE_TYPE: EpisodeTypeFilter = "all";
 export function ActivityTimelineCard({
   events,
   pagination,
+  filters,
   isLoading,
   errorMessage,
   selectedId,
   onSelect,
+  onFilterSubmit,
   onPageChange,
 }: ActivityTimelineCardProps) {
-  const [timeRange, setTimeRange] = useState<TimeRangeOption>(DEFAULT_TIME_RANGE);
-  const [trigger, setTrigger] = useState<TriggerFilter>(DEFAULT_TRIGGER);
-  const [episodeType, setEpisodeType] = useState<EpisodeTypeFilter>(DEFAULT_EPISODE_TYPE);
-  const [keywordInput, setKeywordInput] = useState("");
-  const [keyword, setKeyword] = useState("");
+  const [startDate, setStartDate] = useState(filters.startDate);
+  const [endDate, setEndDate] = useState(filters.endDate);
+  const [trigger, setTrigger] = useState<ActivityTriggerFilter>(filters.trigger);
+  const [episodeType, setEpisodeType] = useState<ActivityEpisodeTypeFilter>(filters.episodeType);
+  const [keywordInput, setKeywordInput] = useState(filters.keyword);
+
+  useEffect(() => {
+    setStartDate(filters.startDate);
+    setEndDate(filters.endDate);
+    setTrigger(filters.trigger);
+    setEpisodeType(filters.episodeType);
+    setKeywordInput(filters.keyword);
+  }, [filters]);
 
   const displayEvents = useMemo(() => (events && events.length > 0 ? events : []), [events]);
 
-  const applyKeywordSearch = () => {
-    setKeyword(keywordInput.trim());
+  const dateRange = useMemo<DateRange | undefined>(() => {
+    const from = parseDate(startDate);
+    const to = parseDate(endDate);
+    if (!from && !to) return undefined;
+    return { from, to };
+  }, [endDate, startDate]);
+
+  const submitFilters = () => {
+    onFilterSubmit({
+      startDate,
+      endDate,
+      trigger,
+      episodeType,
+      keyword: keywordInput.trim(),
+    });
   };
 
   const resetFilters = () => {
-    setTimeRange(DEFAULT_TIME_RANGE);
-    setTrigger(DEFAULT_TRIGGER);
-    setEpisodeType(DEFAULT_EPISODE_TYPE);
+    setStartDate(DEFAULT_ACTIVITY_QUERY_FILTERS.startDate);
+    setEndDate(DEFAULT_ACTIVITY_QUERY_FILTERS.endDate);
+    setTrigger(DEFAULT_ACTIVITY_QUERY_FILTERS.trigger);
+    setEpisodeType(DEFAULT_ACTIVITY_QUERY_FILTERS.episodeType);
     setKeywordInput("");
-    setKeyword("");
+    onFilterSubmit(DEFAULT_ACTIVITY_QUERY_FILTERS);
   };
 
   const hasActiveFilters =
-    timeRange !== DEFAULT_TIME_RANGE ||
-    trigger !== DEFAULT_TRIGGER ||
-    episodeType !== DEFAULT_EPISODE_TYPE ||
-    keywordInput.trim().length > 0 ||
-    keyword.length > 0;
-
-  const filteredEvents = useMemo(() => {
-    let next = displayEvents;
-    const now = dayjs();
-
-    if (timeRange === "today") {
-      next = next.filter((item) => dayjs(item.happenedAt).isSame(now, "day"));
-    } else if (timeRange === "last7") {
-      const from = now.subtract(6, "day").startOf("day");
-      next = next.filter(
-        (item) => dayjs(item.happenedAt).isAfter(from) || dayjs(item.happenedAt).isSame(from),
-      );
-    }
-
-    if (trigger !== "all") {
-      next = next.filter((item) => item.trigger === trigger);
-    }
-
-    if (episodeType !== "all") {
-      next = next.filter((item) => item.episodeType === episodeType);
-    }
-
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (normalizedKeyword) {
-      next = next.filter((item) => {
-        const titleMatch = item.title.toLowerCase().includes(normalizedKeyword);
-        const summaryMatch = item.summary.toLowerCase().includes(normalizedKeyword);
-        const detailMatch = item.detailFields.some((field) =>
-          `${field.label} ${field.value}`.toLowerCase().includes(normalizedKeyword),
-        );
-        return titleMatch || summaryMatch || detailMatch;
-      });
-    }
-
-    return next;
-  }, [displayEvents, episodeType, keyword, timeRange, trigger]);
+    startDate !== DEFAULT_ACTIVITY_QUERY_FILTERS.startDate ||
+    endDate !== DEFAULT_ACTIVITY_QUERY_FILTERS.endDate ||
+    trigger !== DEFAULT_ACTIVITY_QUERY_FILTERS.trigger ||
+    episodeType !== DEFAULT_ACTIVITY_QUERY_FILTERS.episodeType ||
+    keywordInput.trim().length > 0;
 
   const currentPage = pagination?.page ?? 1;
   const totalPages = pagination?.totalPages ?? 1;
   const pageItems = buildVisiblePageItems(currentPage, totalPages);
 
   return (
-    <Card>
-      <div className="p-3.5 grid gap-3">
+    <Card className="min-w-0">
+      <div className="grid min-w-0 gap-3 p-3.5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="m-0 text-[14px] font-black">动态时间线</h3>
         </div>
 
-        <div className="grid grid-cols-4 gap-2.5 max-[760px]:grid-cols-2 max-[520px]:grid-cols-1">
-          <div className="grid gap-1.5">
-            <label className="text-[12px] text-[#6b7480]" htmlFor="timeRange">
-              时间范围
-            </label>
-            <Select
-              value={timeRange}
-              onValueChange={(value: string) => setTimeRange(value as TimeRangeOption)}
-            >
-              <SelectTrigger id="timeRange" aria-label="选择时间范围">
-                <SelectValue placeholder="选择时间范围" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">今天</SelectItem>
-                <SelectItem value="last7">近 7 天</SelectItem>
-                <SelectItem value="all">全部</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-2.5">
+          <div className="grid min-w-0 gap-1.5">
+            <span className="text-[12px] text-[#6b7480]">日期范围</span>
+            <DateRangePicker
+              value={dateRange}
+              className="min-w-0"
+              onChange={(next) => {
+                setStartDate(next?.from ? formatDate(next.from) : "");
+                setEndDate(next?.to ? formatDate(next.to) : "");
+              }}
+            />
           </div>
 
-          <div className="grid gap-[6px]">
+          <div className="grid min-w-0 gap-[6px]">
             <label className="text-[12px] text-[#6b7480]" htmlFor="trigger">
               触发来源
             </label>
             <Select
               value={trigger}
-              onValueChange={(value: string) => setTrigger(value as TriggerFilter)}
+              onValueChange={(value: string) => setTrigger(value as ActivityTriggerFilter)}
             >
               <SelectTrigger id="trigger" aria-label="选择触发来源">
                 <SelectValue placeholder="选择触发来源" />
@@ -173,13 +175,13 @@ export function ActivityTimelineCard({
             </Select>
           </div>
 
-          <div className="grid gap-[6px]">
+          <div className="grid min-w-0 gap-[6px]">
             <label className="text-[12px] text-[#6b7480]" htmlFor="episodeType">
               事件类型
             </label>
             <Select
               value={episodeType}
-              onValueChange={(value: string) => setEpisodeType(value as EpisodeTypeFilter)}
+              onValueChange={(value: string) => setEpisodeType(value as ActivityEpisodeTypeFilter)}
             >
               <SelectTrigger id="episodeType" aria-label="选择事件类型">
                 <SelectValue placeholder="选择事件类型" />
@@ -197,7 +199,7 @@ export function ActivityTimelineCard({
             </Select>
           </div>
 
-          <div className="grid gap-[6px]">
+          <div className="grid min-w-0 gap-[6px]">
             <label className="text-[12px] text-[#6b7480]" htmlFor="keyword">
               关键词搜索
             </label>
@@ -209,21 +211,22 @@ export function ActivityTimelineCard({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  applyKeywordSearch();
+                  submitFilters();
                 }
               }}
             />
           </div>
         </div>
 
-        <div className="flex items-center gap-2 max-[520px]:flex-col max-[520px]:items-stretch">
-          <Button type="button" size="sm" onClick={applyKeywordSearch}>
+        <div className="flex items-center gap-2 max-[520px]:flex-col max-[520px]:items-stretch max-[520px]:[&_button]:w-full">
+          <Button type="button" size="sm" className="cursor-pointer" onClick={submitFilters}>
             搜索
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
+            className="cursor-pointer disabled:cursor-not-allowed"
             disabled={!hasActiveFilters}
             onClick={resetFilters}
           >
@@ -240,12 +243,12 @@ export function ActivityTimelineCard({
             <div className="rounded-2xl border border-dashed border-[rgba(217,230,245,0.9)] bg-[rgba(247,251,255,0.78)] p-3 text-[13px] text-[#6b7480]">
               正在加载动态...
             </div>
-          ) : filteredEvents.length === 0 ? (
+          ) : displayEvents.length === 0 ? (
             <div className="rounded-2xl border border-[rgba(217,230,245,0.9)] bg-[rgba(255,255,255,0.84)] shadow-[0_10px_25px_rgba(21,33,54,0.06)] p-3 text-[13px] text-[#6b7480]">
               没有匹配的记录，试试调整筛选条件。
             </div>
           ) : (
-            filteredEvents.map((item) => {
+            displayEvents.map((item) => {
               const tone =
                 item.trigger === "agent"
                   ? "bg-[rgba(145,196,238,0.18)] border-[rgba(145,196,238,0.3)] text-[#2b2f36]"

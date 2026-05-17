@@ -1,3 +1,3 @@
-import { main } from "./private-plan-change";
+import { main } from "./memory-test";
 
 main();

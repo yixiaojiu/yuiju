@@ -19,11 +19,11 @@ import {
   generateStructuredOutput,
   getPersonMemoryTool,
   listPersonMemoriesTool,
-  queryWorldMapTool,
-  qwen3Model,
+  queryStaticGuideTool,
   reviewPlanChangesTool,
   strongModel,
   todayEventSearchTool,
+  visionModel,
 } from "@yuiju/utils";
 import { Output, stepCountIs } from "ai";
 import dayjs from "dayjs";
@@ -80,7 +80,7 @@ export async function chooseActionAgent(
       const { output } = await generateStructuredOutput({
         model: strongModel,
         providerOptions: {
-          Siliconflow: {
+          strong: {
             enable_thinking: true,
           },
         },
@@ -90,7 +90,7 @@ export async function chooseActionAgent(
           listPersonMemories: listPersonMemoriesTool,
           getPersonMemory: getPersonMemoryTool,
           queryAvailableFood: queryAvailableFood(context),
-          queryWorldMap: queryWorldMapTool,
+          queryStaticGuide: queryStaticGuideTool,
           reviewPlanChanges: reviewPlanChangesTool(),
         },
         output: Output.object({
@@ -108,6 +108,13 @@ export async function chooseActionAgent(
               .min(1)
               .optional()
               .describe("只有确实需要调整计划时才输出。输出前必须先调用 reviewPlanChanges。"),
+            proactiveShareIntent: z
+              .object({
+                shouldShare: z.boolean().describe("是否想向别人分享点什么"),
+                reason: z.string().describe("想分享或不想分享的简短理由"),
+              })
+              .optional()
+              .describe("当你想向别人分享点什么的时候才输出"),
           }),
         }),
         prompt: systemPrompt,
@@ -153,7 +160,7 @@ export async function chooseFoodAgent(
       const { output } = await generateStructuredOutput({
         model: flashModel,
         providerOptions: {
-          Siliconflow: {
+          flash: {
             enable_thinking: false,
           },
         },
@@ -206,9 +213,9 @@ export async function chooseShopProductAgent(
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
       const { output } = await generateStructuredOutput({
-        model: qwen3Model,
+        model: visionModel,
         providerOptions: {
-          Siliconflow: {
+          vision: {
             enable_thinking: false,
           },
         },
@@ -259,9 +266,9 @@ export async function chooseCafeCoffeeAgent(
   for (let i = 0; i < RETRY_COUNT; i++) {
     try {
       const { output } = await generateStructuredOutput({
-        model: qwen3Model,
+        model: visionModel,
         providerOptions: {
-          Siliconflow: {
+          vision: {
             enable_thinking: false,
           },
         },
@@ -312,7 +319,7 @@ export async function chooseShrinePrayerAgent(
       const { output } = await generateStructuredOutput({
         model: flashModel,
         providerOptions: {
-          Siliconflow: {
+          flash: {
             enable_thinking: false,
           },
         },

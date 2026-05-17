@@ -56,6 +56,9 @@ export const parkAction: ActionMetadata[] = [
     action: ActionId.Walk_In_Park,
     description:
       "在南风公园散步放松，可以按 10/30/60/120 分钟四档安排时长，时间越久心情提升越多。[耗时需要给出]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return isAtPark(context.characterState.location.major);
     },

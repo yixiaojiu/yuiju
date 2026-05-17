@@ -1,5 +1,4 @@
-import type { IMemoryEpisode } from "@yuiju/utils";
-import dayjs from "dayjs";
+import { formatProjectTime, type IMemoryEpisode } from "@yuiju/utils";
 
 export type ActivityTrigger = "agent" | "user" | "system";
 
@@ -32,14 +31,14 @@ export interface ActivityItem {
  * - 所有展示数据都从 MemoryEpisode 派生，不再依赖旧行为记录模型。
  */
 export function mapEpisodeToActivityItem(episode: IMemoryEpisode): ActivityItem {
-  const happenedAt = dayjs(episode.happenedAt);
   const detailFields = buildDetailFields(episode);
+  const formattedHappenedAt = formatProjectTime(episode.happenedAt, "YYYY-MM-DD HH:mm:ss");
 
   return {
     id: String(episode.id),
     happenedAt: episode.happenedAt.toISOString(),
-    timeLabel: happenedAt.format("HH:mm"),
-    dateLabel: happenedAt.format("MM-DD HH:mm"),
+    timeLabel: formattedHappenedAt,
+    dateLabel: formattedHappenedAt,
     title: resolveActivityTitle(episode),
     summary: episode.summaryText,
     trigger: resolveActivityTrigger(episode),
@@ -100,7 +99,7 @@ function buildDetailFields(episode: IMemoryEpisode): ActivityDetailField[] {
   const fields: ActivityDetailField[] = [
     { label: "事件类型", value: episode.type },
     { label: "来源", value: episode.source },
-    { label: "发生时间", value: dayjs(episode.happenedAt).format("YYYY-MM-DD HH:mm:ss") },
+    { label: "发生时间", value: formatProjectTime(episode.happenedAt, "YYYY-MM-DD HH:mm:ss") },
   ];
 
   if (episode.type === "conversation" && typeof payload.counterpartyName === "string") {

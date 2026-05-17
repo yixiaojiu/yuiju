@@ -2,12 +2,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
+import { formatProjectTime } from "./time";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 const isProd = process.env.NODE_ENV === "production";
 const logLevel = process.env.LOG_LEVEL || (isProd ? "info" : "debug");
 const splatSymbol = Symbol.for("splat");
+const loggerTimestampFormat = "YYYY-MM-DD HH:mm:ss.SSS";
 
 export interface CreateYuijuLoggerOptions {
   logDir?: string;
@@ -71,7 +73,9 @@ function buildConsoleFormat() {
   const { format } = winston;
 
   return format.combine(
-    format.timestamp(),
+    format.timestamp({
+      format: () => formatProjectTime(new Date(), loggerTimestampFormat),
+    }),
     format.errors({ stack: true }),
     format.metadata({ fillExcept: ["message", "level", "timestamp"] }),
     format.colorize(),
@@ -83,7 +87,9 @@ function buildFileFormat() {
   const { format } = winston;
 
   return format.combine(
-    format.timestamp(),
+    format.timestamp({
+      format: () => formatProjectTime(new Date(), loggerTimestampFormat),
+    }),
     format.errors({ stack: true }),
     format.metadata({ fillExcept: ["message", "level", "timestamp"] }),
     textFormat,
@@ -114,7 +120,7 @@ export function createYuijuLogger(options: CreateYuijuLoggerOptions = {}) {
         datePattern: "YYYY-MM-DD",
         maxSize: process.env.LOG_MAX_SIZE || "20m",
         maxFiles: process.env.LOG_MAX_FILES || "14d",
-        zippedArchive: true,
+        zippedArchive: false,
         level: logLevel,
         format: buildFileFormat(),
       }),

@@ -1,14 +1,13 @@
 import {
   ActionId,
-  MajorScene,
-  REDIS_KEY_CHARACTER_STATE,
   type CharacterStateData,
   type ICharacterState,
   type InventoryItem,
-  type Location,
-  type RunningActionState,
-  getRedis,
   initCharacterStateData,
+  type Location,
+  MajorScene,
+  type RunningActionState,
+  saveCharacterStateData,
 } from "@yuiju/utils";
 import { cloneDeep } from "lodash-es";
 
@@ -52,17 +51,16 @@ export class CharacterState implements ICharacterState {
   }
 
   async save() {
-    const redis = getRedis();
-    await redis.hset(REDIS_KEY_CHARACTER_STATE, {
+    await saveCharacterStateData({
       action: this.action,
-      location: JSON.stringify(this.location),
+      location: this.location,
       stamina: this.stamina,
       satiety: this.satiety,
       mood: this.mood,
       money: this.money,
-      dailyActionsDoneToday: JSON.stringify(this.dailyActionsDoneToday),
-      inventory: JSON.stringify(this.inventory),
-      runningAction: JSON.stringify(this.runningAction),
+      dailyActionsDoneToday: this.dailyActionsDoneToday,
+      inventory: this.inventory,
+      runningAction: this.runningAction,
     });
   }
 
@@ -123,7 +121,7 @@ export class CharacterState implements ICharacterState {
       this.dailyActionsDoneToday.push(action);
     }
 
-    this.save();
+    await this.save();
   }
 
   async clearDailyActions(): Promise<void> {

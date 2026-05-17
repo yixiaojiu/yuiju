@@ -1,5 +1,6 @@
 import mongoose, { type Document, Schema } from "mongoose";
 import type { MemoryEpisodeSource, MemoryEpisodeType } from "../../memory/episode";
+import { getMongoConnection, type MongoReadSource } from "../connect";
 
 /**
  * MongoDB 中的统一 Episode 文档。
@@ -14,6 +15,7 @@ export interface IMemoryEpisode extends Document {
   type: MemoryEpisodeType;
   subject: string;
   happenedAt: Date;
+  /** 用于查询今日记忆时给 LLM 看的 */
   summaryText: string;
   payload: Record<string, unknown>;
   isDev: boolean;
@@ -21,7 +23,7 @@ export interface IMemoryEpisode extends Document {
   updatedAt: Date;
 }
 
-const MemoryEpisodeSchema = new Schema<IMemoryEpisode>(
+export const MemoryEpisodeSchema = new Schema<IMemoryEpisode>(
   {
     source: {
       type: String,
@@ -60,6 +62,12 @@ MemoryEpisodeSchema.index({ subject: 1, happenedAt: -1 });
 MemoryEpisodeSchema.index({ subject: 1, type: 1, happenedAt: -1 });
 MemoryEpisodeSchema.index({ subject: 1, isDev: 1, happenedAt: -1 });
 
-export const MemoryEpisodeModel =
-  (mongoose.models.MemoryEpisode as mongoose.Model<IMemoryEpisode> | undefined) ??
-  mongoose.model<IMemoryEpisode>("MemoryEpisode", MemoryEpisodeSchema);
+export async function getMemoryEpisodeModel(
+  source: MongoReadSource = "primary",
+): Promise<mongoose.Model<IMemoryEpisode>> {
+  const connection = await getMongoConnection(source);
+  return (
+    (connection.models.MemoryEpisode as mongoose.Model<IMemoryEpisode> | undefined) ??
+    connection.model<IMemoryEpisode>("MemoryEpisode", MemoryEpisodeSchema)
+  );
+}

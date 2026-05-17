@@ -1,8 +1,7 @@
 import {
-  getRedis,
   type IWorldState,
   initWorldStateData,
-  REDIS_KEY_WORLD_STATE,
+  saveWorldStateData,
   type WeatherSnapshot,
   type WorldStateData,
 } from "@yuiju/utils";
@@ -27,10 +26,9 @@ export class WorldState implements IWorldState {
   }
 
   async save() {
-    const redis = getRedis();
-    await redis.hset(REDIS_KEY_WORLD_STATE, {
-      time: this.time.toISOString(),
-      weather: JSON.stringify(this.weather),
+    await saveWorldStateData({
+      time: this.time,
+      weather: this.weather,
     });
   }
 

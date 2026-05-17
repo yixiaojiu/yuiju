@@ -50,7 +50,7 @@ export function buildRunningBehaviorEpisode(
   }
 
   const summaryText = [
-    `悠酱开始执行行为「${input.selectedAction.action}」`,
+    `悠酱在${input.context.characterState.location.major}${input.context.characterState.location.minor ? `-${input.context.characterState.location.minor}` : ""}开始执行行为「${input.selectedAction.action}」`,
     `原因：${input.selectedAction.reason}`,
     input.executionResult ? `开始结果：${input.executionResult}` : undefined,
     `预计持续时间：${input.durationMinutes} 分钟`,
@@ -101,7 +101,17 @@ export function buildCompletedBehaviorEpisodeUpdate(
           ),
         );
 
-  const summaryText = input.eventDescription ?? `完成了行为「${input.runningAction.action}」`;
+  const summaryText = [
+    `悠酱在${input.context.characterState.location}完成了行为「${input.runningAction.action}」`,
+    `原因：${input.runningPayload.reason}`,
+    input.eventDescription ? `事件：${input.eventDescription}` : undefined,
+    input.runningPayload.executionResult
+      ? `结果：${input.runningPayload.executionResult}`
+      : undefined,
+    `持续时间：${durationMinutes} 分钟`,
+  ]
+    .filter(Boolean)
+    .join("；");
 
   return {
     summaryText,
@@ -148,9 +158,9 @@ export function buildWeatherChangedEpisode(input: {
     subject: SUBJECT_NAME,
     happenedAt: new Date(input.after.periodStartAt),
     summaryText: [
-      "天气发生变化",
-      `天气：${input.before.type} -> ${input.after.type}`,
-      `体感：${input.before.temperatureLevel} -> ${input.after.temperatureLevel}`,
+      `天气从${input.before.type}变为${input.after.type}`,
+      `体感从${input.before.temperatureLevel}变为${input.after.temperatureLevel}`,
+      "接下来的外出、穿衣和活动安排需要参考这个变化",
     ].join("；"),
     isDev: input.isDev,
     payload: {

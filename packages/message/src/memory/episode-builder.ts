@@ -35,9 +35,12 @@ export function buildConversationEpisode(input: {
   sessionLabel: string;
   state: UserWindowState;
   isDev: boolean;
+  summaryText?: string;
 }): MemoryEpisode<ConversationEpisodePayload> {
   const windowStart = new Date(input.state.windowStartMs);
   const windowEnd = new Date(input.state.lastTsMs);
+  const windowStartText = getTimeWithWeekday(dayjs(windowStart));
+  const windowEndText = getTimeWithWeekday(dayjs(windowEnd));
   const projectedMessages = input.state.messages.map((message) => ({
     speaker_name: getProtocolMessageSenderName(message),
     content: JSON.stringify(message.message),
@@ -50,18 +53,18 @@ export function buildConversationEpisode(input: {
     type: "conversation",
     subject: SUBJECT_NAME,
     happenedAt: windowEnd,
-    summaryText: [
-      `${input.sessionLabel} 完成了一段对话窗口归档`,
-      `时间范围：${getTimeWithWeekday(dayjs(windowStart))} 至 ${getTimeWithWeekday(dayjs(windowEnd))}`,
-      `消息数量：${messageCount}`,
-    ]
-      .filter(Boolean)
-      .join("；"),
+    summaryText: input.summaryText
+      ? `时间范围：${windowStartText} 至 ${windowEndText}；对话摘要：${input.summaryText}`
+      : [
+          `${input.sessionLabel} 完成了一段对话窗口归档`,
+          `时间范围：${windowStartText} 至 ${windowEndText}`,
+          `消息数量：${messageCount}`,
+        ].join("；"),
     isDev: input.isDev,
     payload: {
       counterpartyName: input.sessionLabel,
-      windowStart: getTimeWithWeekday(dayjs(windowStart)),
-      windowEnd: getTimeWithWeekday(dayjs(windowEnd)),
+      windowStart: windowStartText,
+      windowEnd: windowEndText,
       messageCount,
       messages: projectedMessages,
     },

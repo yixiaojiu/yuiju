@@ -2,8 +2,10 @@ import {
   countMemoryDiaries,
   DEFAULT_DIARY_SUBJECT,
   getMemoryDiaries,
-  isDev,
+  getYuijuConfig,
   type IMemoryDiary,
+  isDev,
+  type MongoReadSource,
 } from "@yuiju/utils";
 import dayjs from "dayjs";
 import { Hono } from "hono";
@@ -85,17 +87,10 @@ const mapDiaryItem = (diary: IMemoryDiary) => {
   };
 };
 
-diaryRoute.use("*", async (context, next) => {
-  const blocked = rejectPublicRequest(context);
-  if (blocked) {
-    return blocked;
-  }
-  await next();
-});
-
 diaryRoute.get("/index", async (context) => {
   const query = parseDiaryQueryParams(context.req.raw);
   const skip = (query.page - 1) * query.pageSize;
+  const readFrom: MongoReadSource = getYuijuConfig().app.publicDeployment ? "sync" : "primary";
 
   const baseOptions = {
     subject: DEFAULT_DIARY_SUBJECT,
@@ -103,6 +98,7 @@ diaryRoute.get("/index", async (context) => {
     diaryDateAfter: query.startDate,
     diaryDateBefore: query.endDateExclusive,
     sortDirection: "desc" as const,
+    readFrom,
   };
 
   const [items, total] = await Promise.all([

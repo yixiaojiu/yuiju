@@ -155,3 +155,5 @@ packages/python/__pycache__/
 yuiju.config.ts
 /memory/
 CLAUDE.md
+
+.codex-pet-runs/

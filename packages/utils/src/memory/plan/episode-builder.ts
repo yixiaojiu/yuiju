@@ -75,7 +75,7 @@ function createPlanLifecycleEpisode(input: {
     type: episodeType,
     subject: SUBJECT_NAME,
     happenedAt: input.happenedAt,
-    summaryText: buildPlanLifecycleSummaryText(change, scopeText, actionText),
+    summaryText: buildPlanLifecycleSummaryText(change, scopeText, actionText, changeReason),
     isDev: input.isDev,
     payload: {
       planId: change.planId,
@@ -134,6 +134,7 @@ function buildPlanLifecycleSummaryText(
   change: PlanChange,
   scopeText: string,
   actionText: string,
+  changeReason: string,
 ): string {
   const prefix = `悠酱${actionText}${scopeText}`;
   const planReason = change.after?.reason ?? change.before?.reason;
@@ -143,7 +144,8 @@ function buildPlanLifecycleSummaryText(
       return [
         prefix,
         `新计划：${stringifyPlanValue(change.after?.title)}`,
-        planReason && `原因：${planReason}`,
+        planReason && `计划理由：${planReason}`,
+        `变化原因：${changeReason}`,
       ]
         .filter((item): item is string => Boolean(item))
         .join("；");
@@ -152,7 +154,8 @@ function buildPlanLifecycleSummaryText(
         prefix,
         `原计划：${stringifyPlanValue(change.before?.title)}`,
         `新计划：${stringifyPlanValue(change.after?.title)}`,
-        planReason && `原因：${planReason}`,
+        planReason && `计划理由：${planReason}`,
+        `变化原因：${changeReason}`,
       ]
         .filter((item): item is string => Boolean(item))
         .join("；");
@@ -161,7 +164,8 @@ function buildPlanLifecycleSummaryText(
         prefix,
         `计划：${stringifyPlanValue(change.before?.title)}`,
         "结果：已完成",
-        planReason && `原因：${planReason}`,
+        planReason && `计划理由：${planReason}`,
+        `变化原因：${changeReason}`,
       ]
         .filter((item): item is string => Boolean(item))
         .join("；");
@@ -170,7 +174,8 @@ function buildPlanLifecycleSummaryText(
         prefix,
         `计划：${stringifyPlanValue(change.before?.title)}`,
         "结果：已放弃",
-        planReason && `原因：${planReason}`,
+        planReason && `计划理由：${planReason}`,
+        `变化原因：${changeReason}`,
       ]
         .filter((item): item is string => Boolean(item))
         .join("；");

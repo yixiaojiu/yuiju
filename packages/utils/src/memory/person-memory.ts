@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import { z } from "zod";
 import { getYuijuConfig } from "../config";
 import { createToolCallLoggingHooks, generateStructuredOutput } from "../llm";
-import { qwen3Model } from "../llm/models";
+import { visionModel } from "../llm/models";
 import { logger } from "../logger";
 import { buildPersonMemoryProposalPrompt, buildPersonMemoryReviewPrompt } from "../prompt";
 import { formatProjectTime } from "../time";
@@ -26,13 +26,14 @@ export type PersonMemorySectionKey = (typeof PERSON_MEMORY_SECTION_KEYS)[number]
 
 export interface PersonMemoryDocument {
   personId: string;
+  nickname: string;
   lastUpdatedAt: string;
   sections: Record<PersonMemorySectionKey, string>;
 }
 
 export interface PersonMemoryUpdateInput {
   personId: string;
-  displayName: string;
+  nickname: string;
   interactionMaterial: string;
   scene: "private" | "group";
   interactionCount: number;
@@ -44,7 +45,7 @@ export interface PersonMemoryUpdateResult {
 
 export interface PersonMemoryDirectoryItem {
   personId: string;
-  displayName: string;
+  nickname: string;
 }
 
 export interface PersonMemoryDirectoryResult {
@@ -56,8 +57,8 @@ export interface PersonMemoryDirectoryResult {
 
 export interface PersonMemoryContentResult {
   personId: string;
-  displayName: string;
-  memory: PersonMemoryDocument;
+  nickname: string;
+  sections: Record<PersonMemorySectionKey, string>;
 }
 
 export interface PersonMemoryProposalChange {
@@ -68,14 +69,13 @@ export interface PersonMemoryProposalChange {
 
 export interface PersonMemoryProposal {
   shouldUpdate: boolean;
-  displayName: string;
   changes: PersonMemoryProposalChange[];
 }
 
 interface PersonMemoryProposalContext {
   personId: string;
   scene: "private" | "group";
-  displayName: string;
+  nickname: string;
   interactionMaterial: string;
   existingMemory?: PersonMemoryDocument;
 }
@@ -116,6 +116,7 @@ const personMemorySectionsSchema = z.strictObject({
 
 const personMemoryDocumentSchema = z.strictObject({
   personId: z.string().min(1),
+  nickname: z.string().min(1),
   lastUpdatedAt: z.string().min(1),
   sections: personMemorySectionsSchema,
 });
@@ -130,7 +131,6 @@ const personMemoryHeatSchema = z.record(
 
 const personMemoryProposalSchema = z.strictObject({
   shouldUpdate: z.boolean().describe("这轮是否需要写回人物记忆。"),
-  displayName: z.string().min(1).describe("这次写回后的人物显示名。"),
   changes: z
     .array(
       z.strictObject({
@@ -277,6 +277,7 @@ export function parsePersonMemoryJson(input: {
 
   return {
     personId: document.personId,
+    nickname: document.nickname,
     lastUpdatedAt: document.lastUpdatedAt.trim(),
     sections: PERSON_MEMORY_SECTION_KEYS.reduce(
       (result, section) => {
@@ -311,7 +312,7 @@ export async function listPersonMemories(page = 1): Promise<PersonMemoryDirector
 
       entries.push({
         personId,
-        displayName: document.sections["称呼"],
+        nickname: document.nickname,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -374,8 +375,8 @@ export async function getPersonMemory(personId: string): Promise<PersonMemoryCon
 
   return {
     personId,
-    displayName: memory.sections["称呼"],
-    memory,
+    nickname: memory.nickname,
+    sections: memory.sections,
   };
 }
 
@@ -411,20 +412,34 @@ export async function updatePersonMemory(
   const proposal = await generatePersonMemoryProposal({
     personId: input.personId,
     scene: input.scene,
-    displayName: input.displayName,
+    nickname: input.nickname,
     interactionMaterial: input.interactionMaterial,
     existingMemory: existingMemory ?? undefined,
   });
 
   // TODO 记录日志
 
-  if (!proposal) {
-    return {
-      status: "skipped",
-    };
-  }
+  if (!proposal || !proposal.shouldUpdate) {
+    if (existingMemory && existingMemory.nickname !== input.nickname) {
+      await writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...existingMemory,
+            nickname: input.nickname,
+            lastUpdatedAt: formatProjectTime(new Date(), "YYYY-MM-DDTHH:mm:ssZ"),
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
 
-  if (!proposal.shouldUpdate) {
+      return {
+        status: "updated",
+      };
+    }
+
     return {
       status: "skipped",
     };
@@ -432,6 +447,7 @@ export async function updatePersonMemory(
 
   const nextMemory = applyProposalToDocument({
     personId: input.personId,
+    nickname: input.nickname,
     existingMemory,
     proposal,
   });
@@ -508,9 +524,9 @@ async function generatePersonMemoryProposal(
   input: PersonMemoryProposalContext,
 ): Promise<PersonMemoryProposal | null> {
   const { output } = await generateStructuredOutput({
-    model: qwen3Model,
+    model: visionModel,
     providerOptions: {
-      Siliconflow: {
+      vision: {
         enable_thinking: false,
       },
     },
@@ -528,7 +544,7 @@ async function generatePersonMemoryProposal(
     prompt: buildPersonMemoryProposalPrompt({
       personId: input.personId,
       scene: input.scene,
-      displayName: input.displayName,
+      nickname: input.nickname,
       interactionMaterial: input.interactionMaterial,
       existingMemoryText: input.existingMemory
         ? JSON.stringify(input.existingMemory, null, 2)
@@ -555,9 +571,9 @@ function reviewPersonMemoryProposalTool(input: Omit<PersonMemoryReviewContext, "
     execute: async ({ proposal }) => {
       const normalizedProposal = normalizeProposal(proposal);
       const { output } = await generateStructuredOutput({
-        model: qwen3Model,
+        model: visionModel,
         providerOptions: {
-          Siliconflow: {
+          vision: {
             enable_thinking: false,
           },
         },
@@ -590,6 +606,7 @@ function reviewPersonMemoryProposalTool(input: Omit<PersonMemoryReviewContext, "
 
 function applyProposalToDocument(input: {
   personId: string;
+  nickname: string;
   existingMemory: PersonMemoryDocument | null;
   proposal: PersonMemoryProposal;
 }): PersonMemoryDocument {
@@ -607,10 +624,6 @@ function applyProposalToDocument(input: {
     sections[change.section] = normalizeSectionContent(change.content);
   }
 
-  if (!input.existingMemory && !input.proposal.changes.some((item) => item.section === "称呼")) {
-    sections["称呼"] = normalizeSectionContent(input.proposal.displayName);
-  }
-
   for (const section of PERSON_MEMORY_SECTION_KEYS) {
     sections[section] = normalizeSectionContent(sections[section]);
     assertValidSectionContent(section, sections[section]);
@@ -618,6 +631,7 @@ function applyProposalToDocument(input: {
 
   return {
     personId: input.personId,
+    nickname: input.nickname,
     lastUpdatedAt: formatProjectTime(new Date(), "YYYY-MM-DDTHH:mm:ssZ"),
     sections,
   };
@@ -628,7 +642,6 @@ function normalizeProposal(
 ): PersonMemoryProposal {
   return {
     shouldUpdate: output.shouldUpdate,
-    displayName: output.displayName.trim(),
     changes: output.changes.map((change) => ({
       section: change.section,
       content: normalizeSectionContent(change.content),

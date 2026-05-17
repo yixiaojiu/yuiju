@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
 import { isPublicDeployment } from "@/lib/public-deployment";
 
 import { ActivityClientShell } from "./activity-client-shell";
@@ -13,15 +12,12 @@ function ActivityPageFallback() {
 }
 
 export default function ActivityPage() {
-  // 核心逻辑：对外展示版本隐藏动态页。
-  if (isPublicDeployment()) {
-    notFound();
-  }
+  const showCareCard = !isPublicDeployment();
 
   return (
     <main className="max-w-[1200px] mx-auto px-[18px] pt-[18px] pb-[36px]">
       <Suspense fallback={<ActivityPageFallback />}>
-        <ActivityClientShell />
+        <ActivityClientShell showCareCard={showCareCard} />
       </Suspense>
     </main>
   );

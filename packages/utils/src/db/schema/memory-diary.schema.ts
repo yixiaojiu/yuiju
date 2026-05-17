@@ -1,4 +1,5 @@
 import mongoose, { type Document, Schema } from "mongoose";
+import { getMongoConnection, type MongoReadSource } from "../connect";
 
 /**
  * MongoDB 中的 Diary 条目。
@@ -17,7 +18,7 @@ export interface IMemoryDiary extends Document {
   isDev: boolean;
 }
 
-const MemoryDiarySchema = new Schema<IMemoryDiary>(
+export const MemoryDiarySchema = new Schema<IMemoryDiary>(
   {
     subject: { type: String, required: true, index: true },
     diaryDate: { type: Date, required: true, index: true },
@@ -33,6 +34,12 @@ const MemoryDiarySchema = new Schema<IMemoryDiary>(
 
 MemoryDiarySchema.index({ subject: 1, diaryDate: 1, isDev: 1 }, { unique: true });
 
-export const MemoryDiaryModel =
-  (mongoose.models.MemoryDiary as mongoose.Model<IMemoryDiary> | undefined) ??
-  mongoose.model<IMemoryDiary>("MemoryDiary", MemoryDiarySchema);
+export async function getMemoryDiaryModel(
+  source: MongoReadSource = "primary",
+): Promise<mongoose.Model<IMemoryDiary>> {
+  const connection = await getMongoConnection(source);
+  return (
+    (connection.models.MemoryDiary as mongoose.Model<IMemoryDiary> | undefined) ??
+    connection.model<IMemoryDiary>("MemoryDiary", MemoryDiarySchema)
+  );
+}

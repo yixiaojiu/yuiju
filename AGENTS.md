@@ -5,6 +5,7 @@
 - 当你要写代码时，请遵守代码规范，详细内容 `docs/rules/implementation-style.md`。
 - 涉及重构、抽象取舍、函数拆分或删除中间层时，必须参考 `docs/rules/refactor-style.md`。
 - 涉及领域模型、业务流程、状态变更、Action、Memory、Plan、Message 或 Web/API 命令入口时，必须参考 `docs/rules/domain-design-style.md`。
+- 涉及 LLM prompt、人设、世界观、消息生成或 structured output schema 描述时，必须参考 `docs/rules/prompt-style.md`。
 - 本文件只保留项目级硬约束和 AI Coding 执行入口；具体代码质量判断以规则文档为准。
 
 ## AI Coding 执行协议

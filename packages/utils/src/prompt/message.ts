@@ -1,5 +1,4 @@
 import { NICKNAME, SUBJECT_NAME } from "../constants";
-import type { PlanState } from "../types";
 
 export interface MessageHistoryUserPromptInput {
   summary?: string;
@@ -13,41 +12,33 @@ export interface MessageSummaryPromptInput {
   transcript: string;
 }
 
-function formatPlanStateForMessagePrompt(planState: PlanState): string {
-  const longTermPlan = planState.longTermPlan?.title ?? "（无）";
-  const shortTermPlans =
-    planState.shortTermPlans.length > 0
-      ? planState.shortTermPlans.map((plan, index) => `${index + 1}. ${plan.title}`).join("\n")
-      : "（无）";
-
-  return `
-长期计划：${longTermPlan}
-短期计划：
-${shortTermPlans}
-`;
-}
-
 export const messageHistorySchemaPrompt = `
 ## 历史消息结构
-按时间从旧到新排列的 JSON 数组。
+历史消息是按时间从旧到新排列的 JSON 数组。
 
-每一项表示一条聊天消息：
-- \`speaker\`：发言者展示名；如果是${SUBJECT_NAME}(${NICKNAME})，表示这是你自己之前发出的消息
-- \`time\`：消息时间
-- \`content\`：消息段数组，一条消息可能由多个段组成
+数组中的每一项表示一条真实发送出去的聊天消息：
+- \`speaker\`：这条消息的真实发言者展示名；如果是${SUBJECT_NAME}(${NICKNAME})，表示这是你自己之前发出的消息
+- \`time\`：这条消息的发送时间
+- \`content\`：这条消息包含的消息段数组；一条消息可能由文本、@、引用、图片或表情等多个段组成
+
+读取一条消息时，请先确认这一项最外层的 \`speaker\`，再阅读 \`content\` 中的各个消息段。消息段只描述这条消息的内容或附带动作，不会改变这条消息的真实发言者。
 
 常见消息段：
-- \`text\`：文本，读取 \`data.text\`
-- \`at\`：@某人，读取 \`data.displayName\`
-- \`image\`：图片或表情图片，读取 \`data.description\`
-- \`reply\`：引用回复，\`data.speaker\` 是被引用消息的发言者，\`data.content\` 是被引用内容
-- \`face\`：QQ 表情，读取 \`data.faceText\`
+- \`text\`：文本段，读取 \`data.text\`
+- \`at\`：@ 提及段，表示这条消息提到了某个对象；\`data.displayName\` 是被提到的人或全体成员
+- \`reply\`：引用回复段，表示这条消息引用了另一条历史消息；\`data.speaker\` 是被引用消息当时的发言者，\`data.content\` 是被引用消息的内容
+- \`image\`：图片或表情图片段，优先读取 \`data.description\` 作为图片内容描述
+- \`face\`：QQ 表情段，读取 \`data.faceText\`
+
+除了上面列出的字段，其他字段通常是平台协议细节。只有在它们对理解对话内容明显有帮助时才参考。
 
 `.trim();
 
 export const chatReplyRulesPrompt = `
 ## 聊天回复规则
 先判断最新消息是否需要回复，再决定回复内容。
+这是通讯软件里的线上聊天场景，回复内容要像真实会发出去的聊天消息，而不是小说台词、舞台剧脚本或角色扮演旁白。
+不要用括号描写动作、神态、姿势、内心旁白或舞台说明；这些反应要么转成自然口语，要么直接省略。
 聊天回复要克制，不要每条都回，也不要打断自然对话节奏。
 当最新消息明确提问、请求回应、直接 @、引用回复，或上下文正在自然邀请参与时，更倾向回复。
 当最新消息只是闲聊片段、情绪宣泄、表情或图片反应、话题已经自然结束、当前接不上话，或回复会显得多余时，不要回复。
@@ -89,19 +80,17 @@ ${input.historyJson}
 }
 
 /**
- * 构建私聊场景的计划提案提示词。
+ * 构建聊天场景的计划提案提示词。
  *
  * 说明：
- * - 私聊模型只能提交计划变更提案，不能确认计划已经生效；
+ * - 聊天模型只能提交计划变更提案，不能确认计划已经生效；
  * - 真正的审查、应用和记忆写入由后台链路处理。
  */
-export function buildPrivatePlanProposalPrompt(planState: PlanState): string {
+export function buildChatPlanProposalPrompt(): string {
   return `
-## 当前计划状态
-${formatPlanStateForMessagePrompt(planState)}
-
-## 私聊计划提案规则
-只有当聊天内容明确影响悠酱后续安排时，才调用 \`proposePlanChanges\` 提交计划变更提案。
+## 聊天计划提案规则
+只有当聊天内容明确影响你后续安排时，才调用 \`proposePlanChanges\` 提交计划变更提案。
+当你需要判断当前计划，或准备提交计划变更提案时，必须先调用 \`queryStateTool\` 查看当前计划状态；不要凭聊天上下文猜当前计划。
 普通聊天、情绪回应、临时问答、寒暄和随口闲聊，不要调用 \`proposePlanChanges\`。
 \`proposePlanChanges\` 只表示提案已提交后台审查，不代表计划已经更新成功。
 调用工具后，不要对用户说“计划已更新”“已加入计划”“已经安排好”等确认生效的话。

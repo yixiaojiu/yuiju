@@ -1,4 +1,7 @@
+import { ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ActivityItem } from "./activity-data";
 
 type ActivityDetailPreviewCardProps = {
@@ -51,12 +54,32 @@ export function ActivityDetailPreviewCard({ event }: ActivityDetailPreviewCardPr
           ))}
         </div>
 
-        <div className="grid gap-2">
-          <span className="text-[12px] text-[#6b7480]">原始 payload 预览</span>
-          <pre className="m-0 p-3 rounded-xl border border-[rgba(217,230,245,0.85)] bg-[rgba(247,251,255,0.85)] overflow-auto text-[12px] text-[rgba(43,47,54,0.85)]">
-            {event.payloadPreview}
-          </pre>
-        </div>
+        <Collapsible>
+          <div className="grid min-w-0 gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[12px] text-[#6b7480]">原始 payload 预览</span>
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="group text-[#6b7480]"
+                  aria-label="折叠或展开原始 payload 预览"
+                >
+                  <span className="group-data-[state=open]:hidden">展开</span>
+                  <span className="hidden group-data-[state=open]:inline">收起</span>
+                  <ChevronDown className="transition-transform group-data-[state=open]:rotate-180" />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+
+            <CollapsibleContent className="min-w-0">
+              <pre className="m-0 max-h-[360px] min-w-0 max-w-full overflow-x-auto overflow-y-auto rounded-xl border border-[rgba(217,230,245,0.85)] bg-[rgba(247,251,255,0.85)] p-3 text-[12px] text-[rgba(43,47,54,0.85)]">
+                {event.payloadPreview}
+              </pre>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
       </div>
     </Card>
   );

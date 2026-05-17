@@ -7,34 +7,35 @@ import type { AgentPlanChange } from "../../types";
 import { reviewPlanChanges } from "./review-plan-changes";
 import { agentPlanChangeSchema } from "./schema";
 
-export interface CreatePrivatePlanChangesProposalToolInput {
-  sessionLabel: string;
+export interface CreateChatPlanChangesProposalToolInput {
+  scene: "private" | "group";
   summary?: string;
   historyJson: string;
 }
 
-async function reviewAndApplyPrivatePlanChanges(input: {
+async function reviewAndApplyChatPlanChanges(input: {
   planChanges: AgentPlanChange[];
-  sessionLabel: string;
+  scene: "private" | "group";
   summary?: string;
   historyJson: string;
 }) {
-  logger.info("[message.plan.private] 私聊计划变更提案", {
+  const sceneText = input.scene === "private" ? "私聊" : "群聊";
+  const logPrefix = input.scene === "private" ? "[message.plan.private]" : "[message.plan.group]";
+
+  logger.info(`${logPrefix} ${sceneText}计划变更提案`, {
     planChanges: input.planChanges,
   });
   const reviewResult = await reviewPlanChanges({
     planChanges: input.planChanges,
     chatContext: {
-      scene: "private",
-      sessionLabel: input.sessionLabel,
+      scene: input.scene,
       summary: input.summary,
       historyJson: input.historyJson,
     },
   });
 
   if (!reviewResult.approved) {
-    logger.info("[message.plan.private] 私聊计划变更提案未通过审查", {
-      sessionLabel: input.sessionLabel,
+    logger.info(`${logPrefix} ${sceneText}计划变更提案未通过审查`, {
       reason: reviewResult.reason,
       issues: reviewResult.issues,
       planChanges: input.planChanges,
@@ -52,36 +53,35 @@ async function reviewAndApplyPrivatePlanChanges(input: {
     happenedAt: new Date(),
     isDev: isDev(),
     source: "chat",
-    changeReasonPrefix: `本次与 ${input.sessionLabel} 的私聊`,
+    changeReasonPrefix: `本次${sceneText}`,
   });
 
   for (const planEpisode of planEpisodes) {
     await emitMemoryEpisode(planEpisode);
   }
 
-  logger.info("[message.plan.private] 私聊计划变更已应用", {
-    sessionLabel: input.sessionLabel,
+  logger.info(`${logPrefix} ${sceneText}计划变更已应用`, {
     changes: appliedPlanChanges,
   });
 }
 
-export function createPrivatePlanChangesProposalTool(
-  input: CreatePrivatePlanChangesProposalToolInput,
-) {
+export function createChatPlanChangesProposalTool(input: CreateChatPlanChangesProposalToolInput) {
   return tool({
     description: "提交计划变更提案",
     inputSchema: z.object({
       planChanges: z.array(agentPlanChangeSchema).min(1).describe("候选计划变更"),
     }),
     execute: async ({ planChanges }) => {
-      reviewAndApplyPrivatePlanChanges({
+      reviewAndApplyChatPlanChanges({
         planChanges,
-        sessionLabel: input.sessionLabel,
+        scene: input.scene,
         summary: input.summary,
         historyJson: input.historyJson,
       }).catch((error) => {
-        logger.error("[message.plan.private] 处理私聊计划变更提案失败", {
-          sessionLabel: input.sessionLabel,
+        const logPrefix =
+          input.scene === "private" ? "[message.plan.private]" : "[message.plan.group]";
+
+        logger.error(`${logPrefix} 处理计划变更提案失败`, {
           planChanges,
           error,
         });

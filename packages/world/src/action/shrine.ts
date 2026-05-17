@@ -15,6 +15,9 @@ export const shrineAction: ActionMetadata[] = [
     action: ActionId.Pray_At_Shrine,
     description:
       "在结灯神社参拜，并由内心决定是否投币祈愿；若投币，会向神明说出一句愿望。[心情+?][耗时10分钟]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([
         () => isAtShrine(context.characterState.location.major),

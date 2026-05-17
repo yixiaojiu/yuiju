@@ -22,7 +22,7 @@
 
 # Get Started
 
-[部署文档](./docs/get-started.md)
+[部署文档](./docs/onboarding.md)
 [Docker 一键部署（单镜像）](./docs/docker-one-click.md)
 
 # Architecture

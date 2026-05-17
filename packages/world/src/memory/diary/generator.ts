@@ -1,12 +1,12 @@
 import {
   buildDiarySystemPrompt,
   DEFAULT_DIARY_SUBJECT,
+  type DiarySummaryMaterial,
   flashModel,
   getRecentMemoryEpisodes,
   type IMemoryEpisode,
-  NICKNAME,
   SUBJECT_NAME,
-  strongModel,
+  summarizeConversationDiaryMaterials,
   upsertMemoryDiary,
 } from "@yuiju/utils";
 import { generateText } from "ai";
@@ -15,30 +15,7 @@ import { logger } from "@/utils/logger";
 
 const MAX_EPISODES_PER_DAY = 500;
 const SLEEP_DIARY_ROLLOVER_HOUR = 6;
-const RAW_CONVERSATION_CHAR_BUDGET = 50_000;
-const CONVERSATION_EPISODES_PER_CHUNK = 30;
-const SUBJECT_DISPLAY_NAME = `${SUBJECT_NAME}（${NICKNAME}）`;
-
-interface ConversationMessage {
-  speaker_name: string;
-  content: string;
-  timestamp: string;
-}
-
-interface ConversationPayload {
-  counterpartyName?: string;
-  subjectName?: string;
-  windowStart?: string;
-  windowEnd?: string;
-  messageCount?: number;
-  messages?: ConversationMessage[];
-}
-
-interface DiaryMaterialItem {
-  type: string;
-  happenedAt: string;
-  content: string;
-}
+const CONVERSATION_SUMMARY_CHAR_BUDGET = 20_000;
 
 export interface GenerateDiaryForDateInput {
   diaryDate: Date;
@@ -46,112 +23,24 @@ export interface GenerateDiaryForDateInput {
   isDev: boolean;
 }
 
-function getConversationPayload(episode: IMemoryEpisode): ConversationPayload {
-  return (episode.payload ?? {}) as ConversationPayload;
-}
-
-function getConversationMessages(episode: IMemoryEpisode): ConversationMessage[] {
-  const payload = getConversationPayload(episode);
-  return Array.isArray(payload.messages) ? payload.messages : [];
-}
-
-function estimateConversationChars(episode: IMemoryEpisode): number {
-  return getConversationMessages(episode).reduce((total, message) => {
-    return total + message.speaker_name.length + message.content.length + message.timestamp.length;
+function estimateDiaryMaterialChars(materials: DiarySummaryMaterial[]): number {
+  return materials.reduce((total, material) => {
+    return total + material.type.length + material.happenedAt.length + material.content.length;
   }, 0);
-}
-
-function buildRawConversationMaterial(episode: IMemoryEpisode): DiaryMaterialItem {
-  const payload = getConversationPayload(episode);
-  const messages = getConversationMessages(episode)
-    .map((message) => `${message.timestamp} ${message.speaker_name}：${message.content}`)
-    .join("\n");
-
-  return {
-    type: "conversation",
-    happenedAt: dayjs(episode.happenedAt).toISOString(),
-    content: [
-      `对话对象：${payload.counterpartyName ?? "未知对象"}`,
-      `窗口摘要：${episode.summaryText}`,
-      messages ? `消息记录：\n${messages}` : undefined,
-    ]
-      .filter((item): item is string => Boolean(item))
-      .join("\n"),
-  };
-}
-
-function buildConversationEpisodePrompt(episode: IMemoryEpisode): string {
-  const messages = getConversationMessages(episode)
-    .map((message) => `${message.timestamp} ${message.speaker_name}：${message.content}`)
-    .join("\n");
-
-  return [`窗口摘要：${episode.summaryText}`, messages ? `消息记录：\n${messages}` : undefined]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function chunkConversationEpisodes(episodes: IMemoryEpisode[]): IMemoryEpisode[][] {
-  const chunks: IMemoryEpisode[][] = [];
-  let currentChunk: IMemoryEpisode[] = [];
-
-  for (const episode of episodes) {
-    const shouldFlush = currentChunk.length >= CONVERSATION_EPISODES_PER_CHUNK;
-
-    if (shouldFlush && currentChunk.length > 0) {
-      chunks.push(currentChunk);
-      currentChunk = [];
-    }
-
-    currentChunk.push(episode);
-  }
-
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
-
-async function summarizeConversationEpisodes(input: {
-  chunkIndex: number;
-  chunkCount: number;
-  episodes: IMemoryEpisode[];
-}): Promise<DiaryMaterialItem> {
-  const result = await generateText({
-    model: flashModel,
-    prompt: [
-      "你是日记生成前的聊天素材压缩器。",
-      "请把下面这一组聊天窗口压成一小段自然语言摘要，供后续写日记使用。",
-      "目标是帮助模型写出日记，不是做精确信息抽取。",
-      `这里的主角是${SUBJECT_DISPLAY_NAME}，两种叫法都指同一个人。`,
-      `只总结与${SUBJECT_DISPLAY_NAME}实际参与的聊天片段，概括这些片段大概聊了什么、整体氛围怎样、有哪些${SUBJECT_DISPLAY_NAME}可能会记住的小片段。`,
-      `这里的“参与”指：${SUBJECT_DISPLAY_NAME}自己发言了，或别人明确在对${SUBJECT_DISPLAY_NAME}说话、问${SUBJECT_DISPLAY_NAME}、回应${SUBJECT_DISPLAY_NAME}。只要材料里出现的是这两个名字中的任意一个，都按同一个人理解。`,
-      `如果只是其他人之间的闲聊、群里的旁支话题，而${SUBJECT_DISPLAY_NAME}没有实际参与，就不要写进摘要。不要因为它被归档在聊天窗口里，就默认整段都算${SUBJECT_DISPLAY_NAME}参与。`,
-      `如果这一组窗口里基本没有${SUBJECT_DISPLAY_NAME}参与，只输出一句简短自然的话：这段时间群里有聊天，但${SUBJECT_DISPLAY_NAME}没有实际参与。`,
-      "不要输出条目列表，不要硬拆对象/话题/情绪字段，不要编造材料里没有的内容。",
-      `下面是多个彼此独立的聊天窗口，请只关注${SUBJECT_DISPLAY_NAME}实际参与的部分，再合并成一段摘要。`,
-      `聊天材料：\n${input.episodes
-        .map((episode, index) => `## 窗口 ${index + 1}\n${buildConversationEpisodePrompt(episode)}`)
-        .join("\n\n")}`,
-    ].join("\n"),
-  });
-
-  return {
-    type: "conversation_batch_summary",
-    happenedAt: dayjs(
-      input.episodes.at(-1)?.happenedAt ?? input.episodes[0]?.happenedAt,
-    ).toISOString(),
-    content: result.text.trim(),
-  };
 }
 
 async function writeDiaryText(input: {
   subject: string;
   diaryDate: Date;
-  materials: DiaryMaterialItem[];
+  materials: DiarySummaryMaterial[];
 }): Promise<string> {
   const result = await generateText({
     model: flashModel,
+    providerOptions: {
+      flash: {
+        enable_thinking: false,
+      },
+    },
     system: buildDiarySystemPrompt({
       subject: input.subject,
       diaryDate: input.diaryDate,
@@ -189,15 +78,16 @@ async function loadEpisodesForDiary(input: {
  * 将同一天的 Episode 转换成适合写日记的素材列表。
  *
  * 说明：
- * - world 侧事件直接保留原始摘要；
- * - message 侧默认整天直喂，只有总量超限时，才按较大的 episode 分组做粗粒度聊天摘要。
+ * - Episode 写入时已经把关键信息放进 summaryText；
+ * - 非聊天事件直接保留摘要；
+ * - 聊天事件不再展开原始消息，只在聊天摘要总量过大时整体压缩一次。
  */
 export async function buildDiaryMaterials(
   episodes: IMemoryEpisode[],
-): Promise<DiaryMaterialItem[]> {
+): Promise<DiarySummaryMaterial[]> {
   const nonConversationMaterials = episodes
     .filter((episode) => episode.type !== "conversation")
-    .map(function buildEpisodeMaterial(episode: IMemoryEpisode): DiaryMaterialItem {
+    .map(function buildEpisodeMaterial(episode: IMemoryEpisode): DiarySummaryMaterial {
       return {
         type: episode.type,
         happenedAt: dayjs(episode.happenedAt).toISOString(),
@@ -205,32 +95,22 @@ export async function buildDiaryMaterials(
       };
     });
 
-  const conversationEpisodes = episodes.filter((episode) => episode.type === "conversation");
-  const totalConversationChars = conversationEpisodes.reduce((total, episode) => {
-    return total + estimateConversationChars(episode);
-  }, 0);
+  const conversationMaterials = episodes
+    .filter((episode) => episode.type === "conversation")
+    .map(function buildConversationMaterial(episode: IMemoryEpisode): DiarySummaryMaterial {
+      return {
+        type: episode.type,
+        happenedAt: dayjs(episode.happenedAt).toISOString(),
+        content: episode.summaryText,
+      };
+    });
 
-  const conversationMaterials: DiaryMaterialItem[] = [];
-  const shouldSummarizeConversations = totalConversationChars > RAW_CONVERSATION_CHAR_BUDGET;
+  const finalConversationMaterials =
+    estimateDiaryMaterialChars(conversationMaterials) <= CONVERSATION_SUMMARY_CHAR_BUDGET
+      ? conversationMaterials
+      : [await summarizeConversationDiaryMaterials(conversationMaterials)];
 
-  if (!shouldSummarizeConversations) {
-    for (const episode of conversationEpisodes) {
-      conversationMaterials.push(buildRawConversationMaterial(episode));
-    }
-  } else {
-    const chunks = chunkConversationEpisodes(conversationEpisodes);
-    for (const [index, chunk] of chunks.entries()) {
-      conversationMaterials.push(
-        await summarizeConversationEpisodes({
-          chunkIndex: index,
-          chunkCount: chunks.length,
-          episodes: chunk,
-        }),
-      );
-    }
-  }
-
-  return [...nonConversationMaterials, ...conversationMaterials].sort((left, right) => {
+  return [...nonConversationMaterials, ...finalConversationMaterials].sort((left, right) => {
     return dayjs(left.happenedAt).valueOf() - dayjs(right.happenedAt).valueOf();
   });
 }

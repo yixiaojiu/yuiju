@@ -1,7 +1,9 @@
 import {
+  getYuijuConfig,
   initCharacterStateData,
   initPlanStateData,
   initWorldStateData,
+  type RedisReadSource,
   worldMapLinks,
   worldMapPlaces,
   worldMapTerminalUi,
@@ -21,6 +23,8 @@ export interface HomeResponse {
       behavior?: string;
       location?: string;
       stamina?: { current?: number; max?: number };
+      satiety?: number;
+      mood?: number;
       money?: number;
     };
     todayActions?: string[];
@@ -73,10 +77,11 @@ export function buildHomeWorldPayload(world: Awaited<ReturnType<typeof initWorld
 
 homeRoute.get("/summary", async (context) => {
   // 核心逻辑：角色状态、计划状态、世界时间分别来自不同真相源，首页聚合时统一读取。
+  const readFrom: RedisReadSource = getYuijuConfig().app.publicDeployment ? "sync" : "primary";
   const [state, planState, world] = await Promise.all([
-    initCharacterStateData(),
-    initPlanStateData(),
-    initWorldStateData(),
+    initCharacterStateData({ readFrom }),
+    initPlanStateData({ readFrom }),
+    initWorldStateData({ readFrom }),
   ]);
 
   const inventory =
@@ -94,6 +99,8 @@ homeRoute.get("/summary", async (context) => {
         behavior: state.action,
         location: state.location.major,
         stamina: { current: state.stamina, max: staminaMax },
+        satiety: state.satiety,
+        mood: state.mood,
         money: state.money,
       },
       todayActions: state.dailyActionsDoneToday,

@@ -15,6 +15,7 @@
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.64.0",
     "@yuiju/source": "workspace:*",
     "@yuiju/utils": "workspace:*"
   }

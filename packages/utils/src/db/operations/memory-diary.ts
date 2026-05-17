@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
-import { connectDB } from "../connect";
-import { type IMemoryDiary, MemoryDiaryModel } from "../schema/memory-diary.schema";
+import { hasSyncMongoUri, type MongoReadSource } from "../connect";
+import { getMemoryDiaryModel, type IMemoryDiary } from "../schema/memory-diary.schema";
 
 export interface MemoryDiaryWriteInput {
   subject: string;
@@ -18,6 +18,7 @@ export interface GetMemoryDiariesOptions {
   diaryDateAfter?: Date;
   diaryDateBefore?: Date;
   sortDirection?: "asc" | "desc";
+  readFrom?: MongoReadSource;
 }
 
 function normalizeDiaryDate(value: Date): Date {
@@ -59,40 +60,42 @@ function buildMemoryDiaryFilter(options: GetMemoryDiariesOptions = {}): Record<s
  * 按“同主体 + 同自然日”幂等写入或覆盖日记。
  */
 export async function upsertMemoryDiary(input: MemoryDiaryWriteInput): Promise<IMemoryDiary> {
-  await connectDB();
-
   const diaryDate = normalizeDiaryDate(input.diaryDate);
   const now = new Date();
+  const model = await getMemoryDiaryModel();
 
-  const diary = await MemoryDiaryModel.findOneAndUpdate(
-    {
-      subject: input.subject,
-      diaryDate,
-      isDev: input.isDev ?? false,
-    },
-    {
-      $set: {
-        text: input.text,
-        generatedAt: now,
-        updatedAt: now,
-      },
-      $setOnInsert: {
+  const diary = await model
+    .findOneAndUpdate(
+      {
         subject: input.subject,
         diaryDate,
         isDev: input.isDev ?? false,
       },
-    },
-    {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true,
-    },
-  ).exec();
+      {
+        $set: {
+          text: input.text,
+          generatedAt: now,
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          subject: input.subject,
+          diaryDate,
+          isDev: input.isDev ?? false,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      },
+    )
+    .exec();
 
   if (!diary) {
     throw new Error("upsertMemoryDiary failed");
   }
 
+  await syncMemoryDiaryDocument(diary);
   return diary;
 }
 
@@ -106,12 +109,12 @@ export async function upsertMemoryDiary(input: MemoryDiaryWriteInput): Promise<I
 export async function getMemoryDiaries(
   options: GetMemoryDiariesOptions = {},
 ): Promise<IMemoryDiary[]> {
-  await connectDB();
-
   const filter = buildMemoryDiaryFilter(options);
   const sortDirection = options.sortDirection === "asc" ? 1 : -1;
+  const model = await getMemoryDiaryModel(options.readFrom);
 
-  return await MemoryDiaryModel.find(filter)
+  return await model
+    .find(filter)
     .sort({ diaryDate: sortDirection, updatedAt: sortDirection })
     .skip(Math.max(0, options.skip ?? 0))
     .limit(options.limit ?? 10)
@@ -125,6 +128,33 @@ export async function getMemoryDiaries(
  * - 与列表查询复用同一套 filter 构建逻辑，确保分页总数与列表结果一致。
  */
 export async function countMemoryDiaries(options: GetMemoryDiariesOptions = {}): Promise<number> {
-  await connectDB();
-  return await MemoryDiaryModel.countDocuments(buildMemoryDiaryFilter(options)).exec();
+  const model = await getMemoryDiaryModel(options.readFrom);
+  return await model.countDocuments(buildMemoryDiaryFilter(options)).exec();
+}
+
+async function syncMemoryDiaryDocument(diary: IMemoryDiary): Promise<void> {
+  if (!hasSyncMongoUri()) {
+    return;
+  }
+
+  try {
+    const syncModel = await getMemoryDiaryModel("sync");
+    await syncModel
+      .replaceOne(
+        { subject: diary.subject, diaryDate: diary.diaryDate, isDev: diary.isDev },
+        {
+          _id: diary._id,
+          subject: diary.subject,
+          diaryDate: diary.diaryDate,
+          text: diary.text,
+          generatedAt: diary.generatedAt,
+          updatedAt: diary.updatedAt,
+          isDev: diary.isDev,
+        },
+        { upsert: true },
+      )
+      .exec();
+  } catch (error) {
+    console.error(`Sync Mongo write failed: memory_diary ${diary._id}`, error);
+  }
 }

@@ -6,6 +6,9 @@ export const schoolAction: ActionMetadata[] = [
     // TODO：逻辑优化，上课时间应该是固定的时间段，而不是随时可以上课
     action: ActionId.Study_At_School,
     description: "在星见丘高校上课。[体力-12][饱腹-12][心情-5][耗时动态]",
+    proactiveShare: {
+      enabled: true,
+    },
     precondition(context) {
       return allTrue([
         () => {

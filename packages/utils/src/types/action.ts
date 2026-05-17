@@ -109,6 +109,16 @@ export interface ActionAgentDecision {
   reason: string;
   durationMinute?: number;
   planChanges?: AgentPlanChange[];
+  proactiveShareIntent?: ActionProactiveShareIntent;
+}
+
+export interface ActionProactiveShareIntent {
+  shouldShare: boolean;
+  reason: string;
+}
+
+export interface ActionProactiveShareConfig {
+  enabled: boolean;
 }
 
 export type ActionStartResult = void | {
@@ -128,6 +138,8 @@ export abstract class ActionMetadata {
   abstract action: ActionId;
   /** action 描述 */
   abstract description: string;
+  /** 是否允许该 Action 在决策时产生主动分享意图 */
+  proactiveShare?: ActionProactiveShareConfig;
   /** 前置条件 */
   abstract precondition: (context: ActionContext) => boolean | Promise<boolean>;
 

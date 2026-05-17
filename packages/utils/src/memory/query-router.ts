@@ -8,15 +8,17 @@ import { DEFAULT_DIARY_SUBJECT } from "./diary";
 export type MemoryQueryTimeSort = "asc" | "desc";
 
 export interface EpisodeSearchInput {
+  startTime?: string;
+  endTime?: string;
   timeSort?: MemoryQueryTimeSort;
-  topK?: number;
+  limit?: number;
 }
 
 export interface DiarySearchInput {
   startTime?: string;
   endTime?: string;
   timeSort?: MemoryQueryTimeSort;
-  topK?: number;
+  limit?: number;
 }
 
 export interface EpisodeSearchResult {
@@ -29,21 +31,6 @@ export interface DiarySearchResult {
   content: string;
 }
 
-const DEFAULT_TOP_K = 5;
-const MEMORY_TIME_FORMAT = "YYYY-MM-DD HH:mm:ss";
-
-function normalizeTopK(topK?: number): number {
-  if (!Number.isFinite(topK)) {
-    return DEFAULT_TOP_K;
-  }
-
-  return Math.max(1, Math.min(Number(topK), 20));
-}
-
-function parseMemoryTime(value?: string): Date | undefined {
-  return parseProjectTime(value?.trim() ?? "", MEMORY_TIME_FORMAT);
-}
-
 /**
  * 查询今天的 Episode 记忆。
  *
@@ -53,19 +40,23 @@ function parseMemoryTime(value?: string): Date | undefined {
  * - 返回结果只保留 LLM 真正需要的时间和摘要。
  */
 export async function searchEpisodes(input: EpisodeSearchInput): Promise<EpisodeSearchResult[]> {
-  const limit = normalizeTopK(input.topK);
+  const limit = input.limit ?? 10;
   const timeSort = input.timeSort ?? "desc";
+  const parsedStartTime = parseProjectTime(input.startTime?.trim() ?? "", "YYYY-MM-DD HH:mm:ss");
+  const parsedEndTime = parseProjectTime(input.endTime?.trim() ?? "", "YYYY-MM-DD HH:mm:ss");
 
   const docs = await getRecentMemoryEpisodes({
     limit,
     subject: SUBJECT_NAME,
     isDev: isDev(),
     sortDirection: timeSort,
-    onlyDate: dayjs().toDate(),
+    onlyDate: parsedStartTime || parsedEndTime ? undefined : dayjs().toDate(),
+    happenedAfter: parsedStartTime,
+    happenedBefore: parsedEndTime,
   });
 
   return docs.map((doc) => ({
-    time: formatProjectTime(doc.happenedAt, "MM-DD HH:mm"),
+    time: formatProjectTime(doc.happenedAt, "HH:mm:ss"),
     event: doc.summaryText,
   }));
 }
@@ -79,10 +70,10 @@ export async function searchEpisodes(input: EpisodeSearchInput): Promise<Episode
  * - 返回结果只保留 LLM 真正需要的时间和正文。
  */
 export async function searchDiaries(input: DiarySearchInput): Promise<DiarySearchResult[]> {
-  const limit = normalizeTopK(input.topK);
+  const limit = input.limit ?? 5;
   const timeSort = input.timeSort ?? "desc";
-  const parsedStartTime = parseMemoryTime(input.startTime);
-  const parsedEndTime = parseMemoryTime(input.endTime);
+  const parsedStartTime = parseProjectTime(input.startTime?.trim() ?? "", "YYYY-MM-DD HH:mm:ss");
+  const parsedEndTime = parseProjectTime(input.endTime?.trim() ?? "", "YYYY-MM-DD HH:mm:ss");
   const startDay = parsedStartTime ? dayjs(parsedStartTime).startOf("day").toDate() : undefined;
   const endDay = parsedEndTime ? dayjs(parsedEndTime).startOf("day").toDate() : undefined;
 

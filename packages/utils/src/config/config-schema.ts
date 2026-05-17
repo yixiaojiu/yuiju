@@ -59,6 +59,9 @@ export type YuijuStickerMap = Record<string, YuijuStickerConfig>;
 export interface YuijuMessageConfig {
   napcat: NCWebsocketOptions;
   internalApi: YuijuMessageInternalApiConfig;
+  proactive: {
+    groupTargetId: number;
+  };
   whiteList: number[];
   groupWhiteList: number[];
   stickers: YuijuStickerMap;
@@ -70,14 +73,38 @@ export interface YuijuMessageConfig {
 export interface YuijuDatabaseConfig {
   mongoUri: string;
   redisUrl: string;
+  /**
+   * 数据同步的 Mongo URI
+   */
+  syncMongoUri?: string;
+  /**
+   * 数据同步的 Redis URI
+   */
+  syncRedisUrl?: string;
 }
 
 /**
  * LLM 提供商相关配置。
  */
+export interface YuijuLlmModelConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export type YuijuLlmModelSourcesConfig = [YuijuLlmModelConfig, ...YuijuLlmModelConfig[]];
+
+export interface YuijuLlmModelsConfig {
+  small: YuijuLlmModelSourcesConfig;
+  strong: YuijuLlmModelSourcesConfig;
+  flash: YuijuLlmModelSourcesConfig;
+  vision: YuijuLlmModelSourcesConfig;
+}
+
 export interface YuijuLlmConfig {
   deepseekApiKey: string;
   siliconflowApiKey: string;
+  models: YuijuLlmModelsConfig;
 }
 
 /**

@@ -8,6 +8,8 @@ type HomeStatus = {
   behavior?: string;
   location?: string;
   stamina?: { current?: number; max?: number };
+  satiety?: number;
+  mood?: number;
   money?: number;
 };
 
@@ -61,6 +63,20 @@ export function HomeStatusCard({ status, todayActions, inventory, plans }: HomeS
             <div className="mt-1.5 text-sm font-extrabold">
               {displayStatus?.stamina?.current ?? "—"}
               <span className="text-[#6b7480]"> / {displayStatus?.stamina?.max ?? "—"}</span>
+            </div>
+          </div>
+          <div className="rounded-xl bg-[rgba(247,251,255,0.8)] border border-[rgba(217,230,245,0.8)] p-[10px]">
+            <div className="text-xs text-[#6b7480]">饱腹度</div>
+            <div className="mt-1.5 text-sm font-extrabold">
+              {displayStatus?.satiety ?? "—"}
+              <span className="text-[#6b7480]"> / 100</span>
+            </div>
+          </div>
+          <div className="rounded-xl bg-[rgba(247,251,255,0.8)] border border-[rgba(217,230,245,0.8)] p-[10px]">
+            <div className="text-xs text-[#6b7480]">心情</div>
+            <div className="mt-1.5 text-sm font-extrabold">
+              {displayStatus?.mood ?? "—"}
+              <span className="text-[#6b7480]"> / 100</span>
             </div>
           </div>
           <div className="rounded-xl bg-[rgba(247,251,255,0.8)] border border-[rgba(217,230,245,0.8)] p-[10px]">
