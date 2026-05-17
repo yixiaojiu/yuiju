@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  type FileTreeNode,
+  fetchFileContent,
+  fetchFileTree,
+  saveMemoryFile,
+} from "../file-browser/api";
 import { FileTree } from "../file-browser/file-tree";
+import { LoadingIndicator } from "../file-browser/loading-indicator";
 import { MonacoEditorPanel } from "../file-browser/monaco-editor-panel";
-
-type FileTreeNode = {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  children?: FileTreeNode[];
-};
 
 const collectFirstFilePath = (nodes: FileTreeNode[]): string => {
   for (const node of nodes) {
@@ -31,9 +31,7 @@ export default function MemoryPage() {
 
   useEffect(() => {
     const loadTree = async () => {
-      const response = await fetch("/api/nodejs/files/tree?scope=memory");
-      const payload = await response.json();
-      const nodes = (payload.data?.tree ?? []) as FileTreeNode[];
+      const nodes = await fetchFileTree("memory");
       setTree(nodes);
       setSelectedPath(collectFirstFilePath(nodes));
     };
@@ -51,14 +49,10 @@ export default function MemoryPage() {
     const loadContent = async () => {
       setLoading(true);
       try {
-        const response = await fetch(
-          `/api/nodejs/files/content?scope=memory&path=${encodeURIComponent(selectedPath)}`,
-        );
-        const payload = await response.json();
-        const text = payload.data?.content ?? "";
-        setContent(text);
-        setSavedContent(text);
-        setLanguage(payload.data?.language ?? "plaintext");
+        const payload = await fetchFileContent("memory", selectedPath);
+        setContent(payload.content);
+        setSavedContent(payload.content);
+        setLanguage(payload.language);
       } finally {
         setLoading(false);
       }
@@ -73,15 +67,7 @@ export default function MemoryPage() {
     if (!selectedPath) return;
     setSaving(true);
     try {
-      await fetch("/api/nodejs/files/content", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope: "memory",
-          path: selectedPath,
-          content,
-        }),
-      });
+      await saveMemoryFile(selectedPath, content);
       setSavedContent(content);
     } finally {
       setSaving(false);
@@ -117,7 +103,7 @@ export default function MemoryPage() {
             readOnly={false}
             onChange={setContent}
           />
-          {loading ? <p className="mt-2 text-xs text-[#6f819a]">加载中...</p> : null}
+          {loading ? <LoadingIndicator /> : null}
         </section>
       </div>
     </main>
