@@ -1,7 +1,6 @@
-import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { getYuijuConfig } from "@yuiju/utils";
+import { getYuijuConfig, getYuijuProjectRoot } from "@yuiju/utils";
 import { Hono } from "hono";
 import { rejectPublicRequest } from "./public-guard";
 
@@ -17,42 +16,8 @@ type FileTreeNode = {
 
 const LOGS_SERVICES: LogsService[] = ["message", "world"];
 
-const currentDir = dirname(fileURLToPath(import.meta.url));
-
-const detectRepoRoot = async () => {
-  const candidates = [
-    resolve(process.cwd()),
-    resolve(process.cwd(), "../.."),
-    resolve(currentDir, "../../../../../../"),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      await access(resolve(candidate, "pnpm-workspace.yaml"));
-      return candidate;
-    } catch {}
-  }
-
-  return resolve(currentDir, "../../../../../../");
-};
-
-const normalizeScope = (value: string | undefined): FileScope => {
-  if (value === "memory") {
-    return "memory";
-  }
-  return "logs";
-};
-
-const normalizeLogsService = (value: string | undefined): LogsService => {
-  if (value === "world") {
-    return "world";
-  }
-  return "message";
-};
-
-const resolveScopeRoot = async (scope: FileScope, logsService: LogsService) => {
-  const repoRoot = await detectRepoRoot();
-
+const resolveScopeRoot = (scope: FileScope, logsService: LogsService) => {
+  const repoRoot = getYuijuProjectRoot();
   if (scope === "logs") {
     return resolve(repoRoot, `packages/${logsService}/logs`);
   }
@@ -150,9 +115,9 @@ filesRoute.use("*", async (context, next) => {
 });
 
 filesRoute.get("/tree", async (context) => {
-  const scope = normalizeScope(context.req.query("scope"));
-  const logsService = normalizeLogsService(context.req.query("service"));
-  const rootDir = await resolveScopeRoot(scope, logsService);
+  const scope: FileScope = context.req.query("scope") === "memory" ? "memory" : "logs";
+  const logsService: LogsService = context.req.query("service") === "world" ? "world" : "message";
+  const rootDir = resolveScopeRoot(scope, logsService);
 
   const tree = await buildTree(rootDir, rootDir);
 
@@ -169,15 +134,15 @@ filesRoute.get("/tree", async (context) => {
 });
 
 filesRoute.get("/content", async (context) => {
-  const scope = normalizeScope(context.req.query("scope"));
-  const logsService = normalizeLogsService(context.req.query("service"));
+  const scope: FileScope = context.req.query("scope") === "memory" ? "memory" : "logs";
+  const logsService: LogsService = context.req.query("service") === "world" ? "world" : "message";
   const relPath = normalizeRelPath(context.req.query("path"));
 
   if (!relPath) {
     return context.json({ code: 400, data: null, message: "path is required" }, 400);
   }
 
-  const rootDir = await resolveScopeRoot(scope, logsService);
+  const rootDir = resolveScopeRoot(scope, logsService);
 
   let absPath = "";
   try {
@@ -215,7 +180,7 @@ filesRoute.post("/content", async (context) => {
     content?: string;
   }>();
 
-  const scope = normalizeScope(payload.scope);
+  const scope: FileScope = payload.scope === "memory" ? "memory" : "logs";
   if (scope !== "memory") {
     return context.json({ code: 403, data: null, message: "logs is read-only" }, 403);
   }
@@ -225,7 +190,8 @@ filesRoute.post("/content", async (context) => {
     return context.json({ code: 400, data: null, message: "path is required" }, 400);
   }
 
-  const rootDir = await resolveScopeRoot(scope, normalizeLogsService(payload.service));
+  const logsService: LogsService = payload.service === "world" ? "world" : "message";
+  const rootDir = resolveScopeRoot(scope, logsService);
 
   let absPath = "";
   try {
