@@ -134,7 +134,8 @@ const guessLanguage = (filePath: string) => {
   if (ext === ".tsx") return "typescript";
   if (ext === ".js") return "javascript";
   if (ext === ".yaml" || ext === ".yml") return "yaml";
-  if (ext === ".log" || ext === ".txt") return "plaintext";
+  if (ext === ".log") return "log";
+  if (ext === ".txt") return "plaintext";
   return "plaintext";
 };
 
