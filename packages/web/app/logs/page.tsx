@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import {
   type FileTreeNode,
   type LogsService,
   fetchFileContent,
   fetchFileTree,
-} from "../file-browser/api";
+} from "@/lib/api/files";
+import { LoadingIndicator } from "@/lib/components/loading-indicator";
 import { FileTree } from "../file-browser/file-tree";
-import { LoadingIndicator } from "../file-browser/loading-indicator";
 import { MonacoEditorPanel } from "../file-browser/monaco-editor-panel";
 
 const collectFirstFilePath = (nodes: FileTreeNode[]): string => {
@@ -20,43 +21,51 @@ const collectFirstFilePath = (nodes: FileTreeNode[]): string => {
   return "";
 };
 
+const containsFilePath = (nodes: FileTreeNode[], targetPath: string): boolean => {
+  for (const node of nodes) {
+    if (node.type === "file" && node.path === targetPath) return true;
+    if (containsFilePath(node.children ?? [], targetPath)) return true;
+  }
+  return false;
+};
+
 export default function LogsPage() {
   const [service, setService] = useState<LogsService>("message");
-  const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
-  const [content, setContent] = useState("");
-  const [language, setLanguage] = useState("plaintext");
-  const [loading, setLoading] = useState(false);
+
+  const {
+    data: tree = [],
+    isLoading: treeLoading,
+    error: treeError,
+  } = useSWR(["logs-tree", service], async () => fetchFileTree("logs", service));
 
   useEffect(() => {
-    const loadTree = async () => {
-      const nodes = await fetchFileTree("logs", service);
-      setTree(nodes);
-      setSelectedPath(collectFirstFilePath(nodes));
-    };
-
-    void loadTree();
-  }, [service]);
-
-  useEffect(() => {
-    if (!selectedPath) {
-      setContent("");
+    if (tree.length === 0) {
+      setSelectedPath("");
       return;
     }
 
-    const loadContent = async () => {
-      setLoading(true);
-      try {
-        const payload = await fetchFileContent("logs", selectedPath, service);
-        setContent(payload.content);
-        setLanguage(payload.language);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const currentPathExists = selectedPath && containsFilePath(tree, selectedPath);
+    if (currentPathExists) {
+      return;
+    }
 
-    void loadContent();
-  }, [selectedPath, service]);
+    setSelectedPath(collectFirstFilePath(tree));
+  }, [selectedPath, tree]);
+
+  const {
+    data: filePayload,
+    isLoading: contentLoading,
+    error: contentError,
+  } = useSWR(
+    selectedPath ? ["logs-content", service, selectedPath] : null,
+    async () => fetchFileContent("logs", selectedPath, service),
+  );
+
+  const content = filePayload?.content ?? "";
+  const language = filePayload?.language ?? "plaintext";
+  const loading = treeLoading || contentLoading;
+  const requestError = treeError || contentError;
 
   const title = useMemo(() => {
     return service === "message" ? "日志查看器（message）" : "日志查看器（world）";
@@ -85,8 +94,9 @@ export default function LogsPage() {
         </aside>
 
         <section>
-          <MonacoEditorPanel value={content} language={language} readOnly onChange={setContent} />
+          <MonacoEditorPanel value={content} language={language} readOnly onChange={() => {}} />
           {loading ? <LoadingIndicator /> : null}
+          {requestError ? <p className="mt-2 text-xs text-[#d05d58]">加载失败，请重试。</p> : null}
         </section>
       </div>
     </main>

@@ -6,9 +6,9 @@ import {
   fetchFileContent,
   fetchFileTree,
   saveMemoryFile,
-} from "../file-browser/api";
+} from "@/lib/api/files";
+import { LoadingIndicator } from "@/lib/components/loading-indicator";
 import { FileTree } from "../file-browser/file-tree";
-import { LoadingIndicator } from "../file-browser/loading-indicator";
 import { MonacoEditorPanel } from "../file-browser/monaco-editor-panel";
 
 const collectFirstFilePath = (nodes: FileTreeNode[]): string => {
