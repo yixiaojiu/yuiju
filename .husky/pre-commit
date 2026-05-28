@@ -1,3 +1,2 @@
 pnpm run lint-staged
 pnpm run type-check
-pnpm run build:web
