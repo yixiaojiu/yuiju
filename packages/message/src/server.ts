@@ -25,6 +25,13 @@ satori.on("message", async (session) => {
   try {
     const normalizedSession = await normalizeSatoriSession(session);
 
+    // 戳一戳事件延迟处理
+    if (normalizedSession.type === "notice" && normalizedSession.subtype === "poke") {
+      const delayMs = 2000; // 延迟2秒
+      logger.debug("[message.server] 检测到QQ戳一戳事件，延迟处理", { delayMs });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
     if (normalizedSession.isDirect) {
       await privateMessageHandler(normalizedSession);
       return;
