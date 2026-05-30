@@ -24,8 +24,8 @@ import urllib.request
 # ---------------------------------------------------------------------------
 # API 配置（硬编码，来源：SKILL.md）
 # ---------------------------------------------------------------------------
-MAPILLARY_API_KEY = "MLY|26914509934909830|055828110aa28071ce11a177eefacf69"
-SILICONFLOW_API_KEY = "sk-ejilawamjgevnbvbxttlvikyffetxotvcluxcxswcmtyfvhl"
+MAPILLARY_API_KEY = "xxx"
+SILICONFLOW_API_KEY = "xxx"
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 SILICONFLOW_MODEL = "Qwen/Qwen3.5-397B-A17B"
 
