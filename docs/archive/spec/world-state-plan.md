@@ -2,7 +2,7 @@
 
 ## 目标
 
-基于 `docs/spec/design.md`，本次实现要把世界演进从当前角色行为 loop 和 weather 旁路 scheduler 中独立出来。
+基于 `./world-state-design.md`，本次实现要把世界演进从当前角色行为 loop 和 weather 旁路 scheduler 中独立出来。
 
 核心目标：
 
