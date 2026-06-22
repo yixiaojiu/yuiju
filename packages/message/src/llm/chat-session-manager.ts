@@ -18,6 +18,7 @@ import {
   type StoredSatoriPrivateMessage,
 } from "@/utils/message";
 import { buildConversationEpisode, type ChatMoodChange } from "../memory/episode-builder";
+import { updateGroupMemoryForChatWindow } from "../memory/group-memory";
 import {
   writePersonMemoryUpdatesForGroupChatWindow,
   writePersonMemoryUpdatesForPrivateChatWindow,
@@ -438,7 +439,21 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
       this.writePersonMemoryUpdatesForChatWindow(input.state).catch((error) => {
         console.error(`Failed to update ${this.sceneLabel} person memory:`, error);
       }),
+      this.writeGroupMemoryForChatWindow(input.state).catch((error) => {
+        console.error("Failed to update group memory:", error);
+      }),
     ]);
+  }
+
+  private async writeGroupMemoryForChatWindow(state: EpisodeWindowState<TMessage>) {
+    if (this.sceneLabel !== "group") {
+      return;
+    }
+
+    await updateGroupMemoryForChatWindow({
+      sessionId: state.messages[0].sessionId,
+      state: state as EpisodeWindowState<StoredSatoriGroupMessage>,
+    });
   }
 
   private async writePersonMemoryUpdatesForChatWindow(state: EpisodeWindowState<TMessage>) {

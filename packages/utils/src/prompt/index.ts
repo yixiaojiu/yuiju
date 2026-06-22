@@ -1,6 +1,7 @@
 export * from "./character-card";
 export * from "./diary";
 export * from "./everything";
+export * from "./group-memory";
 export * from "./message";
 export * from "./person-memory";
 export * from "./plan-review";

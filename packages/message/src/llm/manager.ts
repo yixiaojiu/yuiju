@@ -21,6 +21,7 @@ import {
 } from "@yuiju/utils";
 import { Output, stepCountIs } from "ai";
 import { z } from "zod";
+import { getGroupMemoryPromptSection } from "@/memory/group-memory";
 import { stickerState } from "@/state/sticker";
 import { logger } from "@/utils/logger";
 import {
@@ -168,6 +169,10 @@ export class LLMManager {
 
     const { historyJson, summary } = await this.groupSession.getHistoryJson(sessionKey);
     const characterState = await initCharacterStateData();
+    const groupMemoryPrompt = await getGroupMemoryPromptSection({
+      sessionId: sessionKey,
+      sessionLabel: getGroupDisplayName(message),
+    });
 
     const systemPrompt = [
       getCharacterCardPrompt(),
@@ -175,6 +180,7 @@ export class LLMManager {
       messageHistorySchemaPrompt,
       chatReplyRulesPrompt,
       buildChatPlanProposalPrompt(),
+      groupMemoryPrompt,
       "## 当前聊天场景",
       `你现在正在群聊「${getGroupDisplayName(message)}」中以「${NICKNAME}」的身份聊天。`,
     ].join("\n\n");
