@@ -1,6 +1,7 @@
 import type { h, Session } from "@satorijs/core";
 import type { Message as SatoriMessage } from "@satorijs/protocol";
 import { SUBJECT_NAME } from "@yuiju/utils";
+import { stickerState, YUIJU_STICKER_ELEMENT_ATTR } from "@/state/sticker";
 import { resolveSatoriImageDescription } from "./image";
 import type {
   HistoryMessageSegment,
@@ -173,6 +174,19 @@ async function projectSatoriElementsToHistoryContent(
     }
 
     if (element.type === "image" || element.type === "img") {
+      const stickerKey = String(element.attrs[YUIJU_STICKER_ELEMENT_ATTR] ?? "").trim();
+      const sticker = stickerKey ? stickerState.getByKey(stickerKey) : null;
+      if (sticker) {
+        content.push({
+          type: "sticker",
+          data: {
+            key: sticker.key,
+            description: sticker.description,
+          },
+        });
+        continue;
+      }
+
       content.push({
         type: "image",
         data: {

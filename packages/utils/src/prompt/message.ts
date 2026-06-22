@@ -33,7 +33,8 @@ export const messageHistorySchemaPrompt = `
 - \`text\`：文本段，读取 \`data.text\`
 - \`at\`：@ 提及段，表示这条消息提到了某个对象；\`data.displayName\` 是被提到的人或全体成员
 - \`reply\`：引用/回复段，表示这条消息引用了另一条消息；\`data.speaker\` 是被引用消息的发言者，\`data.content\` 是被引用消息的内容段数组
-- \`image\`：图片或表情图片段，优先读取 \`data.description\` 作为图片内容描述
+- \`image\`：用户或平台消息里的普通图片段，优先读取 \`data.description\` 作为图片内容描述
+- \`sticker\`：${SUBJECT_NAME}(${NICKNAME}) 通过 \`[[sticker:key]]\` 主动发送的表情包段，读取 \`data.description\` 理解当时的情绪反应；这不是别人发来的图片，也不是用户画给你的图
 - \`face\`：QQ 表情段，读取 \`data.faceText\`
 
 读取 \`reply\` 时，请把它理解为当前消息附带的引用上下文；它不会改变当前消息最外层的 \`speaker\`。
@@ -128,11 +129,13 @@ export function buildStickerPromptSection(stickers: StickerPromptItem[]): string
   return `
 ## 表情包
 表情包可以作为聊天语气的一部分，用来补充情绪、调侃、撒娇、吐槽、开心、惊讶、害羞、委屈或轻松收尾。
+这些表情包是你自己可选择发送的聊天反应贴图；输出 \`[[sticker:key]]\` 表示你要发送这个表情包，不表示用户发来了一张图，也不表示有人给你画了图。
 当回复本身较短、文字情绪不够传神，或只想用一个小反应接住对方时，应优先考虑自然使用 1 个表情包。
 被调侃、轻微害羞、尴尬、委屈、炸毛、发懵、吐槽、轻松玩笑、只需要短短回应时，都是适合使用表情包的场景。
 表情包可以单独作为一行回复，也可以跟在一句短回复后面。
 格式必须是 \`[[sticker:key]]\`，key 只能从下方列表选择，不能写路径或自造 key；如果和文字一起使用，一般放在回复最后。
 同一条回复最多使用 1 个表情包；不要每次都用，也不要连续多轮高频使用。
+当你在历史消息里看到自己发出的 \`sticker\` 段时，只把它当成你当时的情绪反应，不要围绕“这张图是谁画的”“我收下了”展开。
 可用列表：
 ${stickerList}
 格式示例：

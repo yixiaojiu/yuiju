@@ -23,6 +23,7 @@ export interface ResolvedSticker {
 }
 
 const STICKER_TOKEN_REGEX = /\[\[sticker:([a-zA-Z0-9_-]+)\]\]/g;
+export const YUIJU_STICKER_ELEMENT_ATTR = "yuijuStickerKey";
 
 export class StickerState {
   private readonly registry = new Map<string, ResolvedSticker>();
@@ -132,6 +133,7 @@ export class StickerState {
           h("image", {
             url: `base64://${sticker.fileBuffer.toString("base64")}`,
             summary: sticker.key,
+            [YUIJU_STICKER_ELEMENT_ATTR]: sticker.key,
           }),
         );
       }
