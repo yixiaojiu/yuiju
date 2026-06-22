@@ -9,8 +9,8 @@ hero:
     alt: "Yuiju Avatar"
   actions:
     - theme: brand
-      text: 开始阅读
-      link: /onboarding
+      text: 开发文档
+      link: https://github.com/yixiaojiu/yuiju/blob/main/docs/README.md
 features:
   - title: 持续运转
     details: 角色在时间流动中持续决策与行动。

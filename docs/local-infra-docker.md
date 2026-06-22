@@ -61,6 +61,6 @@ pnpm run start:python
 - `world` / `message` 无法启动并提示 Mongo 配置错误：
   - `connectDB` 会强制要求 `yuiju.config.ts` 中 `database.mongoUri` 非空且可连接。
 - `message` 启动失败：
-  - 除 MongoDB 外，还依赖 NapCat WebSocket 可用与 `message.napcat` 配置正确。
+  - 除 MongoDB 外，还依赖 OneBot / Lark 连接信息可用与 `message.onebot` / `message.lark` 配置正确。
 - `web` 部分接口不可用：
   - 依赖数据库数据的接口（如 activity/diary）在 Mongo 异常时会失败。

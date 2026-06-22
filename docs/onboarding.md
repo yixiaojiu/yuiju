@@ -1,5 +1,7 @@
 # 新人上手指南
 
+本文是当前开发入口。过期方案、历史草稿和未落地设计不在本文维护；需要查阅时先从 [开发文档索引](./README.md) 判断文档状态。
+
 ## 1. 项目介绍
 
 `yuiju` 是一个 **LLM Agent 驱动的角色生活模拟系统**。  
@@ -11,7 +13,7 @@
 - `packages/web`：Web 展示与 API 通道（Next.js + Hono）
 - `packages/message`：消息服务入口
 - `packages/utils`：公共能力（类型、DB、Redis、工具函数）
-- `packages/source`：Prompt 与数据源
+- `packages/source`：图片、音频、数据集和辅助脚本资源
 - `packages/python`：Python 侧服务（按需使用）
 
 ## 2. 项目能力
@@ -45,9 +47,10 @@ cp yuiju.config.ts.example yuiju.config.ts
 - `app.publicDeployment`：是否启用对外展示模式
 - `database.mongoUri`：MongoDB 连接地址
 - `database.redisUrl`：Redis 连接地址
-- `llm.deepseekApiKey`：DeepSeek 调用凭据
-- `message.napcat`：NapCat WebSocket 连接信息
-- `message.whiteList` / `message.groupWhiteList`：消息服务白名单
+- `llm.models`：行为决策、消息回复、视觉等模型来源
+- `message.onebot`：OneBot WebSocket 连接和白名单
+- `message.lark`：飞书连接和白名单
+- `message.internalApi`：消息服务提供给内部调用方的 HTTP 服务地址
 
 3. 额外说明：
 
@@ -100,7 +103,7 @@ pnpm run test:world
 
 - `git pull` 报错 `Could not read from remote repository`：通常是 SSH key 或仓库权限问题，不影响本地开发。
 - 启动时报 Redis/Mongo 连接错误：先确认本地服务是否启动，再检查 `yuiju.config.ts` 中的 `database.redisUrl` 和 `database.mongoUri`。
-- 启动消息服务失败：优先检查 `yuiju.config.ts` 中的 `message.napcat` 配置，以及 NapCat 服务本身是否可连接。
+- 启动消息服务失败：优先检查 `yuiju.config.ts` 中的 `message.onebot` / `message.lark` 配置，以及对应平台服务本身是否可连接。
 - Web 页面接口报数据库不可用：`web` 会在启动时尝试连接 MongoDB，若 `database.mongoUri` 为空或服务不可达，部分接口会不可用。
 
 ## 4. 项目部署（PM2）
@@ -190,7 +193,7 @@ pnpm run lint
 pnpm run type-check
 ```
 
-- 部署机器需要提前准备好项目根目录的 `yuiju.config.ts`，至少补全 `database.mongoUri`、`database.redisUrl`、`llm.deepseekApiKey` 等关键配置。
-- 当前根目录 `package.json` 没有声明 `pm2` 依赖，`pnpm run start` / `pnpm run stop` / `pnpm run restart` 依赖系统里已有可用的 `pm2` 命令。
+- 部署机器需要提前准备好项目根目录的 `yuiju.config.ts`，至少补全 `database.mongoUri`、`database.redisUrl`、`llm.models` 等关键配置。
+- 当前根目录 `package.json` 已声明 `pm2` 开发依赖，推荐通过 `pnpm run start` / `pnpm run stop` / `pnpm run restart` 使用仓库脚本。
 - `ecosystem.config.js` 中当前配置了 `autorestart: false`，若需要异常自动拉起，需要按运维策略调整。
 - `yuiju-web` 在 PM2 中会先执行构建再启动；如果只想更新前端服务，建议先确认构建环境可用，再执行 `pm2 restart yuiju-web`。

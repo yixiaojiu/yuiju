@@ -33,8 +33,9 @@ yuiju 是一个 LLM 驱动的虚拟角色自主生活模拟项目。
 
 # Get Started
 
-[部署文档](./docs/onboarding.md)
-[Docker 一键部署（单镜像）](./docs/docker-one-click.md)
+- [开发上手指南](./docs/onboarding.md)
+- [Docker 一键部署（单镜像）](./docs/docker-one-click.md)
+- [开发文档索引](./docs/README.md)
 
 # Architecture
 
@@ -42,6 +43,6 @@ yuiju 是一个 LLM 驱动的虚拟角色自主生活模拟项目。
 
 # 相关文档
 
-项目目前处于早期开发阶段，文档建设比较少，详细内容可以问 AI（呜呜）。
+项目目前处于早期开发阶段，活跃开发文档统一从 [docs/README.md](./docs/README.md) 进入。
 
-每个子应用内可能有自己的 READEME.md 文件
+各包 README 只描述对应包的当前职责、入口和注意事项；历史设计草稿不作为当前实现事实。
