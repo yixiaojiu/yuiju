@@ -1,66 +1,39 @@
-# 提示词与数据源 (@yuiju/source)
+# 资源包 (@yuiju/source)
 
-`@yuiju/source` 负责沉淀项目中的提示词、训练数据与辅助脚本，是 LLM 行为决策与数据构造的来源层。
+`@yuiju/source` 目前只保留图片、音频、数据集、技能和辅助脚本资源。
 
-## 项目概述
+## 当前职责
 
-这个子包本身不提供独立运行服务，主要提供三类内容：
+- 保存角色头像、表情包等图片资源。
+- 保存参考音频等素材。
+- 保存数据集和数据转换脚本。
+- 保存外部工具 skill 资源。
 
-- Prompt 模板：给 `world`、`message` 等子包使用
-- 数据集：用于手工整理或生成训练数据
-- 转换脚本：辅助 JSON / JSONL 数据处理
+Prompt 文案不在本包维护。当前 Prompt 真相源是 `@yuiju/utils/src/prompt/`。
 
-## 核心能力
-
-- **行为决策 Prompt**：为 Agent 动作选择、参数选择提供提示词模板
-- **设定资料 Prompt**：角色卡、世界观、地图等内容生成
-- **数据资产管理**：维护手写样本、模板样本、生成样本
-- **辅助脚本**：支持数据格式转换与导出
-
-## 目录结构
+## 主要目录
 
 ```text
-prompt/
-├── index.ts          # Prompt 统一导出
-├── character-card.ts # 角色卡相关 Prompt
-├── world-map.ts      # 地图与场景相关 Prompt
-├── world-view.ts     # 世界观相关 Prompt
-└── utils.ts          # Prompt 工具函数
-
-dataset/
-├── handwritten.jsonl
-├── template.jsonl
-├── train.jsonl
-└── llm-generation.jsonl
-
-scripts/
-└── jsonl-transfer.ts # 数据转换脚本
+audio/      # 音频素材
+dataset/    # 数据集和数据构造说明
+picture/    # 图片与表情包资源
+scripts/    # 数据转换脚本
+skills/     # 外部工具 skill 资源
+index.ts    # 空导出，仅保留 workspace 包入口
 ```
-
-## 依赖关系
-
-- `world`：使用 Prompt 进行动作与参数决策
-- `message`：使用 Prompt 组织对话相关上下文
-- `utils`：提供基础类型与通用工具
 
 ## 使用方式
 
-### 在业务包中引入 Prompt
+业务包通常通过配置中的资源路径引用本包文件，例如 `message.stickers.*.uri`。
 
-```ts
-import { chooseActionPrompt } from "@yuiju/source";
-```
-
-### 处理数据集
-
-若需要运行数据脚本，可结合 `tsx` 在根目录执行对应脚本，例如：
+如需运行数据脚本，可在根目录执行：
 
 ```bash
 pnpm tsx packages/source/scripts/jsonl-transfer.ts
 ```
 
-## 注意事项
+## 修改注意事项
 
-- 该包目前没有独立脚本命令，更多是被其他包以 workspace 依赖方式消费。
-- 数据集文件较多，修改时建议保持字段结构稳定，避免影响下游 Prompt 或训练流程。
-- Prompt 文案的调整会直接影响 Agent 的行为决策结果，建议配合 `world` 测试一起验证。
+- 不要把新的 Prompt 文案放回 `@yuiju/source`。
+- 新增素材时，优先通过 `yuiju.config.ts` 或明确代码路径引用。
+- 数据集字段结构变化需要确认下游脚本是否依赖。

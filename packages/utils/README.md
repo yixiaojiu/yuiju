@@ -1,82 +1,47 @@
 # 公共能力包 (@yuiju/utils)
 
-`@yuiju/utils` 是整个仓库的基础能力层，负责提供跨子包复用的类型、配置读取、数据库连接、Redis 状态读写、时间处理和通用工具函数。
+`@yuiju/utils` 是跨包公共能力层，提供配置、类型、Redis、MongoDB、LLM、Memory、Prompt 和常量。
 
-## 项目概述
+## 当前职责
 
-这个子包不直接提供独立服务，而是作为所有业务包的公共依赖：
+- 读取根目录 `yuiju.config.ts`。
+- 定义 Character、World、Action、Plan、Memory 等领域类型。
+- 提供 Redis 客户端和状态读写封装。
+- 提供 MongoDB 连接、schema 和读写操作。
+- 创建 OpenAI-compatible LLM 模型来源。
+- 维护 Prompt 文案和 Prompt 工具。
+- 提供记忆、日记、人物记忆和计划相关公共能力。
 
-- `world` 用它管理状态、行为类型、数据库与 Redis
-- `web` 用它读取状态、构建 API 响应
-- `message` 用它连接数据库并保存聊天记录
-- `source` 用它复用通用类型和工具函数
-
-## 核心能力
-
-- **类型定义**：行为、状态、商店、咖啡馆等核心领域类型
-- **统一配置读取**：从项目根目录 `yuiju.config.ts` 读取全局配置
-- **数据库能力**：MongoDB 连接、行为记录与消息记录 Schema
-- **Redis 能力**：角色状态与世界状态初始化、读取和持久化
-- **时间工具**：统一时间格式与时间相关辅助函数
-- **LLM 工具**：记忆检索、状态查询等工具封装
-
-## 导出模块
+## 主要目录
 
 ```text
 src/
-├── db/        # MongoDB 连接与 Schema
-├── env.ts     # 兼容旧导入的运行模式判断工具
-├── llm/       # LLM 相关工具
-├── memory/    # 长期记忆客户端封装
-├── redis.ts   # Redis 客户端、Key、状态初始化
-├── time.ts    # 时间相关工具
-├── types/     # 领域类型定义
-└── utils.ts   # 通用函数
+├── config/      # yuiju.config.ts 类型与读取器
+├── constants/   # 角色和世界静态常量
+├── db/          # MongoDB 连接、schema、operations
+├── llm/         # 模型来源、工具调用、structured output
+├── memory/      # Episode、Diary、Person Memory、Plan Memory
+├── prompt/      # Prompt 真相源
+├── redis/       # Redis 客户端与状态读写
+├── types/       # 领域类型
+└── time.ts      # 项目时区相关工具
 ```
 
-## 典型使用场景
+## 配置边界
 
-### 读取项目配置
-
-```ts
-import { getYuijuConfig } from "@yuiju/utils";
-
-const config = getYuijuConfig();
-const mongoUri = config.database.mongoUri;
-```
-
-### 兼容旧副作用导入
-
-```ts
-import "@yuiju/utils/env";
-```
-
-### 获取 Redis 客户端
-
-```ts
-import { getRedis } from "@yuiju/utils";
-
-const redis = getRedis();
-```
-
-### 初始化角色状态
-
-```ts
-import { initCharacterStateData } from "@yuiju/utils";
-
-const state = await initCharacterStateData();
-```
+- 业务配置只从根目录 `yuiju.config.ts` 读取。
+- `NODE_ENV` 仍是运行时环境变量，不进入 `yuiju.config.ts`。
+- `env.ts` 只保留 `isDev` / `isProd` 这类运行模式判断，不负责加载配置文件。
+- 不要在业务包里新增分散配置读取逻辑。
 
 ## 运行命令
 
 ```bash
-# 类型检查
-pnpm --filter @yuiju/utils run type-check
+pnpm run type-check:utils
 ```
 
-## 注意事项
+## 修改注意事项
 
-- 真实业务配置统一来自根目录 `yuiju.config.ts`，不是 `.env`。
-- `env.ts` 仅为兼容历史 `import "@yuiju/utils/env"` 的副作用导入而保留，不再负责加载配置文件。
-- Redis 默认使用 `yuiju.config.ts` 中的 `database.redisUrl`，未配置时回退到 `redis://localhost:6379`。
-- 这个包不负责 UI 或业务流程，新增能力时优先保持“无业务偏置”的公共抽象。
+- 新增公共能力前确认它确实跨包复用，且不把业务规则藏进 utils。
+- Prompt 修改遵守 [Prompt 规范](../../docs/rules/prompt-style.md)。
+- Redis / MongoDB 副作用应让调用方能看清状态来源和写入目的。

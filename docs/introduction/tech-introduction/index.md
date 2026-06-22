@@ -22,7 +22,8 @@ Yuiju 是一个 LLM 驱动的角色自主生活模拟项目。
 - `@yuiju/message` 负责用户如何和角色对话。
 - `@yuiju/web` 负责观察世界运行状态。
 - `@yuiju/utils` 提供跨模块复用的基础能力。
-- `@yuiju/source` 存放角色相关素材和数据。
+- `@yuiju/source` 存放角色相关素材、数据集和辅助脚本。
+- Prompt 文案集中维护在 `@yuiju/utils/src/prompt/`。
 
 ## World：世界模拟引擎
 
@@ -155,9 +156,9 @@ LLM 只在通过前置条件的候选 Action 中选择，不直接修改角色�
 
 ![Memory 记忆模块](./images/memory-flow.svg)
 
-模块的记忆模块还有很多需要优化的地方，但整体已经基本可用。
+当前记忆链路分为可追溯事实和派生记忆两类：`MemoryEpisode` 保存已经发生的经历事实，Diary 和人物记忆基于 Episode 或对话窗口生成，不替代事实记录。
 
-其中的「用户记忆文件」是用 json 文件存储的，而且让 LLM 自更新，偶尔会出现记忆更新错误的情况。
+Python / Graphiti 服务用于长期记忆图谱写入和语义检索。它只处理 TS 侧已经准入的 Episode，不决定业务事件是否真实发生。
 
 ## 数据与基础设施
 

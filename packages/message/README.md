@@ -1,102 +1,58 @@
 # 消息服务 (@yuiju/message)
 
-`@yuiju/message` 是悠酱项目的消息入口层，负责接收外部消息、调用 LLM 生成回复，并将对话记录写入持久化存储。
+`@yuiju/message` 是外部消息入口，负责接入 OneBot / Lark，标准化平台消息，调用 LLM 生成回复，并维护私聊、群聊上下文。
 
-## 项目概述
+## 当前职责
 
-这个子包主要解决“如何和悠酱对话”的问题，当前包含两种运行方式：
+- 通过 Satori 接入 OneBot 和 Lark。
+- 根据 `message.onebot` / `message.lark` 白名单处理私聊和群聊。
+- 将平台消息转换成统一的内部消息结构。
+- 维护私聊、群聊历史、滚动摘要和记忆写入边界。
+- 启动内部 HTTP API，供 world 触发主动消息和读取群聊上下文。
+- 根据 `message.stickers` 配置加载可用表情包。
 
-- 终端模式：本地快速调试对话逻辑
-- 消息平台模式：接入 NapCat WebSocket，处理真实私聊消息
-
-## 核心能力
-
-- **消息接入**：监听私聊消息并抽取文本内容
-- **LLM 对话**：调用 `llmManager` 生成回复内容
-- **消息持久化**：将用户消息与助手回复写入 MongoDB
-- **白名单控制**：通过配置限制可访问的用户范围
-
-## 目录结构
+## 主要目录
 
 ```text
 src/
-├── server.ts                # 生产模式入口，连接 NapCat WebSocket
-├── terminal.ts              # 开发模式入口，使用终端进行对话
-├── demo.ts                  # 示例脚本
-├── config.ts                # NapCat 与白名单配置
-├── chat-session-manager.ts  # 会话管理
-├── tts.ts                   # 语音相关逻辑
-└── llm/
-    └── manager.ts           # LLM 对话封装
+├── server.ts          # 生产和开发入口
+├── internal-api.ts    # 内部 HTTP API
+├── handler/           # 私聊和群聊入口流程
+├── llm/               # 会话上下文与回复生成
+├── memory/            # 消息 Episode 与人物记忆写入
+├── state/             # 图片缓存、表情状态
+└── utils/             # 平台消息标准化与发送辅助
 ```
 
-## 依赖关系
+## 配置与依赖
 
-- `@yuiju/utils`：统一配置读取、数据库连接、消息记录存储
-- `@yuiju/source`：提示词与对话相关内容
-- `node-napcat-ts`：NapCat WebSocket 客户端
-
-## 项目配置
-
-消息服务依赖根目录 `yuiju.config.ts` 中的以下配置：
+消息服务读取根目录 `yuiju.config.ts`：
 
 - `database.mongoUri`
-- `llm.deepseekApiKey`
-- `message.napcat`
-- `message.ownerList`
-- `message.groupWhiteList`
+- `llm.models`
+- `message.onebot`
+- `message.lark`
+- `message.internalApi`
+- `message.stickers`
 
-首次使用时，先基于示例文件创建本地配置：
+平台依赖：
 
-```bash
-cp yuiju.config.ts.example yuiju.config.ts
-```
-
-额外说明：
-
-- `NODE_ENV` 仍然是运行时环境变量，不在 `yuiju.config.ts` 中
-- 终端调试模式不依赖 NapCat，但真实消息平台模式需要 `message.napcat` 可正常连接
+- `@satorijs/core`
+- `@yuiju/satorijs-adapter-onebot`
+- `@satorijs/adapter-lark`
 
 ## 运行命令
 
 ```bash
-# 终端调试模式
 pnpm run dev:message
-
-# 示例脚本
-pnpm run demo:message
-
-# 生产模式
 pnpm run start:message
-
-# 类型检查
+pnpm run demo:message
 pnpm run type-check:message
 ```
 
-## 使用说明
+## 修改注意事项
 
-### 终端模式
-
-适合本地快速验证对话链路，不依赖 NapCat。
-
-```bash
-pnpm run dev:message
-```
-
-### NapCat 模式
-
-适合接入真实消息平台，启动前需要确保：
-
-- NapCat 服务可连接
-- `yuiju.config.ts` 中的 `message.napcat` 已正确配置
-- `yuiju.config.ts` 中的 `llm.deepseekApiKey` 与 `database.mongoUri` 可用
-
-```bash
-pnpm run start:message
-```
-
-## 注意事项
-
-- `server.ts` 会在启动时先连接 MongoDB，再连接 NapCat。
-- 若未配置 `llm.deepseekApiKey`，消息服务会直接返回提示文案，不会继续调用模型。
-- 开发环境建议优先使用 `terminal.ts`，排查问题更直接。
+- Handler 只表达入口流程和副作用编排，不承载复杂领域规则。
+- 面向用户的回复不能暴露 Action、schema、字段名或内部流程。
+- 白名单和 owner 判断必须在调用 LLM 或发送消息前完成。
+- 群聊新消息替换旧回复请求时，旧请求不应继续发送过期回复。

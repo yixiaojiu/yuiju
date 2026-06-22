@@ -1,90 +1,47 @@
 # 羽浦町 (@yuiju/world)
 
-「羽浦町」世界实现，悠酱生活的地方。
+`@yuiju/world` 是世界模拟引擎，负责推进世界状态、角色行为、行为历史、日记生成和主动消息触发。
 
-## 项目概述
+## 当前职责
 
-这是一个基于 LLM 驱动的虚拟生活模拟系统，采用实时 tick 循环机制，模拟角色在虚拟世界中的日常生活。
+- 运行世界状态 tick，推进天气、场景开放状态和场景资源。
+- 运行角色行为 tick，读取角色状态、世界状态和历史经历。
+- 按 Action 的 `precondition` 过滤可执行行为，再让 LLM 在候选 Action 中选择。
+- 执行 Action executor，写入 Redis 实时状态和 MongoDB 行为历史。
+- 根据行为结果生成日记、计划变化和主动分享意图。
 
-### 核心特性
+## 主要目录
 
-- **智能决策系统**：使用 LLM 根据角色状态、历史行为、当前环境进行行为选择
-- **场景化行为**：基于角色所在位置（Home/School/Anywhere）提供不同的行为选项
-- **状态持久化**：Redis（缓存）+ MongoDB（历史记录）双存储架构，保证状态一致性
-- **参数化行为**：支持带参数的行为（如"吃"行为需要选择具体食物）
-- **计划管理**：支持长期计划（长期目标）和短期计划（待办事项）
-- **动态时间系统**：世界时间随行为执行自动推进
-
-## 核心架构
-
-### 引擎循环（[engine/](src/engine/)）
-
-负责世界的主循环，每个 tick 执行一次完整的决策流程：获取可用行为 → LLM 决策 → 执行行为 → 等待。
-
-### 行为系统（[action/](src/action/)）
-
-定义角色可执行的所有行为，按场景划分（家中/学校/通用），支持前置条件过滤和参数化行为。
-
-### 状态管理（[state/](src/state/)）
-
-管理角色状态（体力、位置、金钱等）和世界状态（时间、天气），采用 Redis 为准的持久化架构。
-
-### LLM 决策（[llm/](src/llm/)）
-
-基于当前状态、历史记录和可用行为，使用 LLM 选择合适的行为和参数。
-
-### 数据持久化
-
-- **Redis**：角色状态的实时缓存
-- **MongoDB**：行为历史记录存储
-
-## 快速开始
-
-### 项目配置
-
-项目运行依赖根目录的 `yuiju.config.ts`，而不是旧版 `.env` 配置。
-
-首次使用时，先基于示例文件创建本地配置：
-
-```bash
-cp yuiju.config.ts.example yuiju.config.ts
+```text
+src/
+├── action/          # 按场景组织的 Action 定义
+├── engine/          # world runner、action lifecycle、主动消息流程
+├── llm/             # Action 决策 Agent
+├── memory/          # 行为 Episode 与日记生成
+├── state/           # Character / World 状态读写封装
+└── main.ts          # 进程入口
 ```
 
-至少需要确认以下配置项：
+## 配置与依赖
 
-- `database.mongoUri`：MongoDB 连接地址
-- `database.redisUrl`：Redis 连接地址
-- `llm.deepseekApiKey`：LLM 调用凭据
+- 业务配置来自根目录 `yuiju.config.ts`。
+- Redis 是角色和世界实时状态真相源。
+- MongoDB 保存行为历史、记忆和日记等可追溯记录。
+- LLM 模型来源来自 `llm.models`，由 `@yuiju/utils` 统一创建。
+- Prompt 文案来自 `@yuiju/utils/src/prompt/`。
 
-额外说明：
-
-- `NODE_ENV` 仍然是运行时环境变量，不在 `yuiju.config.ts` 中
-- `world` 依赖 Redis 与 MongoDB，启动前请确保两者可访问
-
-### 运行命令
+## 运行命令
 
 ```bash
-# 开发模式
 pnpm run dev:world
-
-# 生产模式
 pnpm run start:world
-
-# 类型检查
 pnpm run type-check:world
+pnpm run test:world
 ```
 
-## 设计原则
+## 修改注意事项
 
-1. **Redis 为准**：所有状态以 Redis 中的数据为准，内存状态只是缓存
-2. **行为可重现**：行为记录保存到 MongoDB，用于历史回溯和 LLM 上下文
-3. **前置条件分离**：每个行为必须声明 `precondition`，系统负责过滤
-4. **参数化扩展**：需要选择参数的行为通过 `parameterResolver` + Agent 实现
-5. **时间一致性**：世界时间随行为执行自动推进，保证时间流逝的真实感
-
-## 代码规范
-
-- 使用 Biome 进行代码检查和格式化
-- TypeScript 路径别名：`@/` 指向 `src/` 目录
-- 所有状态修改必须通过 `CharacterState` 的方法，不要直接修改
-- 行为执行器应该是幂等的，避免副作用
+- 新增 Action 时必须定义清晰的 `precondition`。
+- Action executor 是真实副作用落点，应显式修改状态或写入记录。
+- LLM 只负责在候选行为中做决策，不直接修改 Redis、MongoDB 或外部平台。
+- 涉及领域边界时先读 [领域设计规范](../../docs/rules/domain-design-style.md)。
