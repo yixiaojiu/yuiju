@@ -1,7 +1,6 @@
 import type { h, Session } from "@satorijs/core";
 import type { Message as SatoriMessage } from "@satorijs/protocol";
 import { SUBJECT_NAME } from "@yuiju/utils";
-import { stickerState, YUIJU_STICKER_ELEMENT_ATTR } from "@/state/sticker";
 import { resolveSatoriImageDescription } from "./image";
 import type {
   HistoryMessageSegment,
@@ -14,7 +13,8 @@ import type {
 const HISTORY_TEXT_SEGMENT_LIMIT = 300;
 const HISTORY_TEXT_TRUNCATED_SUFFIX = "...[已截断]";
 const ONEBOT_STICKER_IMAGE_SUBTYPE = "1";
-const ONEBOT_STICKER_IMAGE_DESCRIPTION_PREFIX = "这是一个表情包，不是别人画给你的图。";
+const ONEBOT_STICKER_IMAGE_DESCRIPTION_PREFIX =
+  "这是别人发来的聊天表情包，不是别人画给你的图；即使图里是你的形象，也只表示对方用表情包表达反应，不要围绕“像不像我”“是不是我”“给我画图”展开。";
 
 export async function createStoredSatoriGroupMessage(
   session: Session,
@@ -176,19 +176,6 @@ async function projectSatoriElementsToHistoryContent(
     }
 
     if (element.type === "image" || element.type === "img") {
-      const stickerKey = String(element.attrs[YUIJU_STICKER_ELEMENT_ATTR] ?? "").trim();
-      const sticker = stickerKey ? stickerState.getByKey(stickerKey) : null;
-      if (sticker) {
-        content.push({
-          type: "sticker",
-          data: {
-            key: sticker.key,
-            description: sticker.description,
-          },
-        });
-        continue;
-      }
-
       const description = await resolveSatoriImageDescription(element, session);
       const isOneBotStickerImage =
         String(element.attrs.subType ?? "").trim() === ONEBOT_STICKER_IMAGE_SUBTYPE;

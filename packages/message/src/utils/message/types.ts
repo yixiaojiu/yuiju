@@ -68,14 +68,6 @@ export interface HistoryImageSegment {
   };
 }
 
-export interface HistoryStickerSegment {
-  type: "sticker";
-  data: {
-    key: string;
-    description: string;
-  };
-}
-
 export interface HistoryFaceSegment {
   type: "face";
   data: {
@@ -86,7 +78,6 @@ export interface HistoryFaceSegment {
 export type HistoryMessageSegment =
   | HistoryTextSegment
   | HistoryImageSegment
-  | HistoryStickerSegment
   | HistoryAtSegment
   | HistoryReplySegment
   | HistoryFaceSegment
