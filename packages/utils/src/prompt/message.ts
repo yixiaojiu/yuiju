@@ -33,7 +33,7 @@ export const messageHistorySchemaPrompt = `
 - \`text\`：文本段，读取 \`data.text\`
 - \`at\`：@ 提及段，表示这条消息提到了某个对象；\`data.displayName\` 是被提到的人或全体成员
 - \`reply\`：引用/回复段，表示这条消息引用了另一条消息；\`data.speaker\` 是被引用消息的发言者，\`data.content\` 是被引用消息的内容段数组
-- \`image\`：用户或平台消息里的普通图片段，优先读取 \`data.description\` 作为图片内容描述
+- \`image\`：用户或平台消息里的图片段，优先读取 \`data.description\` 作为图片内容描述；如果描述以“这是一个表情包”开头，请理解为对方发来的聊天表情包反应，不要理解成别人画给你的图
 - \`sticker\`：${SUBJECT_NAME}(${NICKNAME}) 通过 \`[[sticker:key]]\` 主动发送的表情包段，读取 \`data.description\` 理解当时的情绪反应；这不是别人发来的图片，也不是用户画给你的图
 - \`face\`：QQ 表情段，读取 \`data.faceText\`
 
