@@ -9,7 +9,6 @@
     "./env": "./src/env.ts"
   },
   "scripts": {
-    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "keywords": [],

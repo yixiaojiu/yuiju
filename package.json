@@ -12,7 +12,6 @@
     "lint-staged": "lint-staged",
     "demo:message": "pnpm --filter @yuiju/message run demo",
     "demo:world": "pnpm --filter @yuiju/world run demo",
-    "test:utils": "pnpm --filter @yuiju/utils run test",
     "stop": "pm2 stop ecosystem.config.js",
     "restart": "pm2 restart ecosystem.config.js",
     "start": "pm2 start ecosystem.config.js",
