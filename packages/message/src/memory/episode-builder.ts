@@ -89,3 +89,22 @@ export function buildConversationEpisode(input: {
     },
   };
 }
+
+/**
+ * 判断今天是否还需要更新人物记忆。
+ *
+ * 说明：
+ * - 人物记忆更新过于频繁会放大 LLM 调用成本，因此限制为每天最多更新一次；
+ * - `lastUpdatedMs` 为空表示从未更新过，需要立即更新；
+ * - 与今天不是同一天时才允许再次更新。
+ */
+export function shouldUpdatePersonMemoryToday(
+  lastUpdatedMs: number | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!lastUpdatedMs) {
+    return true;
+  }
+
+  return !dayjs(lastUpdatedMs).isSame(dayjs(nowMs), "day");
+}
