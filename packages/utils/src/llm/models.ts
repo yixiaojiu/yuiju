@@ -36,20 +36,36 @@ class LlmModelSourceAvailability {
   }
 }
 
+const jsonSchemaCapableModels = new WeakSet<object>();
+
+/**
+ * 判断某个模型是否可以直接下发 JSON Schema 由 provider 约束采样。
+ *
+ * 未经 createFallbackModel 登记的模型返回 false —— 宁可多走一轮提示词兜底，
+ * 也不要向不支持的 provider 发出会被拒绝的请求。
+ */
+export function modelSupportsJsonSchema(model: unknown): boolean {
+  return typeof model === "object" && model !== null && jsonSchemaCapableModels.has(model);
+}
+
 function createFallbackModel(name: LlmModelName, sources: YuijuLlmModelSourcesConfig) {
   const models = sources.map((source) => {
     const provider = createOpenAICompatible({
       baseURL: source.baseUrl,
       apiKey: source.apiKey,
       name,
-      supportsStructuredOutputs: true,
+      supportsStructuredOutputs: source.supportsJsonSchema === true,
     });
 
     return provider(source.model);
   });
   const availability = new LlmModelSourceAvailability(models.length);
 
-  return wrapLanguageModel({
+  // 同一档位内会在多个来源之间轮换，任何一个来源不支持都不能下发 Schema，
+  // 否则轮换到该来源时请求会被 provider 拒绝。
+  const supportsJsonSchema = sources.every((source) => source.supportsJsonSchema === true);
+
+  const fallbackModel = wrapLanguageModel({
     model: {
       specificationVersion: "v4",
       provider: `yuiju-${name}`,
@@ -128,6 +144,12 @@ function createFallbackModel(name: LlmModelName, sources: YuijuLlmModelSourcesCo
     },
     middleware: [],
   });
+
+  if (supportsJsonSchema) {
+    jsonSchemaCapableModels.add(fallbackModel);
+  }
+
+  return fallbackModel;
 }
 
 type FallbackModel = ReturnType<typeof createFallbackModel>;

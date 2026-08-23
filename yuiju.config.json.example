@@ -12,7 +12,8 @@
         {
           "baseUrl": "https://api.siliconflow.cn/v1",
           "apiKey": "xxx",
-          "model": "Qwen/Qwen3-8B"
+          "model": "Qwen/Qwen3-8B",
+          "supportsJsonSchema": true
         }
       ],
       "strong": [

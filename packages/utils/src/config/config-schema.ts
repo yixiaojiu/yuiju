@@ -116,6 +116,18 @@ export interface YuijuLlmModelConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  /**
+   * 该来源的 provider 是否支持 json_schema 结构化采样。
+   *
+   * 说明：
+   * - 为 true 时，JSON Schema 会作为 response_format 直接下发给 provider，
+   *   由 provider 在采样阶段约束输出结构；
+   * - 为 false 或未配置时，只要求 provider 输出 JSON，Schema 改写进提示词，
+   *   并在解析失败时走 flash 模型的修正流程；
+   * - 不确定就不要配。配成 true 但 provider 实际不支持时，
+   *   请求会被 provider 拒绝，而不是静默降级。
+   */
+  supportsJsonSchema?: boolean;
 }
 
 export interface YuijuEmbeddingModelConfig extends YuijuLlmModelConfig {
@@ -259,6 +271,7 @@ const yuijuLlmModelConfigSchema: z.ZodType<YuijuLlmModelConfig> = z.object({
   baseUrl: z.string(),
   apiKey: z.string(),
   model: z.string(),
+  supportsJsonSchema: z.boolean().optional(),
 });
 
 const yuijuLlmModelSourcesConfigSchema: z.ZodType<YuijuLlmModelSourcesConfig> = z.tuple(
