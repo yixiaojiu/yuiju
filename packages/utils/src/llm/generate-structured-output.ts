@@ -15,9 +15,6 @@ import { getFlashModel, modelSupportsJsonSchema } from "./models";
 type GenerateTextOptions = Parameters<typeof generateText>[0];
 type RuntimeContext = Record<string, unknown>;
 
-/** provider 原生结构化采样失败后的重试次数。 */
-const SCHEMA_SAMPLING_ATTEMPTS = 3;
-
 /**
  * 专门用于生成结构化 JSON。
  *
@@ -26,8 +23,6 @@ const SCHEMA_SAMPLING_ATTEMPTS = 3;
  * 1. provider 支持 json_schema（配置显式写了 true）：
  *    Schema 作为 response_format 直接下发，由 provider 在采样阶段约束输出结构。
  *    不再把 Schema 重复写进提示词——那既浪费 token，也可能与原生约束互相干扰。
- *    失败时重试 {@link SCHEMA_SAMPLING_ATTEMPTS} 次，不走修正流程：
- *    原生约束下的失败通常是 provider 侧问题，重新采样比让另一个模型猜更可靠。
  *
  * 2. provider 不支持（未配置或配置为 false）：
  *    只要求输出 JSON，Schema 改写进提示词，解析失败时用 flash 模型做一次修正。
@@ -68,47 +63,38 @@ export async function generateStructuredOutput<OUTPUT extends Output.Output>(
   // 路径 1：provider 原生 json_schema 结构化采样
   //
   // 直接透传 options.output，AI SDK 会把 Schema 放进 response_format 下发。
+  //
+  // 这里不做重试：generateText 内部对每一步的模型调用已带 maxRetries（默认 2 次，
+  // 指数退避，只重试 408/409/429/5xx），且范围限于失败的那一次请求，不会重放
+  // 前面已执行的工具；而在外层重试会把整个多步请求连同工具副作用一起重放。
   // ---------------------------------------------------------------------------
   if (modelSupportsJsonSchema(options.model)) {
-    let lastError: unknown;
+    try {
+      const result = await generateText({
+        ...options,
+        model,
+        telemetry: getLangfuseTelemetry(),
+      });
 
-    for (let attempt = 0; attempt < SCHEMA_SAMPLING_ATTEMPTS; attempt += 1) {
-      try {
-        const result = await generateText({
-          ...options,
-          model,
-          telemetry: getLangfuseTelemetry(),
-        });
+      const output = await options.output.parseCompleteOutput(
+        { text: result.text },
+        {
+          response: result.finalStep.response,
+          usage: result.usage,
+          finishReason: result.finishReason,
+        },
+      );
 
-        const output = await options.output.parseCompleteOutput(
-          { text: result.text },
-          {
-            response: result.finalStep.response,
-            usage: result.usage,
-            finishReason: result.finishReason,
-          },
-        );
-
-        return { ...result, output };
-      } catch (error) {
-        if (NoObjectGeneratedError.isInstance(error)) {
-          logger.warn("[llm.structured-output] 原生结构化采样未产出可解析 JSON", {
-            attempt: attempt + 1,
-            maxAttempts: SCHEMA_SAMPLING_ATTEMPTS,
-            text: error.text,
-          });
-        }
-
-        lastError = error;
+      return { ...result, output };
+    } catch (error) {
+      if (NoObjectGeneratedError.isInstance(error)) {
+        logger.warn("[llm.structured-output] 原生结构化采样未产出可解析 JSON", error.text);
       }
-    }
 
-    throw lastError;
+      throw error;
+    }
   }
 
-  // ---------------------------------------------------------------------------
-  // 路径 2：provider 不支持 Schema，写进提示词 + 失败后用 flash 模型修正
-  // ---------------------------------------------------------------------------
   const instructions = [
     options.instructions,
     structuredOutputJsonPrompt,
