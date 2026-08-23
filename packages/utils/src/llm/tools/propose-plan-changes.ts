@@ -6,7 +6,7 @@ import { logger } from "../../logger";
 import { buildPlanUpdateEpisodes, planManager } from "../../memory";
 import type { AgentPlanChange } from "../../types";
 import { reviewPlanChanges } from "./review-plan-changes";
-import { agentPlanChangeSchema } from "./schema";
+import { agentPlanChangeToolSchema } from "./schema";
 
 export interface CreateChatPlanChangesProposalToolInput {
   scene: "private" | "group";
@@ -70,7 +70,7 @@ export function createChatPlanChangesProposalTool(input: CreateChatPlanChangesPr
   return tool({
     description: "提交计划变更提案",
     inputSchema: z.object({
-      planChanges: z.array(agentPlanChangeSchema).min(1).describe("候选计划变更"),
+      planChanges: z.array(agentPlanChangeToolSchema).min(1).describe("候选计划变更"),
     }),
     execute: async ({ planChanges }) => {
       reviewAndApplyChatPlanChanges({

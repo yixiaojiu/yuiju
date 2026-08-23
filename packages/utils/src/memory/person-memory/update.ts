@@ -62,7 +62,11 @@ const personMemoryProposalSchema = z.strictObject({
 const personMemoryReviewSchema = z.strictObject({
   approved: z.boolean().describe("是否通过审查。"),
   reason: z.string().min(1).describe("审查结论。"),
-  issues: z.array(z.string().min(1)).optional().describe("未通过时需要修正的问题列表。"),
+  issues: z
+    .array(z.string().min(1))
+    .nullable()
+    .transform((value) => value ?? undefined)
+    .describe("未通过时需要修正的问题列表。"),
 });
 
 export async function updatePersonMemory(

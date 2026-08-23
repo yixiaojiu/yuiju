@@ -58,7 +58,7 @@ ${phoneApplicationsPrompt
  */
 const planUpdateGuidelinePrompt = `
 ## 计划更新规则
-只在计划状态确实变化时输出 \`planChanges\`，否则省略。短期计划推进到下一步、即时吃饭/休息/发呆，或只是换个说法，都不算计划变化。
+只在计划状态确实变化时填写 \`planChanges\`，否则填 \`null\`。短期计划推进到下一步、即时吃饭/休息/发呆，或只是换个说法，都不算计划变化。
 
 - 「羽浦」内能获取的物品是有限的，定制计划时不能出现「羽浦」内不存在的物品，例如：购买轻小说。你可以使用工具查询「羽浦」地点中能获取到的商品。
 - \`longTerm\`：跨多天/多阶段的方向性目标，如攒钱、适应兼职；不要写一次性行动或当天安排。
@@ -66,11 +66,11 @@ const planUpdateGuidelinePrompt = `
 - 现有计划仍有效时优先保留；只有目标失效、完成、放弃，或接下来事项序列明显改变，才更新。
 - 拟定 \`planChanges\` 后必须先调用 \`reviewPlanChanges\`；只有审查通过的版本才能写进最终 JSON。
 
-每项结构：\`scope\`、\`changeType\`、\`currentPlan?\`、\`nextPlan?\`、\`reason\`。
+每项结构：\`scope\`、\`changeType\`、\`currentPlan\`、\`nextPlan\`、\`reason\`。五个键都必须出现，用不上的那个填 \`null\`，不要填空字符串。
 字段规则：
-- \`created\`：只填 \`nextPlan\`
+- \`created\`：填 \`nextPlan\`，\`currentPlan\` 填 \`null\`
 - \`updated\`：同时填 \`currentPlan\` 和 \`nextPlan\`，且内容必须真的变化
-- \`abandoned\` / \`completed\`：只填 \`currentPlan\`
+- \`abandoned\` / \`completed\`：填 \`currentPlan\`，\`nextPlan\` 填 \`null\`
 - \`completed\` 必须表示已经完成
 - \`reason\` 写直接依据：状态变化、外部事件、计划失效或计划达成
 `.trim();
@@ -231,8 +231,8 @@ export function chooseActionPrompt({
 - 当你需要回忆今天的事件时，调用 \`todayEventSearch\`；当你需要回顾过去的日记时，调用 \`diarySearch\`；不要只依赖下面给出的最近 action 快捷上下文。
 - 下面的“最近的action”只是一段快捷上下文，不代表完整记忆；涉及更早历史、日记回顾或事实偏好时请主动查询。
 - 当你需要判断地点关系、移动方向、移动耗时、相邻地点或整体地图结构时，优先调用 \`queryStaticGuide\` 查询 \`worldMap\` 条目，而不是依赖记忆猜测。
-- 当这次 Action 包含具体生活内容、情绪变化、吃喝消费、打工收入、出游见闻、计划进展或值得顺手提一句的小事时，倾向于输出 \`proactiveShareIntent\`，并用一句话说明你想分享的理由。
-- 普通移动、发呆、短暂停留等低信息量 Action 不要输出 \`proactiveShareIntent\`。
+- 当这次 Action 包含具体生活内容、情绪变化、吃喝消费、打工收入、出游见闻、计划进展或值得顺手提一句的小事时，倾向于填写 \`proactiveShareIntent\`，并用一句话说明你想分享的理由。
+- 普通移动、发呆、短暂停留等低信息量 Action 把 \`proactiveShareIntent\` 填成 \`null\`。
 
 ${planUpdateGuidelinePrompt}
 
@@ -640,10 +640,10 @@ export function chooseShrinePrayerPrompt({
 
 ## 决策规则
 - 香火钱固定为 ${offeringCost} 元。
-- 只有当你决定投币时，才输出祈愿内容 \`wish\`。
-- 如果当前金币少于 ${offeringCost} 元，必须输出 \`shouldOffer = false\`，且不要输出 \`wish\`。
-- 如果决定投币，\`wish\` 必须是一句简短、自然、具体的祈愿，不要太长。
-- 如果不投币，只输出 \`shouldOffer = false\`。
+- 只有当你决定投币时，才填写祈愿内容 \`wish\`；不投币时 \`wish\` 填 \`null\`。
+- 如果当前金币少于 ${offeringCost} 元，必须输出 \`shouldOffer = false\`，且 \`wish\` 填 \`null\`。
+- 如果决定投币，\`wish\` 必须是一句简短、自然、具体的祈愿，不要太长，不要填空字符串。
+- 如果不投币，输出 \`shouldOffer = false\`，\`wish\` 填 \`null\`。
 
 ${baseInformation}
 

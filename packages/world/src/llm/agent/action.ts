@@ -82,20 +82,23 @@ export async function chooseActionAgent(
               ),
             durationMinute: z
               .number()
-              .optional()
-              .describe("Action持续多少分钟，只有特殊的Action需要给出持续时间"),
+              .nullable()
+              .transform((value) => value ?? undefined)
+              .describe("Action持续多少分钟，只有特殊的Action需要给出持续时间，其余情况填 null"),
             planChanges: z
               .array(agentPlanChangeSchema)
               .min(1)
-              .optional()
-              .describe("需要调整计划时才输出。输出前必须先调用 reviewPlanChanges。"),
+              .nullable()
+              .transform((value) => value ?? undefined)
+              .describe("需要调整计划时才填写，否则填 null。填写前必须先调用 reviewPlanChanges。"),
             proactiveShareIntent: z
               .object({
                 shouldShare: z.boolean().describe("是否想向别人分享点什么"),
                 reason: z.string(),
               })
-              .optional()
-              .describe("当你想向别人分享点什么的时候才输出"),
+              .nullable()
+              .transform((value) => value ?? undefined)
+              .describe("当你想向别人分享点什么的时候才填写，否则填 null"),
           }),
         }),
         prompt: systemPrompt,

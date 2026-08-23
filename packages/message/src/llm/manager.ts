@@ -324,9 +324,10 @@ export class LLMManager {
             noReplyReason: z.string().describe("不回复的简短原因"),
             moodDelta: z
               .union([z.literal(-1), z.literal(1)])
-              .optional()
+              .nullable()
+              .transform((value) => value ?? undefined)
               .describe(
-                "最新消息导致的心情变化；没有明确变化时不要输出这个字段；这个字段不代表回复语气强度，回复语气仍要参考当前状态里的心情",
+                "最新消息导致的心情变化；没有明确变化时填 null；这个字段不代表回复语气强度，回复语气仍要参考当前状态里的心情",
               ),
           }),
         }),
@@ -487,9 +488,10 @@ export class LLMManager {
             noReplyReason: z.string().describe("不回复的简短原因"),
             moodDelta: z
               .union([z.literal(-1), z.literal(1)])
-              .optional()
+              .nullable()
+              .transform((value) => value ?? undefined)
               .describe(
-                "最新消息导致的心情变化；没有明确变化时不要输出这个字段；这个字段不代表回复语气强度，回复语气仍要参考当前状态里的心情",
+                "最新消息导致的心情变化；没有明确变化时填 null；这个字段不代表回复语气强度，回复语气仍要参考当前状态里的心情",
               ),
           }),
         }),

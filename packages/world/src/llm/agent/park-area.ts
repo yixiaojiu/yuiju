@@ -44,7 +44,12 @@ export async function chooseShrinePrayerAgent(
         output: Output.object({
           schema: z.object({
             shouldOffer: z.boolean().describe("这次是否投币参拜"),
-            wish: z.string().max(40).optional().describe("只有在投币时才填写的一句简短祈愿"),
+            wish: z
+              .string()
+              .max(40)
+              .nullable()
+              .transform((value) => value ?? undefined)
+              .describe("只有在投币时才填写的一句简短祈愿，不投币时填 null"),
           }),
         }),
         prompt: systemPrompt,

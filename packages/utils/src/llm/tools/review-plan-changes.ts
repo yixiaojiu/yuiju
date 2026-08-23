@@ -11,12 +11,16 @@ import { generateStructuredOutput } from "../generate-structured-output";
 import { getFlashModel } from "../models";
 import { createToolCallLoggingHooks } from "../tool-call-logger";
 import { queryStateTool } from "./query-state";
-import { agentPlanChangeSchema } from "./schema";
+import { agentPlanChangeToolSchema } from "./schema";
 
 const reviewResultSchema = z.object({
   approved: z.boolean().describe("是否通过审查。"),
   reason: z.string().describe("审查结论。"),
-  issues: z.array(z.string()).optional().describe("未通过时需要修正的问题列表。"),
+  issues: z
+    .array(z.string())
+    .nullable()
+    .transform((value) => value ?? undefined)
+    .describe("未通过时需要修正的问题列表。"),
 });
 
 type PlanChangeReviewResult = z.infer<typeof reviewResultSchema>;
@@ -66,7 +70,7 @@ export function reviewPlanChangesTool(input: { chatContext?: PlanChangeReviewCha
       "审查候选 planChanges 是否合理。只有审查通过后，才能把 planChanges 写进最终 JSON。",
     inputSchema: z.object({
       planChanges: z
-        .array(agentPlanChangeSchema)
+        .array(agentPlanChangeToolSchema)
         .min(1)
         .describe("候选计划变更。必须传入你准备写进最终 JSON 的完整 planChanges。"),
     }),
