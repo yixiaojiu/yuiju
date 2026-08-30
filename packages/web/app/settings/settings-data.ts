@@ -20,6 +20,9 @@ export interface SettingsSnapshot {
     identity: string;
     model: string;
   };
+  message: {
+    status: ServiceStatus;
+  };
   mongo: {
     status: ServiceStatus;
     episodeCount: number | null;
@@ -75,6 +78,23 @@ export async function getSettingsSnapshot(): Promise<SettingsSnapshot> {
     }
   })();
 
+  const messagePromise = (async () => {
+    if (!config.message.web.enabled) {
+      return { status: "offline" as const };
+    }
+
+    try {
+      const { host, port } = config.message.internalApi;
+      const response = await fetch(`http://${host}:${port}/internal/web/messages?limit=1`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      });
+      return { status: response.ok ? ("online" as const) : ("offline" as const) };
+    } catch {
+      return { status: "offline" as const };
+    }
+  })();
+
   const personMemoryPromise = (async () => {
     try {
       const [directory, heatDocument] = await Promise.all([
@@ -95,9 +115,10 @@ export async function getSettingsSnapshot(): Promise<SettingsSnapshot> {
     }
   })();
 
-  const [mongo, redis, personMemory] = await Promise.all([
+  const [mongo, redis, message, personMemory] = await Promise.all([
     mongoPromise,
     redisPromise,
+    messagePromise,
     personMemoryPromise,
   ]);
 
@@ -109,6 +130,7 @@ export async function getSettingsSnapshot(): Promise<SettingsSnapshot> {
       identity: ownerName,
       model: config.llm.models.chat[0].model,
     },
+    message,
     mongo,
     redis,
     personMemory,

@@ -10,7 +10,7 @@ import { HomeStatusCard } from "./home/home-status-card";
 import { HomeWorldCard } from "./home/home-world-card";
 
 export default function HomePage() {
-  const { data: homeData } = useSWR(HOME_SUMMARY_ENDPOINT, fetchHomeSummary);
+  const { data: homeData, error: homeError } = useSWR(HOME_SUMMARY_ENDPOINT, fetchHomeSummary);
 
   const status = useMemo(() => {
     return homeData?.status;
@@ -22,6 +22,14 @@ export default function HomePage() {
 
   return (
     <main className="max-w-300 mx-auto px-[18px] pt-[18px] pb-[36px]">
+      {homeError ? (
+        <Alert className="mb-[14px] border-[#f0caca] bg-[#fff3f3] text-[#9a3d3d]" role="alert">
+          <TriangleAlert />
+          <AlertDescription className="text-[#9a3d3d]">
+            首页状态暂时无法读取，请稍后刷新重试。
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <div className="grid grid-cols-[360px_1fr] max-[1020px]:grid-cols-1 gap-[14px] items-start">
         <div className="grid gap-[14px]">
           <HomeStatusCard

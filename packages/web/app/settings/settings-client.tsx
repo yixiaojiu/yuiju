@@ -228,13 +228,7 @@ export function SettingsClient({ snapshot }: { snapshot: SettingsSnapshot }) {
                 icon={Activity}
                 label="Web 私聊"
                 detail="当前网页对话入口"
-                value={
-                  snapshot.chat.enabled ? (
-                    <StatusMark status="online" />
-                  ) : (
-                    <StatusMark status="offline" />
-                  )
-                }
+                value={<StatusMark status={snapshot.message.status} />}
               />
               <SettingsRow
                 icon={UserRound}

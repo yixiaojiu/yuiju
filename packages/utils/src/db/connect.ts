@@ -22,7 +22,12 @@ export const connectDB = async () => {
 
   const connectionPromise = mongoose.connect(uri).then(() => mongoose.connection);
   mongoConnection = connectionPromise;
-  return connectionPromise;
+  return connectionPromise.catch((error) => {
+    if (mongoConnection === connectionPromise) {
+      mongoConnection = null;
+    }
+    throw error;
+  });
 };
 
 export const connectSyncDB = async (): Promise<Connection | null> => {
@@ -37,7 +42,12 @@ export const connectSyncDB = async (): Promise<Connection | null> => {
   const uri = getYuijuConfig().database.syncMongoUri?.trim() as string;
   const connectionPromise = mongoose.createConnection(uri).asPromise();
   syncMongoConnection = connectionPromise;
-  return connectionPromise;
+  return connectionPromise.catch((error) => {
+    if (syncMongoConnection === connectionPromise) {
+      syncMongoConnection = null;
+    }
+    throw error;
+  });
 };
 
 export const getMongoConnection = async (source: MongoReadSource = "primary") => {

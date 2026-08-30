@@ -27,6 +27,10 @@ export const fetchFileTree = async (scope: "logs" | "memory", service?: LogsServ
   }
 
   const response = await fetch(`/api/nodejs/files/tree?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error(`读取文件目录失败：${response.status}`);
+  }
+
   const payload = (await response.json()) as FileTreeResponse;
   return payload.data?.tree ?? [];
 };
@@ -42,6 +46,10 @@ export const fetchFileContent = async (
   }
 
   const response = await fetch(`/api/nodejs/files/content?${query.toString()}`);
+  if (!response.ok) {
+    throw new Error(`读取文件失败：${response.status}`);
+  }
+
   const payload = (await response.json()) as FileContentResponse;
 
   return {
@@ -51,7 +59,7 @@ export const fetchFileContent = async (
 };
 
 export const saveMemoryFile = async (path: string, content: string) => {
-  await fetch("/api/nodejs/files/content", {
+  const response = await fetch("/api/nodejs/files/content", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -60,4 +68,8 @@ export const saveMemoryFile = async (path: string, content: string) => {
       content,
     }),
   });
+
+  if (!response.ok) {
+    throw new Error(`保存记忆文件失败：${response.status}`);
+  }
 };

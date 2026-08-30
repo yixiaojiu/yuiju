@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   type FileTreeNode,
   fetchFileContent,
@@ -31,9 +32,13 @@ export default function MemoryPage() {
 
   useEffect(() => {
     const loadTree = async () => {
-      const nodes = await fetchFileTree("memory");
-      setTree(nodes);
-      setSelectedPath(collectFirstFilePath(nodes));
+      try {
+        const nodes = await fetchFileTree("memory");
+        setTree(nodes);
+        setSelectedPath(collectFirstFilePath(nodes));
+      } catch {
+        toast.error("记忆文件目录读取失败，请稍后重试");
+      }
     };
 
     void loadTree();
@@ -53,6 +58,11 @@ export default function MemoryPage() {
         setContent(payload.content);
         setSavedContent(payload.content);
         setLanguage(payload.language);
+      } catch {
+        setContent("");
+        setSavedContent("");
+        setLanguage("plaintext");
+        toast.error("记忆文件读取失败，请稍后重试");
       } finally {
         setLoading(false);
       }
@@ -69,6 +79,8 @@ export default function MemoryPage() {
     try {
       await saveMemoryFile(selectedPath, content);
       setSavedContent(content);
+    } catch {
+      toast.error("记忆文件保存失败，请稍后重试");
     } finally {
       setSaving(false);
     }
