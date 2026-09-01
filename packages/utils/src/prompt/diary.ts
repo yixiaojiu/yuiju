@@ -12,6 +12,44 @@ export interface DiarySummaryPromptInput {
   diaryEndDate: Date;
 }
 
+export interface DiaryReviewPromptInput {
+  diaryDate: Date;
+  materialsJson: string;
+  diaryText: string;
+}
+
+export interface DiaryRevisionPromptInput {
+  diaryText: string;
+  reviewReason: string;
+  reviewIssues: string[];
+}
+
+const naturalDiaryStateNarrationPrompt = `
+## 生活化状态表达
+- 把素材中的体力、饱腹、心情等内部状态和变化数值，转写成第一人称能够直接感受到的身体状态、情绪和生活体验。
+- 正文采用转写后的自然感受，用“累、精神了一些、肚子饿、吃饱了、安心、开心、失落”等生活表达替代内部字段名、分数、比例和增减点数。
+`.trim();
+
+export const diaryReviewSystemPrompt = `
+你是日记事实边界审批 agent。你的任务是判断候选日记是否把外部聊天成员错误地写进了日记主体所在的内部世界。
+
+${crossWorldRelationshipBoundaryPrompt}
+
+## 审批方法
+- 先从 onlineConversations 中识别外部聊天成员，再逐段检查候选日记如何描述这些人。
+- 外部聊天成员可以作为线上交流对象出现在日记中，正文应自然写清“在群里说”“在线上分享”“隔着屏幕聊到”等交流来源。
+- 外部聊天成员提到的身份、地点、学校、商店、行动、关系和约定属于对方在线上的表达。候选日记应把这些内容保留在屏幕另一端，而不是写成日记主体所在内部世界中的共同物理事实。
+- 当外部聊天成员与日记主体都提到公园、学校、咖啡店等相似地点时，候选日记应区分为各自所在的地方，不能据此写成同一地点、同一家店或共同生活经历。
+- worldFacts 可能包含受到错误聊天记忆影响的行动理由。遇到外部聊天成员被带入内部世界的描述时，只把日记主体自己实际执行的地点、行动、物品和结果视为世界事实，不把外部成员的到场、陪伴或共同参与视为依据。
+- 线上玩笑、邀请和未来约定可以作为聊天内容记录；只有素材明确证明日记主体自己完成的行动，才能写成内部世界中已经发生的事件。
+- 审批只判断跨世界观污染。普通叙事取舍、自然的感受表达和不扭曲事实的生活细节不构成驳回理由。
+
+## 输出要求
+- approved=true 表示候选日记没有跨世界观污染，可以写入。
+- approved=false 表示候选日记需要重写，reason 给出审查结论，issues 逐项指出具体污染描述及正确边界。
+- 只做审批判断，不输出修正版日记。
+`.trim();
+
 export const defaultDiaryPrompt = `
 ## 日记任务
 请根据提供给你的当天真实事件素材，写一篇属于你自己的私密日记。
@@ -33,6 +71,8 @@ export const defaultDiaryPrompt = `
 - 正文里要自然带出一些可回忆的锚点，例如：人物、地点、做了什么、发生了什么变化、最后结果怎样。
 - 这些锚点要融进日记叙述里，不要写成条目，也不要像记会议纪要。
 - 如果某个瞬间很重要，可以多写一点当时的感受；但不要把整篇都写成纯情绪，而忽略今天到底发生了什么。
+
+${naturalDiaryStateNarrationPrompt}
 
 ## 事实约束
 - 只能基于提供的事件素材写，不允许编造未发生的事件、对话、关系变化或心理活动。
@@ -79,6 +119,38 @@ ${dayjs(input.diaryDate).format("YYYY-MM-DD")}
 `.trim();
 }
 
+export function buildDiaryReviewPrompt(input: DiaryReviewPromptInput): string {
+  return `
+## 日记日期
+${dayjs(input.diaryDate).format("YYYY-MM-DD")}
+
+## 当日素材
+\`\`\`json
+${input.materialsJson}
+\`\`\`
+
+## 候选日记
+${input.diaryText}
+`.trim();
+}
+
+export function buildDiaryRevisionPrompt(input: DiaryRevisionPromptInput): string {
+  return `
+## 重写任务
+上一版候选日记的世界观复核发现了问题。请根据原始素材和以下复核意见，重新写出完整日记正文。
+保留日记主体自己在内部世界中真实执行的行动与结果，把外部聊天成员的内容自然还原为屏幕另一端的线上交流。
+
+## 上一版候选日记
+${input.diaryText}
+
+## 复核结论
+${input.reviewReason}
+
+## 需要修正的问题
+${input.reviewIssues.map((issue, index) => `${index + 1}. ${issue}`).join("\n")}
+`.trim();
+}
+
 export function buildDiarySummarySystemPrompt(input: DiarySummaryPromptInput): string {
   const periodText = {
     week: "这一周",
@@ -114,6 +186,8 @@ export function buildDiarySummarySystemPrompt(input: DiarySummaryPromptInput): s
 - 正文里要自然保留可回忆的锚点，例如：出现过的人、具体地点、做过的事、发生的变化、持续了一段时间的状态。
 - 如果输入材料里有明确的人名、场景、行动、物品或结果，不要全部模糊成“发生了很多事”“有一些变化”。
 - 感受要挂在具体事件或关系上，不要只写抽象情绪，也不要为了文艺感把事实写得太虚。
+
+${naturalDiaryStateNarrationPrompt}
 
 ## 整理边界
 - 你可以把重复内容合并，但不要把有差异的事件强行概括成同一件事。

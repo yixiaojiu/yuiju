@@ -10,16 +10,30 @@ import {
   upsertMemoryDiary,
 } from "@yuiju/utils";
 import { getPromptCustomizationOverrides } from "@yuiju/utils/db/operations/prompt-customization";
+import { generateStructuredOutput } from "@yuiju/utils/llm/generate-structured-output";
 import { getLangfuseTelemetry } from "@yuiju/utils/llm/langfuse-telemetry";
-import { getFlashModel } from "@yuiju/utils/llm/models";
+import { getFlashModel, getStrongModel } from "@yuiju/utils/llm/models";
 import { indexDailyDiary } from "@yuiju/utils/memory/diary-vector-index";
+import {
+  buildDiaryReviewPrompt,
+  buildDiaryRevisionPrompt,
+  diaryReviewSystemPrompt,
+} from "@yuiju/utils/prompt/diary";
 import { getPromptCustomizationContent } from "@yuiju/utils/prompt/prompt-customization";
 import { crossWorldRelationshipBoundaryPrompt } from "@yuiju/utils/prompt/world-view";
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import dayjs from "dayjs";
+import { z } from "zod";
 import { logger } from "@/utils/logger";
 
 const SLEEP_DIARY_ROLLOVER_HOUR = 6;
+const MAX_DIARY_REVIEW_ATTEMPTS = 5;
+
+const diaryReviewResultSchema = z.strictObject({
+  approved: z.boolean().describe("候选日记是否通过跨世界观审批。"),
+  reason: z.string().min(1).describe("审批结论。"),
+  issues: z.array(z.string().min(1)).describe("未通过时需要修正的问题；通过时为空数组。"),
+});
 
 export interface GenerateDailyMemoriesForDateInput {
   diaryDate: Date;
@@ -31,7 +45,103 @@ async function writeDiaryText(input: {
   diaryDate: Date;
   materials: DiarySummaryMaterial[];
 }): Promise<string> {
+  const materials = {
+    worldFacts: input.materials
+      .filter((item) => item.type !== "conversation" && item.type !== "conversation_summary")
+      .map((item) => ({
+        type: item.type,
+        happenedAt: item.happenedAt,
+        content: item.content,
+      })),
+    onlineConversations: input.materials
+      .filter((item) => item.type === "conversation" || item.type === "conversation_summary")
+      .map((item) => ({
+        type: item.type,
+        happenedAt: item.happenedAt,
+        content: item.content,
+      })),
+  };
+  const materialsJson = JSON.stringify(materials);
   const promptOverrides = await getPromptCustomizationOverrides(["character", "diary"]);
+  const instructions = [
+    getPromptCustomizationContent("character", promptOverrides),
+    getPromptCustomizationContent("diary", promptOverrides),
+    crossWorldRelationshipBoundaryPrompt,
+    buildDiarySystemPrompt({ diaryDate: input.diaryDate }),
+  ].join("\n\n");
+  let diaryText = await generateDiaryDraft({
+    instructions,
+    materialsJson,
+  });
+  let lastReviewResult: z.infer<typeof diaryReviewResultSchema> | undefined;
+
+  for (let attempt = 1; attempt <= MAX_DIARY_REVIEW_ATTEMPTS; attempt += 1) {
+    try {
+      const { output: reviewResult } = await generateStructuredOutput({
+        model: getStrongModel(),
+        instructions: diaryReviewSystemPrompt,
+        prompt: buildDiaryReviewPrompt({
+          diaryDate: input.diaryDate,
+          materialsJson,
+          diaryText,
+        }),
+        output: Output.object({
+          schema: diaryReviewResultSchema,
+        }),
+      });
+
+      if (reviewResult.approved) {
+        logger.info("[diary] candidate approved", {
+          diaryDate: dayjs(input.diaryDate).format("YYYY-MM-DD"),
+          attempt,
+        });
+        return diaryText;
+      }
+
+      lastReviewResult = reviewResult;
+      logger.warn("[diary] candidate rejected", {
+        diaryDate: dayjs(input.diaryDate).format("YYYY-MM-DD"),
+        attempt,
+        reason: reviewResult.reason,
+        issues: reviewResult.issues,
+      });
+
+      try {
+        diaryText = await generateDiaryDraft({
+          instructions,
+          materialsJson,
+          revisionPrompt: buildDiaryRevisionPrompt({
+            diaryText,
+            reviewReason: reviewResult.reason,
+            reviewIssues: reviewResult.issues,
+          }),
+        });
+      } catch (error) {
+        logger.error("[diary] candidate revision failed, keeping current candidate", error);
+      }
+    } catch (error) {
+      logger.error("[diary] review failed, keeping current candidate", {
+        diaryDate: dayjs(input.diaryDate).format("YYYY-MM-DD"),
+        attempt,
+        error,
+      });
+    }
+  }
+
+  logger.warn("[diary] review attempts exhausted, writing last candidate", {
+    diaryDate: dayjs(input.diaryDate).format("YYYY-MM-DD"),
+    reviewReason: lastReviewResult?.reason,
+    reviewIssues: lastReviewResult?.issues,
+  });
+
+  return diaryText;
+}
+
+async function generateDiaryDraft(input: {
+  instructions: string;
+  materialsJson: string;
+  revisionPrompt?: string;
+}): Promise<string> {
   const result = await generateText({
     model: getFlashModel(),
     telemetry: getLangfuseTelemetry(),
@@ -40,28 +150,8 @@ async function writeDiaryText(input: {
         enable_thinking: true,
       },
     },
-    instructions: [
-      getPromptCustomizationContent("character", promptOverrides),
-      getPromptCustomizationContent("diary", promptOverrides),
-      crossWorldRelationshipBoundaryPrompt,
-      buildDiarySystemPrompt({ diaryDate: input.diaryDate }),
-    ].join("\n\n"),
-    prompt: JSON.stringify({
-      worldFacts: input.materials
-        .filter((item) => item.type !== "conversation" && item.type !== "conversation_summary")
-        .map((item) => ({
-          type: item.type,
-          happenedAt: item.happenedAt,
-          content: item.content,
-        })),
-      onlineConversations: input.materials
-        .filter((item) => item.type === "conversation" || item.type === "conversation_summary")
-        .map((item) => ({
-          type: item.type,
-          happenedAt: item.happenedAt,
-          content: item.content,
-        })),
-    }),
+    instructions: input.instructions,
+    prompt: [input.materialsJson, input.revisionPrompt].filter(Boolean).join("\n\n"),
   });
 
   return result.text.trim();
