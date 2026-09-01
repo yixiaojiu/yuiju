@@ -7,7 +7,10 @@ import { diarySearchTool, semanticDiarySearchTool } from "../llm/tools/memory-se
 import { getPersonMemoryTool, listPersonMemoriesTool } from "../llm/tools/person-memory";
 import { queryStaticGuideTool } from "../llm/tools/query-static-guide";
 import { memoryRetrievalSystemPrompt } from "../prompt/memory-retrieval";
-import { buildChatMemoryRetrievalQuery } from "../prompt/message";
+import {
+  buildBatchChatMemoryRetrievalQuery,
+  buildChatMemoryRetrievalQuery,
+} from "../prompt/message";
 import { readCoreMemory } from "./core-memory";
 
 export interface MemoryRetrievalInput {
@@ -21,6 +24,12 @@ export interface ChatMemoryRetrievalToolInput {
   historyJson: string;
   abortSignal: AbortSignal;
   semanticDiarySearchCallLimit?: number;
+}
+
+export interface BatchChatMemoryRetrievalToolInput {
+  summary?: string;
+  historyJson: string;
+  abortSignal: AbortSignal;
 }
 
 export function createChatMemoryRetrievalTool(input: ChatMemoryRetrievalToolInput) {
@@ -51,6 +60,29 @@ export function createChatMemoryRetrievalTool(input: ChatMemoryRetrievalToolInpu
     }),
     hasBeenCalled: () => resultPromise !== null,
   };
+}
+
+export function createBatchChatMemoryRetrievalTool(input: BatchChatMemoryRetrievalToolInput) {
+  return tool({
+    description:
+      "当回复判断或内容依赖不同的过去经历、人物关系、偏好、约定或静态设定时，按明确目标检索相关记忆与事实；可以围绕不同目标多次调用。",
+    inputSchema: z.object({
+      query: z.string().min(1).describe("本次要检索的单个明确目标"),
+    }),
+    execute: async ({ query }) => {
+      const coreMemory = await readCoreMemory();
+
+      return retrieveMemory({
+        query: buildBatchChatMemoryRetrievalQuery({
+          query,
+          summary: input.summary,
+          historyJson: input.historyJson,
+          memory: coreMemory ?? undefined,
+        }),
+        abortSignal: input.abortSignal,
+      });
+    },
+  });
 }
 
 export async function retrieveMemory(input: MemoryRetrievalInput): Promise<string> {

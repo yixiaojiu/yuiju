@@ -1,6 +1,5 @@
 import {
   buildMessageHistoryUserPrompt,
-  changeCharacterMoodByChat,
   createChatPlanChangesProposalTool,
   createToolCallLoggingHooks,
   generateStructuredOutput,
@@ -11,7 +10,10 @@ import { getChatModel } from "@yuiju/utils/llm/models";
 import { todayEventSearchTool } from "@yuiju/utils/llm/tools/memory-search";
 import { queryAvailableInventoryItems } from "@yuiju/utils/llm/tools/query-available-inventory-items";
 import { queryStateTool } from "@yuiju/utils/llm/tools/query-state";
-import { createChatMemoryRetrievalTool } from "@yuiju/utils/memory/memory-retrieval";
+import {
+  createBatchChatMemoryRetrievalTool,
+  createChatMemoryRetrievalTool,
+} from "@yuiju/utils/memory/memory-retrieval";
 import { buildChatSystemPrompt } from "@yuiju/utils/prompt/message";
 import { getPromptCustomizationContent } from "@yuiju/utils/prompt/prompt-customization";
 import { Output, stepCountIs } from "ai";
@@ -27,7 +29,7 @@ import {
   type StoredSatoriPrivateMessage,
 } from "@/utils/message";
 import { buildSatoriGroupSessionKey, buildSatoriPrivateSessionKey } from "@/utils/message/satori";
-import { ChatSessionManager } from "./chat-session-manager";
+import { ChatSessionManager } from "./session-manager";
 
 async function getEffectiveChatSystemPrompt(): Promise<string> {
   const overrides = await getPromptCustomizationOverrides(["character", "world", "chat"]);
@@ -68,7 +70,7 @@ export type ChatResult =
       status: "cancelled";
     };
 
-export class LLMManager {
+export class ChatManager {
   private privateSession: ChatSessionManager<StoredSatoriPrivateMessage>;
   public readonly groupSession: ChatSessionManager<StoredSatoriGroupMessage>;
   /**
@@ -303,39 +305,9 @@ export class LLMManager {
                 "回复内容，可以包含合法的 [[sticker:key]] 表情包标记；shouldReply为false时，这个字段应该是空字符",
               ),
             noReplyReason: z.string().describe("不回复的简短原因"),
-            moodDelta: z
-              .union([z.literal(-1), z.literal(1)])
-              .nullable()
-              .transform((value) => value ?? undefined)
-              .describe(
-                "最新消息导致的心情变化；没有明确变化时填 null；这个字段不代表回复语气强度，回复语气仍要参考当前状态里的心情",
-              ),
           }),
         }),
       });
-
-      if (!this.isLatestChatRequest(sessionId, requestId)) {
-        return { status: "cancelled" };
-      }
-
-      if (result.output.moodDelta !== undefined) {
-        const moodChange = await changeCharacterMoodByChat(result.output.moodDelta);
-        session.recordMoodChange({
-          sessionId,
-          delta: moodChange.delta,
-        });
-        if (moodChange.delta !== 0) {
-          logger.info("[message.mood.chat] 聊天消息影响心情", {
-            scene: message.scene,
-            sessionId,
-            sessionLabel,
-            sender,
-            requestId,
-            delta: moodChange.delta,
-            currentMood: moodChange.currentMood,
-          });
-        }
-      }
 
       if (!this.isLatestChatRequest(sessionId, requestId)) {
         return { status: "cancelled" };
@@ -380,10 +352,162 @@ export class LLMManager {
     }
   }
 
+  /**
+   * 集中查看一批新消息，并使用不限制语义日记检索次数的深度思考生成回复。
+   */
+  public async chatBatch(message: StoredSatoriChatMessage): Promise<ChatResult> {
+    const sessionId = message.sessionId;
+    const sessionLabel = message.sessionLabel;
+    const sender = getProtocolMessageSenderName(message);
+    const requestId = getProtocolMessageId(message);
+    const session = message.scene === "group" ? this.groupSession : this.privateSession;
+    const previousTask = this.activeChatTaskBySessionId.get(sessionId);
+    if (previousTask) {
+      logger.info("[message.llm.chat] 新消息到来，取消同会话上一条回复生成", {
+        scene: message.scene,
+        sessionId,
+        sessionLabel,
+        sender,
+        requestId,
+        previousRequestId: previousTask.requestId,
+      });
+      previousTask.controller.abort("replaced by newer chat request");
+    }
+
+    const controller = new AbortController();
+    this.latestChatRequestIdBySessionId.set(sessionId, requestId);
+    this.activeChatTaskBySessionId.set(sessionId, {
+      controller,
+      requestId,
+    });
+
+    const { historyJson, summary } = session.getHistoryJson(sessionId);
+    const characterState = await initCharacterStateData();
+    const systemPrompt = await getEffectiveChatSystemPrompt();
+
+    try {
+      const retrieveMemory = createBatchChatMemoryRetrievalTool({
+        summary,
+        historyJson,
+        abortSignal: controller.signal,
+      });
+      const tools = {
+        retrieveMemory,
+        todayEventSearch: todayEventSearchTool,
+        queryStateTool,
+        queryAvailableInventoryItems,
+        proposePlanChanges: createChatPlanChangesProposalTool({
+          summary,
+          historyJson,
+        }),
+      };
+      const result = await generateStructuredOutput({
+        model: getChatModel(),
+        instructions: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: buildMessageHistoryUserPrompt({
+              summary,
+              historyJson,
+              characterState,
+            }),
+          },
+        ],
+        tools,
+        stopWhen: stepCountIs(20),
+        abortSignal: controller.signal,
+        providerOptions: {
+          chat: {
+            enable_thinking: true,
+          },
+        },
+        ...createToolCallLoggingHooks({
+          scene: "message.llm.chat",
+        }),
+        output: Output.object({
+          schema: z.object({
+            shouldReply: z.boolean().describe("是否回复"),
+            reply: z
+              .string()
+              .describe(
+                "回复内容，可以包含合法的 [[sticker:key]] 表情包标记；shouldReply为false时，这个字段应该是空字符",
+              ),
+            noReplyReason: z.string().describe("不回复的简短原因"),
+          }),
+        }),
+      });
+
+      if (!this.isLatestChatRequest(sessionId, requestId)) {
+        return { status: "cancelled" };
+      }
+
+      logger.info("[message.llm.chat] LLM 返回聊天决策", {
+        scene: message.scene,
+        sessionId,
+        sessionLabel,
+        sender,
+        requestId,
+        shouldReply: result.output.shouldReply,
+        reply: result.output.reply,
+        noReplyReason: result.output.noReplyReason,
+      });
+
+      return {
+        status: "completed",
+        requestId,
+        shouldReply: result.output.shouldReply,
+        reply: result.output.reply,
+        noReplyReason: result.output.noReplyReason,
+      };
+    } catch (error: any) {
+      if (controller.signal.aborted) {
+        return { status: "cancelled" };
+      }
+      logger.error("[message.llm.chat] 聊天 LLM 调用失败", {
+        scene: message.scene,
+        sessionId,
+        sessionLabel,
+        sender,
+        requestId,
+        error: error?.message,
+      });
+      return { status: "failed" };
+    } finally {
+      const activeTask = this.activeChatTaskBySessionId.get(sessionId);
+      if (activeTask?.requestId === requestId) {
+        this.activeChatTaskBySessionId.delete(sessionId);
+      }
+    }
+  }
+
+  public startReplyWindow(input: {
+    message: StoredSatoriChatMessage;
+    delayMs: number;
+    onElapsed: (message: StoredSatoriChatMessage) => void;
+  }): boolean {
+    const session = input.message.scene === "group" ? this.groupSession : this.privateSession;
+    return session.startReplyWindow({
+      sessionId: input.message.sessionId,
+      delayMs: input.delayMs,
+      onElapsed: input.onElapsed,
+    });
+  }
+
+  public closeReplyWindow(message: StoredSatoriChatMessage): boolean {
+    const session = message.scene === "group" ? this.groupSession : this.privateSession;
+    return session.closeReplyWindow(message.sessionId);
+  }
+
+  public isReplyWindowOpen(message: StoredSatoriChatMessage): boolean {
+    const session = message.scene === "group" ? this.groupSession : this.privateSession;
+    return session.isReplyWindowOpen(message.sessionId);
+  }
+
   public isLatestChatRequest(sessionId: string, requestId: string): boolean {
     return this.latestChatRequestIdBySessionId.get(sessionId) === requestId;
   }
 }
 
 // 导出默认实例
-export const llmManager = new LLMManager();
+export const chatManager = new ChatManager();

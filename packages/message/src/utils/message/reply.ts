@@ -1,6 +1,6 @@
 import { setTimeout } from "node:timers/promises";
 import type { Session } from "@satorijs/core";
-import { llmManager } from "@/llm/manager";
+import { chatManager } from "@/chat/manager";
 import { stickerState } from "@/state/sticker";
 import { getReplyDelayMs } from "./delay";
 import { createStoredSatoriGroupBotMessage, createStoredSatoriPrivateBotMessage } from "./satori";
@@ -36,7 +36,7 @@ export async function sendAndRecordSatoriPrivateReply(input: {
       timestamp: Date.now(),
     });
 
-    await llmManager.recordPrivateMessage(storedSentMessage);
+    await chatManager.recordPrivateMessage(storedSentMessage);
 
     const nextLine = replyLines[lineIndex + 1];
     if (nextLine) {
@@ -75,7 +75,7 @@ export async function sendAndRecordSatoriGroupReply(input: {
       timestamp: Date.now(),
     });
 
-    await llmManager.recordGroupMessage(storedSentMessage);
+    await chatManager.recordGroupMessage(storedSentMessage);
 
     const nextLine = replyLines[lineIndex + 1];
     if (nextLine) {

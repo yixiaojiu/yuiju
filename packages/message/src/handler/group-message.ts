@@ -1,30 +1,13 @@
 import type { Session } from "@satorijs/core";
-import { ActionId, initCharacterStateData } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
-import { llmManager } from "@/llm/manager";
+import { chatManager } from "@/chat/manager";
+import { handleStoredSatoriChatMessage } from "@/chat/reply-strategy";
 import { logger } from "@/utils/logger";
-import {
-  createStoredSatoriGroupMessage,
-  type StoredSatoriGroupMessage,
-  sendAndRecordSatoriGroupReply,
-} from "@/utils/message";
+import { createStoredSatoriGroupMessage } from "@/utils/message";
 
-let isCloseGroup = false;
 const config = getYuijuConfig();
 
-export const closeGroupMessage = () => {
-  isCloseGroup = true;
-};
-
-export const openGroupMessage = () => {
-  isCloseGroup = false;
-};
-
 export async function groupMessageHandler(session: Session) {
-  if (isCloseGroup) {
-    return;
-  }
-
   const sessionGroupId = session.guildId ?? session.channelId;
   if (!sessionGroupId) {
     return;
@@ -59,66 +42,7 @@ export async function groupMessageHandler(session: Session) {
     content: storedMessage.content,
   });
 
-  await llmManager.recordGroupMessage(storedMessage);
+  await chatManager.recordGroupMessage(storedMessage);
 
-  await replyToStoredGroupMessage({ session, storedMessage });
-}
-
-export async function replyToStoredGroupMessage(input: {
-  session: Session;
-  storedMessage: StoredSatoriGroupMessage;
-}) {
-  const { session, storedMessage } = input;
-
-  const characterStateData = await initCharacterStateData();
-  if (characterStateData.action === ActionId.Sleep) {
-    return;
-  }
-
-  try {
-    const chatResult = await llmManager.chat(storedMessage);
-    if (chatResult.status === "cancelled") {
-      logger.info("[message.reply.group] 群聊回复生成已取消，不发送消息", {
-        sessionId: storedMessage.sessionId,
-        groupName: storedMessage.sessionLabel,
-        requestId: storedMessage.messageId,
-      });
-      return;
-    }
-    if (chatResult.status === "failed") {
-      return;
-    }
-
-    if (!llmManager.isLatestChatRequest(storedMessage.sessionId, chatResult.requestId)) {
-      logger.info("[message.reply.group] 群聊回复结果已过期，不发送消息", {
-        sessionId: storedMessage.sessionId,
-        groupName: storedMessage.sessionLabel,
-        requestId: chatResult.requestId,
-      });
-      return;
-    }
-
-    if (!chatResult.shouldReply) {
-      logger.info("[message.reply.group] 不回复", {
-        sessionId: storedMessage.sessionId,
-        groupName: storedMessage.sessionLabel,
-        requestId: chatResult.requestId,
-        reason: chatResult.noReplyReason || "未提供原因",
-      });
-      return;
-    }
-
-    const reply = chatResult.reply.trim();
-    if (!reply) {
-      return;
-    }
-
-    await sendAndRecordSatoriGroupReply({
-      session,
-      sourceMessage: storedMessage,
-      reply,
-    });
-  } catch (error) {
-    logger.error("[message.reply.group] 处理群消息失败", error);
-  }
+  await handleStoredSatoriChatMessage({ session, storedMessage });
 }

@@ -1,9 +1,8 @@
 import type { Session } from "@satorijs/core";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
-import { llmManager } from "@/llm/manager";
+import { chatManager } from "@/chat/manager";
+import { handleStoredSatoriChatRecall } from "@/chat/reply-strategy";
 import { logger } from "@/utils/logger";
-import { replyToStoredGroupMessage } from "./group-message";
-import { replyToStoredPrivateMessage } from "./private-message";
 
 const config = getYuijuConfig();
 
@@ -35,7 +34,7 @@ export async function messageRecallHandler(session: Session) {
         return;
       }
 
-      const recallMessage = await llmManager.recordPrivateMessageRecall({
+      const recallMessage = await chatManager.recordPrivateMessageRecall({
         platform: session.platform,
         channelId: session.channelId,
         messageId: session.messageId,
@@ -52,11 +51,7 @@ export async function messageRecallHandler(session: Session) {
         recallRequestId: recallMessage.messageId,
       });
 
-      await replyToStoredPrivateMessage({
-        session,
-        storedMessage: recallMessage,
-        userId,
-      });
+      await handleStoredSatoriChatRecall({ session, storedMessage: recallMessage });
       return;
     }
 
@@ -78,7 +73,7 @@ export async function messageRecallHandler(session: Session) {
       return;
     }
 
-    const recallMessage = await llmManager.recordGroupMessageRecall({
+    const recallMessage = await chatManager.recordGroupMessageRecall({
       platform: session.platform,
       channelId: session.channelId,
       messageId: session.messageId,
@@ -95,7 +90,7 @@ export async function messageRecallHandler(session: Session) {
       recallRequestId: recallMessage.messageId,
     });
 
-    await replyToStoredGroupMessage({ session, storedMessage: recallMessage });
+    await handleStoredSatoriChatRecall({ session, storedMessage: recallMessage });
   } catch (error) {
     logger.error("[message.recall] 处理消息撤回事件失败", error);
   }

@@ -35,7 +35,7 @@
 | --- | --- | --- | --- |
 | 世界模拟 | Tick、Action、Scene、Character/World 状态变化、行为完成事件 | `packages/world/src/engine/`、`action/`、`state/` | 行为规则放在 Action 或世界模拟主流程；不要写到 Web route、消息 handler 或 UI。 |
 | 记忆 | Episode、Diary、个人记忆、计划记录、检索和归档 | `packages/utils/src/memory/`、`db/schema/`、`packages/world/src/memory/`、`packages/message/src/memory/` | Episode 是事实记录，Diary 是叙事归档；新增事件类型要明确来源和长期语义。 |
-| 消息交互 | 私聊、群聊、通知事件、回复编排、发送和记录 | `packages/message/src/handler/`、`llm/`、`utils/` | handler 表达入口流程和副作用，不堆复杂领域规则。 |
+| 消息交互 | 私聊、群聊、通知事件、回复编排、发送和记录 | `packages/message/src/handler/`、`chat/`、`utils/` | handler 表达入口流程和副作用，不堆复杂领域规则。 |
 | Web/API | 页面、组件、状态查询、外部命令入口 | `packages/web/app/`、`lib/`、`components/` | route 可做入参和权限校验；命令型 API 不直接散写复杂领域状态变更。 |
 | 基础设施 | Redis、MongoDB、LLM、NapCat、配置、文件和外部服务 | `packages/utils/src/redis.ts`、`db/`、`llm/`、`config/`、`packages/python/`、`packages/source/` | 负责如何读写和调用，不决定角色、世界、行为或记忆的业务语义。 |
 

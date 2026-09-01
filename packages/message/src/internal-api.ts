@@ -6,7 +6,7 @@ import { SUBJECT_NAME } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
 import { webChatHistoryQuerySchema, webChatMessageInputSchema } from "@yuiju/utils/types/web-chat";
 import { Hono } from "hono";
-import { llmManager } from "@/llm/manager";
+import { chatManager } from "@/chat/manager";
 import { stickerState } from "@/state/sticker";
 import { logger } from "@/utils/logger";
 import { getReplyDelayMs } from "@/utils/message";
@@ -155,9 +155,9 @@ export function startMessageInternalApi(input: InternalApiInput) {
       platform,
       groupId,
     });
-    const groupContext = llmManager.groupSession.getHistoryJson(
+    const groupContext = chatManager.groupSession.getHistoryJson(
       buildSatoriGroupSessionKey(platform, groupId),
-      limit,
+      { limit },
     );
 
     return context.json({
@@ -214,7 +214,7 @@ export function startMessageInternalApi(input: InternalApiInput) {
         elements,
         timestamp: currentTimestamp,
       });
-      await llmManager.recordGroupMessage(storedSentMessage);
+      await chatManager.recordGroupMessage(storedSentMessage);
 
       const nextLine = replyLines[lineIndex + 1];
       if (nextLine) {

@@ -4,12 +4,12 @@ import OneBotBot from "@yuiju/satorijs-adapter-onebot";
 import { connectDB, initializePersonMemoryHeat } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
 import { initializeLangfuseTelemetry } from "@yuiju/utils/llm/langfuse-telemetry";
+import { chatManager } from "./chat/manager";
 import { groupMessageHandler } from "./handler/group-message";
 import { messageRecallHandler } from "./handler/message-recall";
 import { onebotPokeHandler } from "./handler/poke";
 import { privateMessageHandler } from "./handler/private-message";
 import { startMessageInternalApi } from "./internal-api";
-import { llmManager } from "./llm/manager";
 import { stickerState } from "./state/sticker";
 import { logger } from "./utils/logger";
 import { normalizeSatoriSession } from "./utils/satori/session";
@@ -78,7 +78,7 @@ async function main() {
   await initializePersonMemoryHeat();
   // 初始化表情
   await stickerState.initialize();
-  await llmManager.restoreConversationBackups();
+  await chatManager.restoreConversationBackups();
   startMessageInternalApi({ onebot, lark });
   await satori.start();
   logger.info("[message.server] 消息服务启动完成");

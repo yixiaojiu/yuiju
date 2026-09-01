@@ -14,16 +14,11 @@ export interface ChatWindowMessageItem {
   timestamp: string;
 }
 
-export interface ChatMoodChange {
-  delta: number;
-}
-
 export interface UserWindowState {
   sessionLabel: string;
   windowStartMs: number;
   lastTsMs: number;
   messages: StoredSatoriChatMessage[];
-  moodChanges: ChatMoodChange[];
 }
 
 interface ConversationEpisodePayload {
@@ -57,11 +52,6 @@ export function buildConversationEpisode(input: {
     timestamp: getTimeWithWeekday(dayjs(getProtocolMessageTimestampMs(message))),
   }));
   const messageCount = projectedMessages.length;
-  const moodDeltaTotal = input.state.moodChanges.reduce((total, change) => total + change.delta, 0);
-  const moodSummaryText =
-    input.state.moodChanges.length > 0
-      ? `心情变化：本窗口聊天让心情总共变化 ${moodDeltaTotal > 0 ? `+${moodDeltaTotal}` : moodDeltaTotal}`
-      : null;
   const summaryParts = input.summaryText
     ? [`时间范围：${windowStartText} 至 ${windowEndText}`, `对话摘要：${input.summaryText}`]
     : [
@@ -69,9 +59,6 @@ export function buildConversationEpisode(input: {
         `时间范围：${windowStartText} 至 ${windowEndText}`,
         `消息数量：${messageCount}`,
       ];
-  if (moodSummaryText) {
-    summaryParts.push(moodSummaryText);
-  }
 
   return {
     source: "chat",

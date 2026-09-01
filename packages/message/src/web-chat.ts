@@ -17,7 +17,7 @@ import type {
   WebChatReplyPart,
   WebChatResult,
 } from "@yuiju/utils/types/web-chat";
-import { llmManager } from "@/llm/manager";
+import { chatManager } from "@/chat/manager";
 import { stickerState } from "@/state/sticker";
 import { buildSatoriPrivateSessionKey } from "@/utils/message/satori";
 import type { HistoryMessageSegment, StoredSatoriPrivateMessage } from "@/utils/message/types";
@@ -100,10 +100,10 @@ export async function chatThroughWebChannel(input: WebChatMessageInput): Promise
     return projectStoredWebChatResult(beginResult.message);
   }
 
-  let result: Awaited<ReturnType<typeof llmManager.chat>>;
+  let result: Awaited<ReturnType<typeof chatManager.chat>>;
   try {
-    await llmManager.recordPrivateMessage(sourceMessage);
-    result = await llmManager.chat(sourceMessage);
+    await chatManager.recordPrivateMessage(sourceMessage);
+    result = await chatManager.chat(sourceMessage);
   } catch (error) {
     await completeWebChatMessage(sourceMessage.sessionId, input.messageId, { status: "failed" });
     throw error;
@@ -119,7 +119,7 @@ export async function chatThroughWebChannel(input: WebChatMessageInput): Promise
     await completeWebChatMessage(sourceMessage.sessionId, input.messageId, { status: "failed" });
     return { status: "failed" };
   }
-  if (!llmManager.isLatestChatRequest(sourceMessage.sessionId, result.requestId)) {
+  if (!chatManager.isLatestChatRequest(sourceMessage.sessionId, result.requestId)) {
     await completeWebChatMessage(sourceMessage.sessionId, input.messageId, {
       status: "superseded",
     });
@@ -142,7 +142,7 @@ export async function chatThroughWebChannel(input: WebChatMessageInput): Promise
       }
 
       appendWebReplyParts(parts, elements, parts.length > 0);
-      await llmManager.recordPrivateMessage({
+      await chatManager.recordPrivateMessage({
         ...sourceMessage,
         messageId: `${input.messageId}:reply:${lineIndex}`,
         sender: {

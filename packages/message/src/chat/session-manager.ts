@@ -25,7 +25,7 @@ import {
   type StoredSatoriPrivateMessage,
 } from "@/utils/message";
 import type { StoredSatoriRecallMessage } from "@/utils/message/types";
-import { buildConversationEpisode, type ChatMoodChange } from "../memory/episode-builder";
+import { buildConversationEpisode } from "../memory/episode-builder";
 import { updateGroupMemoryForChatWindow } from "../memory/group-memory";
 import {
   writePersonMemoryUpdatesForGroupChatWindow,
@@ -42,6 +42,10 @@ export interface SessionHistoryContext {
    */
   summary?: string;
   historyJson: string;
+}
+
+export interface ChatHistoryOptions {
+  limit?: number;
 }
 
 export interface ChatMessageInput<TMessage> {
@@ -124,12 +128,16 @@ export interface EpisodeWindowState<TMessage> {
   windowStartMs: number;
   lastTsMs: number;
   messages: TMessage[];
-  moodChanges: ChatMoodChange[];
 }
 
 interface ChatSessionManagerInput {
   options: ChatSessionManagerOptions;
   sceneLabel: "group" | "private";
+}
+
+interface ConversationState<TMessage> {
+  messages: TMessage[];
+  replyWindowTimer?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -138,14 +146,14 @@ interface ChatSessionManagerInput {
 const CONVERSATION_RECOVERY_MAX_IDLE_MS = 5 * 60 * 1000;
 
 /**
- * 群聊/私聊共享的会话核心实现。
+ * 群聊/私聊共享的聊天会话状态管理。
  *
  * 说明：
  * - 最近原始消息、滚动摘要块、episode 窗口分开维护，避免三个职责共用一个阈值；
  * - 上层初始化时显式传入 sceneLabel，避免为群聊/私聊增加只固定参数的包装类。
  */
 export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
-  private conversationBySessionId = new Map<string, TMessage[]>();
+  private conversationBySessionId = new Map<string, ConversationState<TMessage>>();
   private summaryChunkBySessionId = new Map<string, RollingSummaryChunkState<TMessage>>();
   private episodeStateBySessionId = new Map<string, EpisodeWindowState<TMessage>>();
   private summaryBySessionId = new Map<string, string>();
@@ -181,11 +189,12 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
   recordLastMessageRecall(
     input: ChatMessageRecallInput,
   ): StoredSatoriRecallMessage<TMessage> | null {
-    const conversation = this.conversationBySessionId.get(input.sessionId);
-    if (!conversation) {
+    const conversationState = this.conversationBySessionId.get(input.sessionId);
+    if (!conversationState) {
       return null;
     }
 
+    const conversation = conversationState.messages;
     const lastMessage = conversation.at(-1);
     if (!lastMessage || getProtocolMessageId(lastMessage) !== input.messageId) {
       return null;
@@ -245,21 +254,40 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     return recallMessage;
   }
 
-  recordMoodChange(input: { sessionId: string; delta: number }) {
-    if (input.delta === 0) {
-      return;
+  startReplyWindow(input: {
+    sessionId: string;
+    delayMs: number;
+    onElapsed: (message: TMessage) => void;
+  }): boolean {
+    const conversationState = this.conversationBySessionId.get(input.sessionId)!;
+    if (conversationState.replyWindowTimer) {
+      return false;
     }
 
-    const episodeState = this.episodeStateBySessionId.get(input.sessionId);
-    if (!episodeState) {
-      return;
+    conversationState.replyWindowTimer = setTimeout(() => {
+      conversationState.replyWindowTimer = undefined;
+      input.onElapsed(conversationState.messages.at(-1)!);
+    }, input.delayMs);
+    return true;
+  }
+
+  closeReplyWindow(sessionId: string): boolean {
+    const conversationState = this.conversationBySessionId.get(sessionId)!;
+    if (!conversationState.replyWindowTimer) {
+      return false;
     }
 
-    episodeState.moodChanges.push({ delta: input.delta });
+    clearTimeout(conversationState.replyWindowTimer);
+    conversationState.replyWindowTimer = undefined;
+    return true;
+  }
+
+  isReplyWindowOpen(sessionId: string): boolean {
+    return this.conversationBySessionId.get(sessionId)!.replyWindowTimer !== undefined;
   }
 
   async saveConversationBackup(sessionId: string): Promise<void> {
-    const messages = this.conversationBySessionId.get(sessionId) ?? [];
+    const messages = this.conversationBySessionId.get(sessionId)?.messages ?? [];
     await saveChatSessionConversationBackup({
       scene: this.sceneLabel,
       sessionId,
@@ -292,7 +320,7 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
         continue;
       }
 
-      this.conversationBySessionId.set(sessionId, messages);
+      this.conversationBySessionId.set(sessionId, { messages });
       restoredSessionCount += 1;
     }
 
@@ -306,16 +334,17 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     };
   }
 
-  getHistoryJson(sessionId: string, limit?: number): SessionHistoryContext {
-    const list = this.conversationBySessionId.get(sessionId) ?? [];
+  getHistoryJson(sessionId: string, options: ChatHistoryOptions = {}): SessionHistoryContext {
+    const conversationState = this.conversationBySessionId.get(sessionId);
+    const list = conversationState?.messages ?? [];
     const trimmedMessages = this.trimConversation(list);
-    if (trimmedMessages.length !== list.length) {
-      this.conversationBySessionId.set(sessionId, trimmedMessages);
+    if (conversationState && trimmedMessages.length !== list.length) {
+      conversationState.messages = trimmedMessages;
     }
 
     const summary = this.summaryBySessionId.get(sessionId);
-    const promptMessages = limit
-      ? trimmedMessages.slice(Math.max(trimmedMessages.length - limit, 0))
+    const promptMessages = options.limit
+      ? trimmedMessages.slice(Math.max(trimmedMessages.length - options.limit, 0))
       : trimmedMessages;
     const historyItems = this.buildHistoryItems(promptMessages);
 
@@ -342,9 +371,16 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
   }
 
   private appendConversationEntry(input: ChatMessageInput<TMessage>) {
-    const list = this.conversationBySessionId.get(input.sessionId) ?? [];
+    const conversationState = this.conversationBySessionId.get(input.sessionId);
+    const list = conversationState?.messages ?? [];
     list.push(input.message);
-    this.conversationBySessionId.set(input.sessionId, this.trimConversation(list));
+    const messages = this.trimConversation(list);
+    if (conversationState) {
+      conversationState.messages = messages;
+      return;
+    }
+
+    this.conversationBySessionId.set(input.sessionId, { messages });
   }
 
   /**
@@ -451,7 +487,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
       windowStartMs: messageTimeMs,
       lastTsMs: messageTimeMs,
       messages: [input.message],
-      moodChanges: [],
     };
   }
 
@@ -612,11 +647,13 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
    * - 摘要与 prompt 使用同一投影，避免两边结构漂移。
    */
   private buildHistoryItems(messages: TMessage[]): HistoryJsonItem[] {
-    return messages.map((message) => ({
-      speaker: getProtocolMessageSenderName(message),
-      time: getTimeWithWeekday(dayjs(getProtocolMessageTimestampMs(message))),
-      content: projectStoredMessageContent(message),
-    }));
+    return messages.map((message) => {
+      return {
+        speaker: getProtocolMessageSenderName(message),
+        time: getTimeWithWeekday(dayjs(getProtocolMessageTimestampMs(message))),
+        content: projectStoredMessageContent(message),
+      };
+    });
   }
 
   private trimConversation(list: TMessage[]): TMessage[] {

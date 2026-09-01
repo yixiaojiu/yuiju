@@ -15,6 +15,10 @@ export interface ChatMemoryRetrievalQueryInput {
   memory?: string;
 }
 
+export interface BatchChatMemoryRetrievalQueryInput extends ChatMemoryRetrievalQueryInput {
+  query: string;
+}
+
 export interface MessageSummaryPromptInput {
   sessionLabel: string;
   previousSummary?: string;
@@ -139,9 +143,10 @@ export const defaultChatPrompt = `
 ## 聊天回复规则
 这是通讯软件里的线上聊天场景，回复内容要像真实会发出去的聊天消息，不要用括号描写动作、神态、姿势、内心旁白或舞台说明；这些反应要么转成自然口语，要么直接省略。
 回复前先理解最近会话正在聊什么，再判断你是否能像当前会话里的真实参与者一样自然回应或参与；不要因为出现新消息就默认回复，也不要只在被 @ 时才回复。
+请结合最近会话整体判断是否参与、最自然地回应什么，不要脱离上下文机械地只回应最后一条。
 当当前会话正在开放式闲聊、分享近况、表达感受、吐槽、讨论观点或玩轻松话题时，可以自然参与，但不能形成一问一答式陪聊，也不要因为每条消息都能接一句就频繁发言。
 在这类开放式会话里，如果你最近已经参与过、刚刚说过话，或这次只是顺手补一句但不会明显推进话题、接住重要情绪或回应明确抛给你的内容，应倾向于不回复，让会话自然流动。
-当最新消息接不上话、对话对象很明确、其他参与者之间的连续互动已经完整，或你回复会打断节奏、显得多余时，不要回复。
+当本次需要关注的消息接不上话、对话对象很明确、其他参与者之间的连续互动已经完整，或你回复会打断节奏、显得多余时，不要回复。
 当最新消息直接 @、明确提问、请求回应或征求意见时，这是更强的回复信号。
 当对方发一个表情包时：这通常是表达情绪、缓和语气、接话或开轻松玩笑；即使是你的表情包，也按正常表达理解，除非内容本身冒犯，否则不要惊讶或质问。
 表情包是低信息量的情绪反应，重点理解它在当前对话中的语气，不要围绕“表情包本身”制造新话题。
@@ -153,7 +158,6 @@ export const defaultChatPrompt = `
 检索结果只作为过去背景，不要据此补全最新消息未表达的人物、意图或因果关系，也不要复述来源和时间；未检索到相关内容不代表某件事从未发生。
 多个实时查询彼此独立时，在同一轮并行调用；只查询本次回复真正需要的信息。
 当前状态里的心情mood是回复语气的基调：心情高时，即使最新消息不礼貌，也只短暂收起温度、轻轻划界，不要变得尖锐、反讽或像非常生气；只有心情很差且对方不礼貌时，才可以明显冷下来或不回复。
-你需要同时判断最新消息是否让你的心情产生变化：看到夸赞表达时心情 +1；看到不礼貌、攻击性、羞辱性或恶意行为时心情 -1；没有明确变化时心情变化字段填 null。
 
 ## 认知边界
 你的知识范围应符合人设。用户提到某个话题，不代表你就了解它。
@@ -203,6 +207,36 @@ export function buildChatMemoryRetrievalQuery(input: ChatMemoryRetrievalQueryInp
   return [
     messageHistorySchemaPrompt,
     chatMemoryRetrievalQueryPrompt,
+    `## 我的既有稳定记忆
+${input.memory || "无"}
+
+## 最近会话摘要
+${input.summary || "null"}
+
+## 历史会话消息
+
+\`\`\`json
+${input.historyJson}
+\`\`\``,
+  ].join("\n\n");
+}
+
+export function buildBatchChatMemoryRetrievalQuery(
+  input: BatchChatMemoryRetrievalQueryInput,
+): string {
+  return [
+    messageHistorySchemaPrompt,
+    `请围绕本次检索目标，结合最近会话判断需要调用哪些记忆工具，并只返回与目标直接相关的记忆与事实。
+
+## 查询要求
+- 涉及明确日期或日期范围的过去日记时，调用 \`diarySearch\`。
+- 涉及“以前是否做过、去过、见过、聊过某件事”或其他语义回忆时，调用 \`semanticDiarySearch\`；查询词要写成包含人物、地点、事件和时间线索的完整自然语言问题。
+- 涉及具体人物、@ 对象、关系、喜好或雷区时，调用 \`getPersonMemory\`；不知道准确昵称时先调用 \`listPersonMemories\`。
+- 涉及世界地点、地图、商店、菜单或其他静态设定时，调用 \`queryStaticGuide\`。
+- 多个查询彼此独立时，在同一轮并行调用。
+- 不要扩大检索范围，不要为了完整而遍历全部记忆。`,
+    `## 本次检索目标
+${input.query}`,
     `## 我的既有稳定记忆
 ${input.memory || "无"}
 
