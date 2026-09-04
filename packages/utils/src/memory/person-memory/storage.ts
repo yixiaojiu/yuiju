@@ -3,11 +3,7 @@ import { resolve } from "node:path";
 import dayjs from "dayjs";
 import { z } from "zod";
 import { getYuijuConfig } from "../../config/config";
-import {
-  assertValidSectionContent,
-  normalizeSectionContent,
-  PersonMemoryFormatError,
-} from "./format";
+import { normalizeSectionContent, PersonMemoryFormatError } from "./format";
 import {
   PERSON_MEMORY_SECTION_KEYS,
   type PersonMemoryContentResult,
@@ -15,20 +11,10 @@ import {
   type PersonMemorySectionKey,
 } from "./types";
 
-const personMemorySectionsSchema = z.strictObject({
-  称呼: z.string(),
-  喜好: z.string(),
-  雷区: z.string(),
-  最近在忙什么: z.string(),
-  悠酱对她的态度: z.string(),
-  最近一次值得记住的互动: z.string(),
-  其他补充: z.string(),
-});
-
-const personMemoryDocumentSchema = z.strictObject({
+const personMemoryDocumentSchema = z.object({
   nickname: z.string().min(1),
   lastUpdatedAt: z.string().min(1),
-  sections: personMemorySectionsSchema,
+  sections: z.record(z.string(), z.unknown()).nullish(),
 });
 
 const unsafePersonMemoryFilenameChars = new Set([
@@ -89,16 +75,13 @@ export function parsePersonMemoryJson(content: string): PersonMemoryDocument {
     throw new PersonMemoryFormatError("人物记忆文件中的 lastUpdatedAt 不是合法时间。");
   }
 
-  for (const section of PERSON_MEMORY_SECTION_KEYS) {
-    assertValidSectionContent(section, document.sections[section]);
-  }
-
   return {
     nickname: document.nickname,
     lastUpdatedAt: document.lastUpdatedAt.trim(),
     sections: PERSON_MEMORY_SECTION_KEYS.reduce(
       (result, section) => {
-        result[section] = normalizeSectionContent(document.sections[section]);
+        const content = document.sections?.[section];
+        result[section] = normalizeSectionContent(typeof content === "string" ? content : "");
         return result;
       },
       {} as Record<PersonMemorySectionKey, string>,

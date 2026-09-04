@@ -4,9 +4,11 @@ import type LarkBot from "@satorijs/adapter-lark";
 import type OneBotBot from "@yuiju/satorijs-adapter-onebot";
 import { SUBJECT_NAME } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { isDev } from "@yuiju/utils/env";
 import { webChatHistoryQuerySchema, webChatMessageInputSchema } from "@yuiju/utils/types/web-chat";
 import { Hono } from "hono";
 import { chatManager } from "@/chat/manager";
+import { updateDailyPersonMemories } from "@/memory/person-memory";
 import { stickerState } from "@/state/sticker";
 import { logger } from "@/utils/logger";
 import { getReplyDelayMs } from "@/utils/message";
@@ -85,6 +87,15 @@ export function startMessageInternalApi(input: InternalApiInput) {
 
   app.post("/internal/chat/windows/flush", async (context) => {
     await chatManager.flushUserWindows();
+    return context.body(null, 204);
+  });
+
+  app.post("/internal/chat/person-memories/update", async (context) => {
+    const body = await context.req.json<{ diaryDate: string }>();
+    await updateDailyPersonMemories({
+      diaryDate: new Date(body.diaryDate),
+      isDev: isDev(),
+    });
     return context.body(null, 204);
   });
 

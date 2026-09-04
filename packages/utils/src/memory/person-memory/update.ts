@@ -7,11 +7,7 @@ import { getFlashModel } from "../../llm/models";
 import { logger } from "../../logger";
 import { buildPersonMemoryProposalPrompt, buildPersonMemoryReviewPrompt } from "../../prompt";
 import { formatProjectTime } from "../../time";
-import {
-  assertValidSectionContent,
-  normalizeSectionContent,
-  PersonMemoryFormatError,
-} from "./format";
+import { normalizeSectionContent, PersonMemoryFormatError } from "./format";
 import {
   getPersonMemoryHeatFilePath,
   readPersonMemoryHeatDocument,
@@ -236,7 +232,6 @@ export function applyPersonMemoryProposalToDocument(input: {
 
   for (const section of PERSON_MEMORY_SECTION_KEYS) {
     sections[section] = normalizeSectionContent(sections[section]);
-    assertValidSectionContent(section, sections[section]);
   }
 
   return {

@@ -21,15 +21,9 @@ import {
   type HistoryJsonItem,
   projectStoredMessageContent,
   type StoredSatoriChatMessage,
-  type StoredSatoriGroupMessage,
-  type StoredSatoriPrivateMessage,
 } from "@/utils/message";
 import type { StoredSatoriRecallMessage } from "@/utils/message/types";
 import { buildConversationEpisode } from "../memory/episode-builder";
-import {
-  writePersonMemoryUpdatesForGroupChatWindow,
-  writePersonMemoryUpdatesForPrivateChatWindow,
-} from "../memory/person-memory";
 import type {
   ChatHistoryOptions,
   ChatMessageInput,
@@ -494,34 +488,14 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     }
 
     const episode = buildConversationEpisode({
+      scene: this.sceneLabel,
       sessionLabel: input.sessionLabel,
       state: input.state,
       isDev: input.isDev,
       summaryText: summaryText ?? undefined,
     });
 
-    await Promise.all([
-      saveMemoryEpisode(episode),
-      this.writePersonMemoryUpdatesForChatWindow(input.state).catch((error) => {
-        console.error(`Failed to update ${this.sceneLabel} person memory:`, error);
-      }),
-      // this.writeGroupMemoryForChatWindow(input.state).catch((error) => {
-      //   console.error("Failed to update group memory:", error);
-      // }),
-    ]);
-  }
-
-  private async writePersonMemoryUpdatesForChatWindow(state: EpisodeWindowState<TMessage>) {
-    if (this.sceneLabel === "private") {
-      await writePersonMemoryUpdatesForPrivateChatWindow(
-        state as EpisodeWindowState<StoredSatoriPrivateMessage>,
-      );
-      return;
-    }
-
-    await writePersonMemoryUpdatesForGroupChatWindow(
-      state as EpisodeWindowState<StoredSatoriGroupMessage>,
-    );
+    await saveMemoryEpisode(episode);
   }
 
   /**

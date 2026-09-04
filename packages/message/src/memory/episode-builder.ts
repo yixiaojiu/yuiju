@@ -10,6 +10,7 @@ import {
 
 export interface ChatWindowMessageItem {
   speaker_name: string;
+  isSelf: boolean;
   content: string;
   timestamp: string;
 }
@@ -21,12 +22,13 @@ export interface UserWindowState {
   messages: StoredSatoriChatMessage[];
 }
 
-interface ConversationEpisodePayload {
+export interface ConversationEpisodePayload {
+  scene: "group" | "private";
   counterpartyName: string;
   windowStart: string;
   windowEnd: string;
   messageCount: number;
-  messages: any[];
+  messages: ChatWindowMessageItem[];
 }
 
 /**
@@ -37,6 +39,7 @@ interface ConversationEpisodePayload {
  * - payload 里仍保留稳定的展示结构，方便后续长期记忆和调试直接消费。
  */
 export function buildConversationEpisode(input: {
+  scene: "group" | "private";
   sessionLabel: string;
   state: UserWindowState;
   isDev: boolean;
@@ -48,6 +51,7 @@ export function buildConversationEpisode(input: {
   const windowEndText = getTimeWithWeekday(dayjs(windowEnd));
   const projectedMessages = input.state.messages.map((message) => ({
     speaker_name: getProtocolMessageSenderName(message),
+    isSelf: message.sender.isSelf,
     content: JSON.stringify(projectStoredMessageContent(message)),
     timestamp: getTimeWithWeekday(dayjs(getProtocolMessageTimestampMs(message))),
   }));
@@ -68,6 +72,7 @@ export function buildConversationEpisode(input: {
     summaryText: summaryParts.join("；"),
     isDev: input.isDev,
     payload: {
+      scene: input.scene,
       counterpartyName: input.sessionLabel,
       windowStart: windowStartText,
       windowEnd: windowEndText,

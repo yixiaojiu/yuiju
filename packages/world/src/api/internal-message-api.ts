@@ -62,6 +62,19 @@ export class InternalMessageApi {
       throw new Error(`聊天窗口归档失败：${response.status} ${response.statusText}`);
     }
   }
+
+  async updateDailyPersonMemories(diaryDate: Date) {
+    const response = await fetch(`${this.baseUrl}/internal/chat/person-memories/update`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ diaryDate: diaryDate.toISOString() }),
+    });
+    if (!response.ok) {
+      throw new Error(`每日人物记忆更新失败：${response.status} ${response.statusText}`);
+    }
+  }
 }
 
 export const internalMessageApi = new InternalMessageApi();

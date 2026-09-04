@@ -1,5 +1,13 @@
-import { messageHistorySchemaPrompt } from "./message";
 import { crossWorldRelationshipBoundaryPrompt } from "./world-view";
+
+const conversationEpisodeSummaryMaterialPrompt = `
+本次互动材料由当天相关对话的 Episode 摘要组成。每项包含：
+- sessionLabel：会话名称。
+- windowStart、windowEnd：该段对话的起止时间。
+- summary：根据该段完整对话生成的摘要正文。
+
+你只能依据摘要中明确保留的信息判断，不要补全摘要没有记录的原话、细节或因果关系。
+`.trim();
 
 export interface PersonMemoryProposalPromptInput {
   scene: "private" | "group";
@@ -31,8 +39,8 @@ export function buildPersonMemoryProposalPrompt(input: PersonMemoryProposalPromp
 ## 旧人物记忆 JSON 对象
 ${input.existingMemoryText}
 
-## 本次互动材料里的消息结构
-${messageHistorySchemaPrompt}
+## 本次互动材料结构
+${conversationEpisodeSummaryMaterialPrompt}
 
 ## 本次互动材料
 ${input.interactionMaterial}
@@ -91,8 +99,8 @@ export function buildPersonMemoryReviewPrompt(input: PersonMemoryReviewPromptInp
 ## 旧人物记忆 JSON 对象
 ${input.existingMemoryText}
 
-## 本次互动材料里的消息结构
-${messageHistorySchemaPrompt}
+## 本次互动材料结构
+${conversationEpisodeSummaryMaterialPrompt}
 
 ## 本次互动材料
 ${input.interactionMaterial}

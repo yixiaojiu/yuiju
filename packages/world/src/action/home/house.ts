@@ -451,6 +451,12 @@ export const homeAction: ActionMetadata[] = [
       }
 
       try {
+        await internalMessageApi.updateDailyPersonMemories(diaryDate);
+      } catch (error) {
+        logger.error("[homeAction.Sleep] daily person memories update failed", error);
+      }
+
+      try {
         await generateDailyMemoriesForDate({
           diaryDate,
           isDev: isDev(),
