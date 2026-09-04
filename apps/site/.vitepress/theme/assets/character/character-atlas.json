@@ -1,0 +1,78 @@
+{
+  "frames": {
+    "idle/0": {
+      "frame": { "x": 0, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "idle/1": {
+      "frame": { "x": 128, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink/0": {
+      "frame": { "x": 256, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink/1": {
+      "frame": { "x": 384, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink/2": {
+      "frame": { "x": 512, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink1/0": {
+      "frame": { "x": 640, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink1/1": {
+      "frame": { "x": 768, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    },
+    "wink1/2": {
+      "frame": { "x": 896, "y": 0, "w": 128, "h": 128 },
+      "rotated": false,
+      "trimmed": false
+    }
+  },
+  "animations": {
+    "idle": {
+      "key": "home-character-idle-animation",
+      "frames": ["idle/0", "idle/1"],
+      "frameRate": 1,
+      "repeat": -1,
+      "yoyo": true,
+      "skipMissedFrames": true
+    },
+    "wink": {
+      "key": "home-character-wink-animation",
+      "frames": ["wink/0", "wink/1", "wink/2"],
+      "frameRate": 1.2,
+      "repeat": 0,
+      "yoyo": false,
+      "skipMissedFrames": true
+    },
+    "wink1": {
+      "key": "home-character-wink1-animation",
+      "frames": ["wink1/0", "wink1/1", "wink1/2"],
+      "frameRate": 1.2,
+      "repeat": 0,
+      "yoyo": false,
+      "skipMissedFrames": true
+    }
+  },
+  "meta": {
+    "app": "yuiju-site",
+    "version": "1.0",
+    "image": "character-atlas.png",
+    "format": "RGBA8888",
+    "size": { "w": 1024, "h": 128 },
+    "scale": "1"
+  }
+}
