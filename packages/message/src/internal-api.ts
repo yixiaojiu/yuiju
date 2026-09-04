@@ -83,6 +83,11 @@ export function startMessageInternalApi(input: InternalApiInput) {
     });
   });
 
+  app.post("/internal/chat/windows/flush", async (context) => {
+    await chatManager.flushUserWindows();
+    return context.body(null, 204);
+  });
+
   app.post("/internal/web/messages", async (context) => {
     if (!config.message.web.enabled) {
       return context.json({ error: { code: "WEB_CHAT_DISABLED" } }, 403);

@@ -29,32 +29,6 @@ RETURN count(n) AS deleted_count
 
 ```
 
-## Hermes Agent Docker
-
-```sh
-docker run -d \
-  --name hermes \
-  --restart unless-stopped \
-  -v "$HOME/.hermes:/opt/data" \
-  -p 8642:8642 \
-  -p 9119:9119 \
-  -e HERMES_UID="$(id -u)" \
-  -e HERMES_GID="$(id -g)" \
-  -e API_SERVER_ENABLED=true \
-  -e API_SERVER_HOST=0.0.0.0 \
-  -e API_SERVER_KEY="$API_SERVER_KEY" \
-  -e API_SERVER_CORS_ORIGINS='*' \
-  -e HTTP_PROXY="$HTTP_PROXY" \
-  -e HTTPS_PROXY="$HTTPS_PROXY" \
-  -e ALL_PROXY="$ALL_PROXY" \
-  -e NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,::1}" \
-  -e MAPILLARY_ACCESS_TOKEN="$MAPILLARY_ACCESS_TOKEN" \
-  -e HERMES_DASHBOARD=1 \
-  -e HERMES_DASHBOARD_BASIC_AUTH_USERNAME="$DASHBOARD_USER" \
-  -e HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="$DASHBOARD_PASS" \
-  nousresearch/hermes-agent:latest gateway run
-```
-
 ## 命令
 
 ```sh

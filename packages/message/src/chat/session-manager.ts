@@ -26,122 +26,24 @@ import {
 } from "@/utils/message";
 import type { StoredSatoriRecallMessage } from "@/utils/message/types";
 import { buildConversationEpisode } from "../memory/episode-builder";
-import { updateGroupMemoryForChatWindow } from "../memory/group-memory";
 import {
   writePersonMemoryUpdatesForGroupChatWindow,
   writePersonMemoryUpdatesForPrivateChatWindow,
 } from "../memory/person-memory";
-
-export interface SessionHistoryContext {
-  /**
-   * 当前会话的滚动摘要。
-   *
-   * 说明：
-   * - 摘要会单独返回给上层，由 prompt 构建器决定如何注入；
-   * - 不再把摘要伪装成 JSON 历史项，避免和真实消息结构混在一起。
-   */
-  summary?: string;
-  historyJson: string;
-}
-
-export interface ChatHistoryOptions {
-  limit?: number;
-}
-
-export interface ChatMessageInput<TMessage> {
-  sessionId: string;
-  sessionLabel: string;
-  message: TMessage;
-}
-
-export interface ChatMessageRecallInput {
-  sessionId: string;
-  messageId: string;
-  timestamp: number;
-}
-
-export interface ChatSessionManagerOptions {
-  /**
-   * 最近原始会话历史最多保留多少条消息。
-   *
-   * 说明：
-   * - 这部分历史会进入 `getHistoryJson()`，供回复判断和回复生成读取；
-   * - 超过上限后只保留最新的 N 条；
-   * - 不影响滚动摘要和 episode 窗口的切分边界。
-   */
-  conversationLimit: number;
-  /**
-   * 最近原始会话历史最多保留多长时间范围内的消息。
-   *
-   * 说明：
-   * - 早于该时间窗口的消息会在 trim 时被丢弃；
-   * - 它和 `conversationLimit` 一起决定 `getHistoryJson()` 能看到的原始上下文；
-   * - 不影响滚动摘要和 episode 窗口的切分边界。
-   */
-  conversationTtlMs: number;
-  /**
-   * 滚动摘要块累计达到该消息数后立即刷新。
-   */
-  summaryFlushMessageCount: number;
-  /**
-   * 滚动摘要块静默多久后，在下一条消息到来时先封口刷新旧块。
-   */
-  summaryFlushIdleMs: number;
-  /**
-   * 自然对话段静默多久后视为 episode 结束。
-   */
-  episodeIdleMs: number;
-  /**
-   * 单个 episode 最多允许累计多少条消息。
-   *
-   * 说明：
-   * - 达到上限后会立即归档当前窗口；
-   * - 触发上限的那条消息仍归入当前窗口；
-   * - 不影响滚动摘要刷新节奏。
-   */
-  episodeMessageCountLimit: number;
-}
-
-/**
- * 自上次摘要刷新后累计的增量消息块。
- *
- * 说明：
- * - 只承载“下一次要压进滚动摘要”的新增消息；
- * - 达到条数阈值或静默阈值后会被封口并刷新，不参与 episode 切段。
- */
-export interface RollingSummaryChunkState<TMessage> {
-  sessionLabel: string;
-  chunkStartMs: number;
-  lastTsMs: number;
-  messages: TMessage[];
-}
-
-/**
- * 当前正在进行中的自然对话段。
- *
- * 说明：
- * - 只用于 memory episode 归档；
- * - 只按较长静默时间或消息数量上限切窗，不受摘要刷新节奏影响。
- */
-export interface EpisodeWindowState<TMessage> {
-  sessionLabel: string;
-  windowStartMs: number;
-  lastTsMs: number;
-  messages: TMessage[];
-}
-
-interface ChatSessionManagerInput {
-  options: ChatSessionManagerOptions;
-  sceneLabel: "group" | "private";
-}
-
-interface ConversationState<TMessage> {
-  messages: TMessage[];
-  replyWindowTimer?: ReturnType<typeof setTimeout>;
-}
+import type {
+  ChatHistoryOptions,
+  ChatMessageInput,
+  ChatMessageRecallInput,
+  ChatSessionManagerInput,
+  ConversationState,
+  EpisodeWindowState,
+  RollingSummaryChunkState,
+  SessionHistoryContext,
+} from "./types";
 
 /**
  * 服务启动后，恢复对话的最长间隔时间。
+ * 5min
  */
 const CONVERSATION_RECOVERY_MAX_IDLE_MS = 5 * 60 * 1000;
 
@@ -162,7 +64,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
   private conversationTtlMs: number;
   private summaryFlushMessageCount: number;
   private summaryFlushIdleMs: number;
-  private episodeIdleMs: number;
   private episodeMessageCountLimit: number;
   private isDev: boolean;
   private sceneLabel: "group" | "private";
@@ -174,7 +75,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     this.conversationTtlMs = options.conversationTtlMs;
     this.summaryFlushMessageCount = options.summaryFlushMessageCount;
     this.summaryFlushIdleMs = options.summaryFlushIdleMs;
-    this.episodeIdleMs = options.episodeIdleMs;
     this.episodeMessageCountLimit = options.episodeMessageCountLimit;
     this.sceneLabel = sceneLabel;
     this.isDev = isDev();
@@ -370,6 +270,15 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     await this.finalizeEpisodeWindow(episodeState);
   }
 
+  async flushUserWindows(): Promise<void> {
+    const sessionIds = new Set([
+      ...this.summaryChunkBySessionId.keys(),
+      ...this.episodeStateBySessionId.keys(),
+    ]);
+
+    await Promise.all([...sessionIds].map((sessionId) => this.flushUserWindow(sessionId)));
+  }
+
   private appendConversationEntry(input: ChatMessageInput<TMessage>) {
     const conversationState = this.conversationBySessionId.get(input.sessionId);
     const list = conversationState?.messages ?? [];
@@ -428,8 +337,8 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
    * 维护 memory episode 的自然对话段。
    *
    * 说明：
-   * - 静默超过阈值时，旧窗口先归档，再用当前消息开启新窗口；
    * - 达到消息数上限时，当前窗口立即归档；
+   * - 调用方可以显式归档尚未达到上限的窗口；
    * - 摘要刷新不会影响 episode 的窗口边界。
    */
   private appendEpisodeMessage(input: ChatMessageInput<TMessage>) {
@@ -437,17 +346,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     const currentState = this.episodeStateBySessionId.get(input.sessionId);
 
     if (!currentState) {
-      this.episodeStateBySessionId.set(
-        input.sessionId,
-        this.createEpisodeWindowState(input, messageTimeMs),
-      );
-      return;
-    }
-
-    const gapMs = messageTimeMs - currentState.lastTsMs;
-    if (gapMs > this.episodeIdleMs) {
-      this.episodeStateBySessionId.delete(input.sessionId);
-      void this.finalizeEpisodeWindow(currentState);
       this.episodeStateBySessionId.set(
         input.sessionId,
         this.createEpisodeWindowState(input, messageTimeMs),
@@ -463,7 +361,9 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     }
 
     this.episodeStateBySessionId.delete(input.sessionId);
-    void this.finalizeEpisodeWindow(currentState);
+    void this.finalizeEpisodeWindow(currentState).catch((error) => {
+      console.error(`Failed to write ${this.sceneLabel} chat window episode:`, error);
+    });
   }
 
   private createSummaryChunkState(
@@ -491,15 +391,11 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
   }
 
   private async finalizeEpisodeWindow(state: EpisodeWindowState<TMessage>) {
-    try {
-      await this.writeChatWindowEpisode({
-        sessionLabel: state.sessionLabel,
-        state,
-        isDev: this.isDev,
-      });
-    } catch (error) {
-      console.error(`Failed to write ${this.sceneLabel} chat window episode:`, error);
-    }
+    await this.writeChatWindowEpisode({
+      sessionLabel: state.sessionLabel,
+      state,
+      isDev: this.isDev,
+    });
   }
 
   private enqueueSummaryRefresh(
@@ -615,17 +511,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     ]);
   }
 
-  private async writeGroupMemoryForChatWindow(state: EpisodeWindowState<TMessage>) {
-    if (this.sceneLabel !== "group") {
-      return;
-    }
-
-    await updateGroupMemoryForChatWindow({
-      sessionId: state.messages[0].sessionId,
-      state: state as EpisodeWindowState<StoredSatoriGroupMessage>,
-    });
-  }
-
   private async writePersonMemoryUpdatesForChatWindow(state: EpisodeWindowState<TMessage>) {
     if (this.sceneLabel === "private") {
       await writePersonMemoryUpdatesForPrivateChatWindow(
@@ -641,10 +526,6 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
 
   /**
    * 构建供摘要与 history JSON 复用的结构化历史项。
-   *
-   * 说明：
-   * - 这里只做消息投影，不混入 trim、summary 合并等会话控制逻辑；
-   * - 摘要与 prompt 使用同一投影，避免两边结构漂移。
    */
   private buildHistoryItems(messages: TMessage[]): HistoryJsonItem[] {
     return messages.map((message) => {

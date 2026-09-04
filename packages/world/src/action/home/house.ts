@@ -10,6 +10,7 @@ import {
   SchoolSubScene,
 } from "@yuiju/utils/types/state";
 import { allTrue } from "@yuiju/utils/utils";
+import { internalMessageApi } from "@/api/internal-message-api";
 import { type MorningMoodResult, resolveMorningMood } from "@/engine/character/morning-mood";
 import { planHomeCookingAgent } from "@/llm/agent/home";
 import { generateDailyMemoriesForDate, resolveDiaryDateForSleep } from "@/memory/diary/day";
@@ -443,6 +444,12 @@ export const homeAction: ActionMetadata[] = [
       await context.characterState.clearDailyActions();
 
       const diaryDate = resolveDiaryDateForSleep(context.worldState.time.toDate());
+      try {
+        await internalMessageApi.flushUserWindows();
+      } catch (error) {
+        logger.error("[homeAction.Sleep] pending chat window flush failed", error);
+      }
+
       try {
         await generateDailyMemoriesForDate({
           diaryDate,

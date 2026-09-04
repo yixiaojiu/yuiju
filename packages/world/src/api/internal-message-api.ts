@@ -53,6 +53,15 @@ export class InternalMessageApi {
     );
     await response.json();
   }
+
+  async flushUserWindows() {
+    const response = await fetch(`${this.baseUrl}/internal/chat/windows/flush`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`聊天窗口归档失败：${response.status} ${response.statusText}`);
+    }
+  }
 }
 
 export const internalMessageApi = new InternalMessageApi();

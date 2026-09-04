@@ -8,9 +8,11 @@ import {
   sendAndRecordSatoriPrivateReply,
 } from "@/utils/message/reply";
 import type { StoredSatoriChatMessage } from "@/utils/message/types";
-import { type ChatResult, chatManager } from "./manager";
+import { chatManager } from "./manager";
+import type { ChatResult } from "./types";
 
-const NORMAL_CHAT_BATCH_WINDOW_MS = 5 * 60 * 1000;
+// 90秒
+const NORMAL_CHAT_BATCH_WINDOW_MS = 90 * 1000;
 
 interface SatoriBotIdentity {
   selfId?: string;

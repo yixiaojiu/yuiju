@@ -18,7 +18,6 @@ import { buildChatSystemPrompt } from "@yuiju/utils/prompt/message";
 import { getPromptCustomizationContent } from "@yuiju/utils/prompt/prompt-customization";
 import { Output, stepCountIs } from "ai";
 import { z } from "zod";
-// import { getGroupMemoryPromptSection } from "@/memory/group-memory";
 import { stickerState } from "@/state/sticker";
 import { logger } from "@/utils/logger";
 import {
@@ -30,6 +29,7 @@ import {
 } from "@/utils/message";
 import { buildSatoriGroupSessionKey, buildSatoriPrivateSessionKey } from "@/utils/message/satori";
 import { ChatSessionManager } from "./session-manager";
+import type { ActiveChatTask, ChatResult } from "./types";
 
 async function getEffectiveChatSystemPrompt(): Promise<string> {
   const overrides = await getPromptCustomizationOverrides(["character", "world", "chat"]);
@@ -41,34 +41,6 @@ async function getEffectiveChatSystemPrompt(): Promise<string> {
     stickerPrompt: stickerState.getPromptSection(),
   });
 }
-
-interface ActiveChatTask {
-  controller: AbortController;
-  /**
-   * 直接复用触发本次回复生成的消息 `message_id`，用于识别当前会话最新的一次回复生成请求。
-   *
-   * 说明：
-   * - 仅依赖 abort() 不足以完全避免竞态，旧请求可能在被取消前后恰好返回；
-   * - 因此在生成完成和真正发送回复前，都要再次校验 requestId 是否仍然是该会话最新值；
-   * - 只要 requestId 已经过期，就把这次结果视为失效，禁止继续发送消息。
-   */
-  requestId: string;
-}
-
-export type ChatResult =
-  | {
-      status: "completed";
-      requestId: string;
-      shouldReply: boolean;
-      reply: string;
-      noReplyReason: string;
-    }
-  | {
-      status: "failed";
-    }
-  | {
-      status: "cancelled";
-    };
 
 export class ChatManager {
   private privateSession: ChatSessionManager<StoredSatoriPrivateMessage>;
@@ -94,8 +66,7 @@ export class ChatManager {
         conversationTtlMs: 8 * 60 * 60 * 1000,
         summaryFlushMessageCount: 15,
         summaryFlushIdleMs: 30 * 60 * 1000,
-        episodeIdleMs: 12 * 60 * 60 * 1000,
-        episodeMessageCountLimit: 30,
+        episodeMessageCountLimit: 60,
       },
     });
     this.groupSession = new ChatSessionManager<StoredSatoriGroupMessage>({
@@ -105,8 +76,7 @@ export class ChatManager {
         conversationTtlMs: 8 * 60 * 60 * 1000,
         summaryFlushMessageCount: 15,
         summaryFlushIdleMs: 30 * 60 * 1000,
-        episodeIdleMs: 12 * 60 * 60 * 1000,
-        episodeMessageCountLimit: 30,
+        episodeMessageCountLimit: 60,
       },
     });
   }
@@ -215,6 +185,13 @@ export class ChatManager {
       group,
       private: privateChat,
     });
+  }
+
+  public async flushUserWindows(): Promise<void> {
+    await Promise.all([
+      this.groupSession.flushUserWindows(),
+      this.privateSession.flushUserWindows(),
+    ]);
   }
 
   /**
