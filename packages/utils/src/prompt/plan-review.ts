@@ -1,5 +1,5 @@
-import type { AgentPlanChange, PlanState } from "../types";
-import { crossWorldRelationshipBoundaryPrompt } from "./world-view";
+import type { AgentPlanChange, PlanState } from "../types/plan";
+import { crossWorldRelationshipBoundaryPrompt, formatPlanPrompt } from "./world-view";
 
 export interface PlanChangeReviewChatContextPromptInput {
   summary?: string;
@@ -52,13 +52,16 @@ ${chatContext.historyJson}
 }
 
 function formatPlanState(planState: PlanState): string {
-  const longTermPlan = planState.longTermPlan?.title ?? "（无）";
+  const longTermPlan = planState.longTermPlan ? formatPlanPrompt(planState.longTermPlan) : "（无）";
   const shortTermPlans =
     planState.shortTermPlans.length > 0
-      ? planState.shortTermPlans.map((plan, index) => `${index + 1}. ${plan.title}`).join("\n")
+      ? planState.shortTermPlans
+          .map((plan, index) => `${index + 1}. ${formatPlanPrompt(plan)}`)
+          .join("\n")
       : "（无）";
 
-  return `长期计划：${longTermPlan}
+  return `长期计划：
+${longTermPlan}
 短期计划：
 ${shortTermPlans}`;
 }

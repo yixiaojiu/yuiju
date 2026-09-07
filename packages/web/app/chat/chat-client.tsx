@@ -110,7 +110,7 @@ function StatusRail() {
           最近在想
         </div>
         <p className="mt-2 text-sm leading-6 text-[#59616c]">
-          {plans?.shortTerm?.[0] ?? plans?.longTerm ?? "先把眼前的生活认真过好。"}
+          {plans?.shortTerm?.[0]?.title ?? plans?.longTerm?.title ?? "先把眼前的生活认真过好。"}
         </p>
       </div>
     </aside>

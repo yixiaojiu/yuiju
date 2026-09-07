@@ -8,11 +8,19 @@ import {
   worldMapTerminalUi,
 } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { formatProjectTime } from "@yuiju/utils/time";
+import type { PlanItem } from "@yuiju/utils/types/plan";
 import { Hono } from "hono";
 
 export const homeRoute = new Hono();
 
 const STAMINA_MAX = 100;
+
+type HomePlan = {
+  title: string;
+  createdAt: string;
+  updatedAt?: string;
+};
 
 // 语义化的响应类型名称
 export interface HomeResponse {
@@ -30,7 +38,7 @@ export interface HomeResponse {
     };
     todayActions?: string[];
     inventory?: { name: string; count: number }[];
-    plans?: { longTerm?: string; shortTerm?: string[] };
+    plans?: { longTerm?: HomePlan; shortTerm?: HomePlan[] };
     world?: {
       time?: string;
       lastAdvancedAt?: string;
@@ -53,6 +61,14 @@ export interface HomeMapResponse {
     places: typeof worldMapPlaces;
     links: typeof worldMapLinks;
     terminalUi: string;
+  };
+}
+
+function buildHomePlanPayload(plan: PlanItem): HomePlan {
+  return {
+    title: plan.title,
+    createdAt: formatProjectTime(plan.createdAt, "YYYY-MM-DD HH:mm"),
+    updatedAt: plan.updatedAt ? formatProjectTime(plan.updatedAt, "YYYY-MM-DD HH:mm") : undefined,
   };
 }
 
@@ -112,8 +128,8 @@ homeRoute.get("/summary", async (context) => {
       todayActions: state.dailyActionsDoneToday,
       inventory,
       plans: {
-        longTerm: planState.longTermPlan?.title,
-        shortTerm: planState.shortTermPlans.map((plan) => plan.title),
+        longTerm: planState.longTermPlan ? buildHomePlanPayload(planState.longTermPlan) : undefined,
+        shortTerm: planState.shortTermPlans.map((plan) => buildHomePlanPayload(plan)),
       },
       world: buildHomeWorldPayload(world),
     },

@@ -1,4 +1,5 @@
-import { getTimeWithWeekday } from "../time";
+import { formatProjectTime } from "../time";
+import type { PlanItem, PlanState } from "../types/plan";
 import type { CharacterStateData, WorldStateData } from "../types/state";
 import { defaultCharacterPrompt } from "./character-card";
 import { phoneApplicationsPrompt } from "./phone";
@@ -146,10 +147,9 @@ const choiceDecisionPrompt = `
 数量要贴近这次真实需要，不要默认买满、吃满或囤很多。
 `.trim();
 
-function generateShortTermPlanPrompt(shortTermPlanTitles?: string[]) {
-  return shortTermPlanTitles?.length
-    ? shortTermPlanTitles.map((item, index) => `${index + 1}. ${item}`).join("\n")
-    : "（无）";
+export function formatPlanPrompt(plan: PlanItem): string {
+  return `标题：${plan.title}
+时间：${formatProjectTime(plan.updatedAt || plan.createdAt, "YYYY-MM-DD HH:mm")}`;
 }
 
 /**
@@ -163,14 +163,13 @@ function buildCommonStatePrompt(input: {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }): string {
   const promptLocation = `${input.characterState.location.major}-${input.characterState.location.minor}`;
   const promptWeather = input.worldState.weather
     ? `${input.worldState.weather.type} / ${input.worldState.weather.temperatureLevel}`
     : "（未知）";
-  return `当前时间：${getTimeWithWeekday(input.worldState.time)}
+  return `当前时间：${formatProjectTime(input.worldState.time, "YYYY-MM-DD HH:mm dddd")}
 当前天气：${promptWeather}
 地点：${promptLocation}
 体力值：${input.characterState.stamina}/100
@@ -178,9 +177,16 @@ function buildCommonStatePrompt(input: {
 心情：${input.characterState.mood}/100
 金币：${input.characterState.money}
 手机电量：${input.characterState.phoneBattery}%
-长期计划：${input.longTermPlanTitle || "（无）"}
+长期计划：
+${input.planState.longTermPlan ? formatPlanPrompt(input.planState.longTermPlan) : "（无）"}
 短期计划：
-${generateShortTermPlanPrompt(input.shortTermPlanTitles)}
+${
+  input.planState.shortTermPlans.length
+    ? input.planState.shortTermPlans
+        .map((plan, index) => `${index + 1}. ${formatPlanPrompt(plan)}`)
+        .join("\n")
+    : "（无）"
+}
 
 最近的action：
 ${generateRecentBehaviorPrompt(input.recentBehaviorList)}`;
@@ -225,8 +231,7 @@ export interface ChooseActionPromptPayload {
   recentBehaviorList: BehaviorRecord[];
   coreMemory?: string;
   eventDescription?: string;
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
   characterPrompt: string;
   worldPrompt: string;
   chooseActionPrompt: string;
@@ -239,8 +244,7 @@ export function chooseActionPrompt({
   recentBehaviorList,
   coreMemory,
   eventDescription,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   characterPrompt,
   worldPrompt,
   chooseActionPrompt: customChooseActionPrompt,
@@ -249,8 +253,7 @@ export function chooseActionPrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const actionListPrompt = buildChoiceListPrompt(actionList);
 
@@ -294,8 +297,7 @@ export interface ChooseFoodPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseFoodPrompt({
@@ -303,16 +305,14 @@ export function chooseFoodPrompt({
   availableFood,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseFoodPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableFoodPrompt = buildChoiceListPrompt(availableFood);
 
@@ -344,8 +344,7 @@ export interface PlanHomeCookingPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function planHomeCookingPrompt({
@@ -353,16 +352,14 @@ export function planHomeCookingPrompt({
   availableIngredients,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: PlanHomeCookingPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableIngredientsPrompt = buildChoiceListPrompt(availableIngredients);
 
@@ -396,8 +393,7 @@ export interface ChooseShopProductPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseShopProductPrompt({
@@ -405,16 +401,14 @@ export function chooseShopProductPrompt({
   availableProducts,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseShopProductPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableProductsPrompt = buildChoiceListPrompt(availableProducts);
 
@@ -446,8 +440,7 @@ export interface ChooseCafeCoffeePromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseCafeCoffeePrompt({
@@ -455,16 +448,14 @@ export function chooseCafeCoffeePrompt({
   availableCoffees,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseCafeCoffeePromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableCoffeesPrompt = buildChoiceListPrompt(availableCoffees);
 
@@ -496,8 +487,7 @@ export interface ChooseSupermarketProductPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseSupermarketProductPrompt({
@@ -505,16 +495,14 @@ export function chooseSupermarketProductPrompt({
   availableProducts,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseSupermarketProductPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableProductsPrompt = buildChoiceListPrompt(availableProducts);
 
@@ -546,8 +534,7 @@ export interface ChooseSellableItemPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseSellableItemPrompt({
@@ -555,16 +542,14 @@ export function chooseSellableItemPrompt({
   availableItems,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseSellableItemPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableItemsPrompt = buildChoiceListPrompt(availableItems);
 
@@ -595,8 +580,7 @@ export interface ChooseDinerMealPromptPayload {
   characterState: CharacterStateData;
   worldState: WorldStateData;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseDinerMealPrompt({
@@ -604,16 +588,14 @@ export function chooseDinerMealPrompt({
   availableMeals,
   characterState,
   worldState,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseDinerMealPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
   const availableMealsPrompt = buildChoiceListPrompt(availableMeals);
 
@@ -642,8 +624,7 @@ export interface ChooseShrinePrayerPromptPayload {
   worldState: WorldStateData;
   offeringCost: number;
   recentBehaviorList: BehaviorRecord[];
-  longTermPlanTitle?: string;
-  shortTermPlanTitles?: string[];
+  planState: PlanState;
 }
 
 export function chooseShrinePrayerPrompt({
@@ -651,16 +632,14 @@ export function chooseShrinePrayerPrompt({
   characterState,
   worldState,
   offeringCost,
-  longTermPlanTitle,
-  shortTermPlanTitles,
+  planState,
   recentBehaviorList,
 }: ChooseShrinePrayerPromptPayload) {
   const commonStatePrompt = buildCommonStatePrompt({
     characterState,
     worldState,
     recentBehaviorList,
-    longTermPlanTitle,
-    shortTermPlanTitles,
+    planState,
   });
 
   return `

@@ -1,5 +1,6 @@
 "use client";
 
+import type { HomeResponse } from "@/app/api/nodejs/[[...route]]/home";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,16 +20,11 @@ type InventoryItem = {
   count: number;
 };
 
-type HomePlans = {
-  longTerm?: string;
-  shortTerm?: string[];
-};
-
 type HomeStatusCardProps = {
   status?: HomeStatus;
   todayActions?: string[];
   inventory?: InventoryItem[];
-  plans?: HomePlans;
+  plans?: HomeResponse["data"]["plans"];
 };
 
 // 关键函数：格式化背包条目，保证文案一致。
@@ -139,15 +135,29 @@ export function HomeStatusCard({ status, todayActions, inventory, plans }: HomeS
           <div className="grid gap-2 rounded-xl bg-[rgba(247,251,255,0.8)] border border-[rgba(217,230,245,0.8)] p-[10px]">
             <div className="text-xs text-[#6b7480]">长期计划</div>
             <p className="m-0 text-[#6b7480] text-[13px] leading-[1.55]">
-              {displayPlans?.longTerm ?? "—"}
+              {displayPlans?.longTerm?.title ?? "—"}
             </p>
+            {displayPlans?.longTerm && (
+              <div className="text-xs text-[#6b7480] leading-[1.6]">
+                <div>创建时间：{displayPlans.longTerm.createdAt}</div>
+                {displayPlans.longTerm.updatedAt && (
+                  <div>更新时间：{displayPlans.longTerm.updatedAt}</div>
+                )}
+              </div>
+            )}
           </div>
           <div className="grid gap-2 rounded-xl bg-[rgba(247,251,255,0.8)] border border-[rgba(217,230,245,0.8)] p-[10px]">
             <div className="text-xs text-[#6b7480]">短期计划</div>
             {displayPlans?.shortTerm && displayPlans.shortTerm.length > 0 ? (
-              <ul className="m-0 pl-[18px] text-[#6b7480] text-[13px] leading-[1.6]">
+              <ul className="m-0 pl-[18px] space-y-2 text-[#6b7480] text-[13px] leading-[1.6]">
                 {displayPlans.shortTerm.map((item) => (
-                  <li key={item}>{item}</li>
+                  <li key={item.title}>
+                    <div>{item.title}</div>
+                    <div className="text-xs text-[#6b7480] leading-[1.6]">
+                      <div>创建时间：{item.createdAt}</div>
+                      {item.updatedAt && <div>更新时间：{item.updatedAt}</div>}
+                    </div>
+                  </li>
                 ))}
               </ul>
             ) : (

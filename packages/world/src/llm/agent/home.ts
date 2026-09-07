@@ -28,8 +28,7 @@ export async function planHomeCookingAgent(
     availableIngredients: ingredientList,
     characterState: context.characterStateData,
     worldState: context.worldState,
-    longTermPlanTitle: planState.longTermPlan?.title,
-    shortTermPlanTitles: planState.shortTermPlans.map((plan) => plan.title),
+    planState,
     recentBehaviorList: actionMemoryList.map((item) => ({
       behavior: item.behavior,
       description: item.description,

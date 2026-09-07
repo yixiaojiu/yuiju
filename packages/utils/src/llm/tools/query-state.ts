@@ -1,8 +1,11 @@
 import type { Tool } from "ai";
 import dayjs from "dayjs";
 import z from "zod";
-import { initCharacterStateData, initPlanStateData, initWorldStateData } from "../../redis";
-import { getTimeWithWeekday } from "../../time";
+import { formatPlanPrompt } from "../../prompt/world-view";
+import { initCharacterStateData } from "../../redis/state/character";
+import { initPlanStateData } from "../../redis/state/plan";
+import { initWorldStateData } from "../../redis/state/world";
+import { formatProjectTime } from "../../time";
 
 export const queryStateTool: Tool = {
   description:
@@ -15,7 +18,7 @@ export const queryStateTool: Tool = {
     const now = dayjs();
 
     return {
-      currentTime: getTimeWithWeekday(now, "MM-DD HH:mm"),
+      currentTime: formatProjectTime(now, "YYYY-MM-DD HH:mm dddd"),
       characterState,
       worldState: {
         lastAdvancedAt: worldState.lastAdvancedAt,
@@ -24,8 +27,8 @@ export const queryStateTool: Tool = {
         scenes: worldState.scenes,
       },
       planState: {
-        longTermPlan: planState.longTermPlan?.title ?? null,
-        shortTermPlans: planState.shortTermPlans.map((plan) => plan.title),
+        longTermPlan: planState.longTermPlan ? formatPlanPrompt(planState.longTermPlan) : null,
+        shortTermPlans: planState.shortTermPlans.map((plan) => formatPlanPrompt(plan)),
       },
     };
   },
