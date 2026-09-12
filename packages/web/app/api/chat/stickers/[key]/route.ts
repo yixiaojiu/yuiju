@@ -1,11 +1,10 @@
-import { getYuijuConfig } from "@yuiju/utils/config/config";
 import { fetchWebChatSticker } from "@/lib/message-internal-api";
 import { isPublicDeployment } from "@/lib/public-deployment";
 
 export const runtime = "nodejs";
 
 export async function GET(_request: Request, context: { params: Promise<{ key: string }> }) {
-  if (isPublicDeployment() || !getYuijuConfig().message.web.enabled) {
+  if (isPublicDeployment()) {
     return new Response(null, { status: 404 });
   }
 

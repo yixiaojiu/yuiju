@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const webChatMessageInputSchema = z.strictObject({
   messageId: z.string().trim().min(1).max(120),
+  ownerName: z.string().trim().min(1),
   text: z.string().trim().min(1).max(2000),
   sentAt: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
 });

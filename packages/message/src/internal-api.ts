@@ -100,10 +100,6 @@ export function startMessageInternalApi(input: InternalApiInput) {
   });
 
   app.post("/internal/web/messages", async (context) => {
-    if (!config.message.web.enabled) {
-      return context.json({ error: { code: "WEB_CHAT_DISABLED" } }, 403);
-    }
-
     let body: unknown;
     try {
       body = await context.req.json();
@@ -121,10 +117,6 @@ export function startMessageInternalApi(input: InternalApiInput) {
   });
 
   app.get("/internal/web/messages", async (context) => {
-    if (!config.message.web.enabled) {
-      return context.json({ error: { code: "WEB_CHAT_DISABLED" } }, 403);
-    }
-
     const cursorSentAt = context.req.query("cursorSentAt");
     const cursorId = context.req.query("cursorId");
     const parsedQuery = webChatHistoryQuerySchema.safeParse({
@@ -142,10 +134,6 @@ export function startMessageInternalApi(input: InternalApiInput) {
   });
 
   app.get("/internal/web/stickers/:key", (context) => {
-    if (!config.message.web.enabled) {
-      return context.json({ error: { code: "WEB_CHAT_DISABLED" } }, 403);
-    }
-
     const sticker = getWebChatSticker(context.req.param("key"));
     if (!sticker) {
       return context.body(null, 404);

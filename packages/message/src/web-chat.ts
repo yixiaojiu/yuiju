@@ -1,6 +1,5 @@
 import { extname } from "node:path";
 import { h } from "@satorijs/core";
-import { getYuijuConfig } from "@yuiju/utils/config/config";
 import { SUBJECT_NAME } from "@yuiju/utils/constants/character";
 import {
   beginWebChatMessage,
@@ -22,20 +21,20 @@ import { stickerState } from "@/state/sticker";
 import { buildSatoriPrivateSessionKey } from "@/utils/message/satori";
 import type { HistoryMessageSegment, StoredSatoriPrivateMessage } from "@/utils/message/types";
 
-function createWebPrivateMessage(input: WebChatMessageInput): StoredSatoriPrivateMessage {
-  const { ownerId, ownerName } = getYuijuConfig().message.web;
+const WEB_CHAT_OWNER_ID = "web-user";
 
+function createWebPrivateMessage(input: WebChatMessageInput): StoredSatoriPrivateMessage {
   return {
     source: "satori",
     scene: "private",
     platform: "web",
     messageId: input.messageId,
-    channelId: ownerId,
-    sessionId: buildSatoriPrivateSessionKey("web", ownerId),
-    sessionLabel: ownerName,
+    channelId: WEB_CHAT_OWNER_ID,
+    sessionId: buildSatoriPrivateSessionKey("web", WEB_CHAT_OWNER_ID),
+    sessionLabel: input.ownerName,
     sender: {
-      id: ownerId,
-      displayName: ownerName,
+      id: WEB_CHAT_OWNER_ID,
+      displayName: input.ownerName,
       isSelf: false,
     },
     timestamp: input.sentAt,
@@ -178,8 +177,7 @@ export async function chatThroughWebChannel(input: WebChatMessageInput): Promise
 }
 
 export async function getWebChatHistory(query: WebChatHistoryQuery): Promise<WebChatHistoryPage> {
-  const { ownerId } = getYuijuConfig().message.web;
-  const sessionId = buildSatoriPrivateSessionKey("web", ownerId);
+  const sessionId = buildSatoriPrivateSessionKey("web", WEB_CHAT_OWNER_ID);
   const page = await getWebChatMessagesPage({
     sessionId,
     limit: query.limit,

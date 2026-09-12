@@ -18,15 +18,6 @@ export interface YuijuMessageInternalApiConfig {
 }
 
 /**
- * Web 私聊渠道配置。
- */
-export interface YuijuMessageWebConfig {
-  enabled: boolean;
-  ownerId: string;
-  ownerName: string;
-}
-
-/**
  * OneBot 消息平台配置。
  */
 export interface YuijuOneBotConfig extends YuijuMessageWebSocketReconnectConfig {
@@ -81,7 +72,6 @@ export interface YuijuMessageConfig {
   onebot: YuijuOneBotConfig;
   lark: YuijuLarkConfig;
   internalApi: YuijuMessageInternalApiConfig;
-  web: YuijuMessageWebConfig;
   proactive: {
     onebotGroupTargetId?: number;
     larkGroupTargetId?: string;
@@ -208,12 +198,6 @@ const yuijuMessageInternalApiConfigSchema: z.ZodType<YuijuMessageInternalApiConf
   port: z.number(),
 });
 
-const yuijuMessageWebConfigSchema: z.ZodType<YuijuMessageWebConfig> = z.strictObject({
-  enabled: z.boolean(),
-  ownerId: z.string().trim().min(1),
-  ownerName: z.string().trim().min(1),
-});
-
 const yuijuOneBotConfigSchema: z.ZodType<YuijuOneBotConfig> = z.object({
   ...yuijuMessageWebSocketReconnectConfigShape,
   protocol: z.literal("ws"),
@@ -246,7 +230,6 @@ const yuijuMessageConfigSchema: z.ZodType<YuijuMessageConfig> = z.object({
   onebot: yuijuOneBotConfigSchema,
   lark: yuijuLarkConfigSchema,
   internalApi: yuijuMessageInternalApiConfigSchema,
-  web: yuijuMessageWebConfigSchema,
   proactive: z.object({
     onebotGroupTargetId: z.number().optional(),
     larkGroupTargetId: z.string().optional(),

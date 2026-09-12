@@ -40,11 +40,6 @@
     }
   },
   "message": {
-    "web": {
-      "enabled": false,
-      "ownerId": "web-user",
-      "ownerName": "翊小久"
-    },
     "proactive": {
       "onebotGroupTargetId": 838986741,
       "larkGroupTargetId": "xxx"

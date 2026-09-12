@@ -1,4 +1,3 @@
-import { getYuijuConfig } from "@yuiju/utils/config/config";
 import { webChatHistoryQuerySchema, webChatMessageInputSchema } from "@yuiju/utils/types/web-chat";
 import { fetchWebChatHistory, sendWebChatMessage } from "@/lib/message-internal-api";
 import { isPublicDeployment } from "@/lib/public-deployment";
@@ -20,7 +19,7 @@ function errorResponse(status: number, code: ChatErrorCode, message: string) {
 }
 
 export async function POST(request: Request) {
-  if (isPublicDeployment() || !getYuijuConfig().message.web.enabled) {
+  if (isPublicDeployment()) {
     return errorResponse(403, "CHAT_DISABLED", "Web 私聊渠道未启用");
   }
 
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  if (isPublicDeployment() || !getYuijuConfig().message.web.enabled) {
+  if (isPublicDeployment()) {
     return errorResponse(403, "CHAT_DISABLED", "Web 私聊渠道未启用");
   }
 

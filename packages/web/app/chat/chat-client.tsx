@@ -11,6 +11,10 @@ import Image from "next/image";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { fetchHomeSummary, HOME_SUMMARY_ENDPOINT } from "@/lib/api/home";
+import {
+  WEB_CHAT_OWNER_NAME_DEFAULT,
+  WEB_CHAT_OWNER_NAME_STORAGE_KEY,
+} from "@/lib/web-chat-preferences";
 
 type ChatResponse =
   | {
@@ -150,9 +154,17 @@ export function ChatClient() {
   const [historyPageError, setHistoryPageError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [ownerName, setOwnerName] = useState(WEB_CHAT_OWNER_NAME_DEFAULT);
   const endRef = useRef<HTMLDivElement>(null);
   const hasHydratedHistory = useRef(false);
   const shouldScrollToEnd = useRef(true);
+
+  useEffect(() => {
+    const storedOwnerName = localStorage.getItem(WEB_CHAT_OWNER_NAME_STORAGE_KEY);
+    if (storedOwnerName !== null) {
+      setOwnerName(storedOwnerName);
+    }
+  }, []);
 
   useEffect(() => {
     if (!initialHistory || hasHydratedHistory.current) {
@@ -222,7 +234,7 @@ export function ChatClient() {
       const response = await fetch("/api/chat/messages", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messageId, text, sentAt }),
+        body: JSON.stringify({ messageId, ownerName, text, sentAt }),
       });
       const payload = (await response.json()) as ChatResponse;
 
