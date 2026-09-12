@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const FRAME_SIZE = 128;
+const FRAME_PREVIEW_SIZE = 128;
 
 type SourceSheet = {
   name: string;
   url: string;
   width: number;
   height: number;
+  frameSize: number;
+  frameCount: number;
 };
 
 type AnimationFrame = {
@@ -17,6 +19,7 @@ type AnimationFrame = {
   sourceUrl: string;
   sheetWidth: number;
   sheetHeight: number;
+  frameSize: number;
   offsetX: number;
   offsetY: number;
 };
@@ -26,6 +29,8 @@ type SpriteEditorProps = {
 };
 
 function SpriteFrame({ frame, alt }: { frame: AnimationFrame; alt: string }) {
+  const previewScale = FRAME_PREVIEW_SIZE / frame.frameSize;
+
   return (
     <div className="h-[128px] w-[128px] overflow-hidden">
       <img
@@ -36,9 +41,9 @@ function SpriteFrame({ frame, alt }: { frame: AnimationFrame; alt: string }) {
         draggable={false}
         className="block max-w-none select-none [image-rendering:pixelated]"
         style={{
-          width: frame.sheetWidth,
-          height: frame.sheetHeight,
-          transform: `translate(-${frame.offsetX}px, -${frame.offsetY}px)`,
+          width: frame.sheetWidth * previewScale,
+          height: frame.sheetHeight * previewScale,
+          transform: `translate(-${frame.offsetX * previewScale}px, -${frame.offsetY * previewScale}px)`,
         }}
       />
     </div>
@@ -50,7 +55,7 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
   const hoveredFrameKey = useRef<string | undefined>(undefined);
   const logicalPixelHeightByFrameKey = useRef(new Map<string, number>());
   const [animationFrames, setAnimationFrames] = useState<AnimationFrame[]>([]);
-  const [frameDuration, setFrameDuration] = useState(500);
+  const [frameDuration, setFrameDuration] = useState(150);
   const [animationTick, setAnimationTick] = useState(0);
   const [hoverPreview, setHoverPreview] = useState<{
     frame: AnimationFrame;
@@ -91,6 +96,7 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
           sourceUrl: sourceSheet.url,
           sheetWidth: sourceSheet.width,
           sheetHeight: sourceSheet.height,
+          frameSize: sourceSheet.frameSize,
           offsetX,
           offsetY,
         },
@@ -109,27 +115,27 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
         await image.decode();
 
         const canvas = document.createElement("canvas");
-        canvas.width = FRAME_SIZE;
-        canvas.height = FRAME_SIZE;
+        canvas.width = frame.frameSize;
+        canvas.height = frame.frameSize;
         const context = canvas.getContext("2d")!;
         context.drawImage(
           image,
           frame.offsetX,
           frame.offsetY,
-          FRAME_SIZE,
-          FRAME_SIZE,
+          frame.frameSize,
+          frame.frameSize,
           0,
           0,
-          FRAME_SIZE,
-          FRAME_SIZE,
+          frame.frameSize,
+          frame.frameSize,
         );
 
-        const framePixels = context.getImageData(0, 0, FRAME_SIZE, FRAME_SIZE).data;
-        let top = FRAME_SIZE;
+        const framePixels = context.getImageData(0, 0, frame.frameSize, frame.frameSize).data;
+        let top = frame.frameSize;
         let bottom = -1;
-        for (let y = 0; y < FRAME_SIZE; y += 1) {
-          for (let x = 0; x < FRAME_SIZE; x += 1) {
-            if (framePixels[(y * FRAME_SIZE + x) * 4 + 3] === 0) {
+        for (let y = 0; y < frame.frameSize; y += 1) {
+          for (let x = 0; x < frame.frameSize; x += 1) {
+            if (framePixels[(y * frame.frameSize + x) * 4 + 3] === 0) {
               continue;
             }
 
@@ -152,6 +158,22 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
     }, 1000);
   };
 
+  const previewSourceSheet = (sourceSheet: SourceSheet) => {
+    setAnimationFrames(
+      Array.from({ length: sourceSheet.frameCount }, (_, frameIndex) => ({
+        key: `${sourceSheet.url}:${frameIndex * sourceSheet.frameSize}:0`,
+        sourceName: sourceSheet.name,
+        sourceUrl: sourceSheet.url,
+        sheetWidth: sourceSheet.width,
+        sheetHeight: sourceSheet.height,
+        frameSize: sourceSheet.frameSize,
+        offsetX: frameIndex * sourceSheet.frameSize,
+        offsetY: 0,
+      })),
+    );
+    setAnimationTick(0);
+  };
+
   const stopHoverPreview = () => {
     hoveredFrameKey.current = undefined;
     window.clearTimeout(hoverPreviewTimer.current);
@@ -169,9 +191,10 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
   };
 
   const exportSpriteSheet = async () => {
+    const frameSize = animationFrames[0].frameSize;
     const canvas = document.createElement("canvas");
-    canvas.width = animationFrames.length * FRAME_SIZE;
-    canvas.height = FRAME_SIZE;
+    canvas.width = animationFrames.length * frameSize;
+    canvas.height = frameSize;
     const context = canvas.getContext("2d")!;
     context.imageSmoothingEnabled = false;
 
@@ -190,12 +213,12 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
         sourceImages.get(frame.sourceUrl)!,
         frame.offsetX,
         frame.offsetY,
-        FRAME_SIZE,
-        FRAME_SIZE,
-        frameIndex * FRAME_SIZE,
+        frame.frameSize,
+        frame.frameSize,
+        frameIndex * frameSize,
         0,
-        FRAME_SIZE,
-        FRAME_SIZE,
+        frameSize,
+        frameSize,
       );
     });
 
@@ -232,27 +255,35 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
         ) : null}
 
         {sourceSheets.map((sourceSheet) => {
-          const columnCount = sourceSheet.width / FRAME_SIZE;
-          const rowCount = sourceSheet.height / FRAME_SIZE;
+          const isCompatibleWithSelection =
+            animationFrames.length === 0 || animationFrames[0].frameSize === sourceSheet.frameSize;
 
           return (
             <article
               key={sourceSheet.url}
               className="grid gap-[12px] border-t border-[#cbb99b] pt-[16px]"
             >
-              <h3 className="font-fusion-pixel text-[16px]">{sourceSheet.name}</h3>
+              <div className="flex items-center justify-between gap-[12px]">
+                <h3 className="font-fusion-pixel text-[16px]">{sourceSheet.name}</h3>
+                <button
+                  type="button"
+                  className="rounded border border-[#806458] px-[8px] py-[4px] text-[13px]"
+                  onClick={() => previewSourceSheet(sourceSheet)}
+                >
+                  预览整张
+                </button>
+              </div>
               <div className="flex flex-wrap gap-[8px]">
-                {Array.from({ length: columnCount * rowCount }, (_, frameIndex) => {
-                  const column = frameIndex % columnCount;
-                  const row = Math.floor(frameIndex / columnCount);
-                  const offsetX = column * FRAME_SIZE;
-                  const offsetY = row * FRAME_SIZE;
+                {Array.from({ length: sourceSheet.frameCount }, (_, frameIndex) => {
+                  const offsetX = frameIndex * sourceSheet.frameSize;
+                  const offsetY = 0;
                   const frame: AnimationFrame = {
                     key: `${sourceSheet.url}:${offsetX}:${offsetY}`,
                     sourceName: sourceSheet.name,
                     sourceUrl: sourceSheet.url,
                     sheetWidth: sourceSheet.width,
                     sheetHeight: sourceSheet.height,
+                    frameSize: sourceSheet.frameSize,
                     offsetX,
                     offsetY,
                   };
@@ -267,6 +298,7 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
                     <div key={`${offsetX}-${offsetY}`} className="relative">
                       <button
                         type="button"
+                        disabled={!isCompatibleWithSelection}
                         title={`选择偏移 ${offsetX}, ${offsetY}`}
                         aria-pressed={isSelected}
                         className={`relative block cursor-pointer overflow-hidden rounded-[6px] border-2 bg-[#e7d9bd] p-0 transition-transform hover:-translate-y-[2px] ${
@@ -282,6 +314,7 @@ export function SpriteEditor({ sourceSheets }: SpriteEditorProps) {
                       </button>
                       <input
                         type="checkbox"
+                        disabled={!isCompatibleWithSelection}
                         checked={isSelected}
                         aria-label={`选择 ${sourceSheet.name} 偏移 ${offsetX}, ${offsetY}`}
                         className="absolute top-[7px] right-[7px] z-20 h-[20px] w-[20px] cursor-pointer accent-[#493247]"

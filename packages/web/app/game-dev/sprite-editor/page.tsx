@@ -12,11 +12,19 @@ export default async function GameSpriteEditorPage() {
   const sourceSheets = await Promise.all(
     sourceFileNames.map(async (fileName) => {
       const imageData = await fs.readFile(path.join(sourceDirectory, fileName));
+      const width = imageData.readUInt32BE(16);
+      const height = imageData.readUInt32BE(20);
+      if (width % height !== 0) {
+        throw new Error(`${fileName} 必须是由正方形帧组成的单行横向序列图。`);
+      }
+
       return {
         name: fileName,
         url: `/game-sprite-editor/source-sheets/${encodeURIComponent(fileName)}`,
-        width: imageData.readUInt32BE(16),
-        height: imageData.readUInt32BE(20),
+        width,
+        height,
+        frameSize: height,
+        frameCount: width / height,
       };
     }),
   );
