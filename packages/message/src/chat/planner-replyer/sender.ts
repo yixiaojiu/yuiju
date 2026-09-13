@@ -10,6 +10,9 @@ export class PlannerReplyerPartialSendError extends Error {
   constructor(
     message: string,
     public readonly sentCount: number,
+    public readonly firstSendCompletedAt: number | undefined,
+    public readonly platformSendDurationMs: number,
+    public readonly segmentDelayDurationMs: number,
     options: ErrorOptions,
   ) {
     super(message, options);
@@ -24,7 +27,13 @@ export async function sendChatSegments(input: {
   stickerKey?: string;
   quoteMessageId?: string;
   abortSignal: AbortSignal;
-}): Promise<{ sentCount: number; complete: boolean }> {
+}): Promise<{
+  sentCount: number;
+  complete: boolean;
+  firstSendCompletedAt?: number;
+  platformSendDurationMs: number;
+  segmentDelayDurationMs: number;
+}> {
   const segments = input.textSegments.map((text, index) => ({
     elements:
       index === 0 && input.quoteMessageId
@@ -40,18 +49,26 @@ export async function sendChatSegments(input: {
   }
 
   let sentCount = 0;
+  let firstSendCompletedAt: number | undefined;
+  let platformSendDurationMs = 0;
+  let segmentDelayDurationMs = 0;
   for (const [index, segment] of segments.entries()) {
     if (input.abortSignal.aborted) {
       break;
     }
 
+    const sendStartedAt = Date.now();
+    let sendCompleted = false;
     try {
       const timestamp = Date.now();
       const sentMessageIds = await input.session.bot.sendMessage(
         input.sourceMessage.channelId,
         segment.elements,
       );
+      platformSendDurationMs += Date.now() - sendStartedAt;
+      sendCompleted = true;
       sentCount += 1;
+      firstSendCompletedAt ??= Date.now();
       const storedMessage = await createStoredSatoriGroupBotMessage({
         sourceMessage: input.sourceMessage,
         selfId: input.session.selfId,
@@ -63,9 +80,17 @@ export async function sendChatSegments(input: {
       });
       await chatManager.recordGroupMessage(storedMessage);
     } catch (error) {
-      throw new PlannerReplyerPartialSendError("Planner-Replyer 聊天消息分段发送失败", sentCount, {
-        cause: error,
-      });
+      if (!sendCompleted) {
+        platformSendDurationMs += Date.now() - sendStartedAt;
+      }
+      throw new PlannerReplyerPartialSendError(
+        "Planner-Replyer 聊天消息分段发送失败",
+        sentCount,
+        firstSendCompletedAt,
+        platformSendDurationMs,
+        segmentDelayDurationMs,
+        { cause: error },
+      );
     }
 
     const nextSegment = segments[index + 1];
@@ -73,6 +98,7 @@ export async function sendChatSegments(input: {
       continue;
     }
 
+    const delayStartedAt = Date.now();
     try {
       await setTimeout(getReplyDelayMs(nextSegment.delayText), undefined, {
         signal: input.abortSignal,
@@ -82,8 +108,16 @@ export async function sendChatSegments(input: {
         break;
       }
       throw error;
+    } finally {
+      segmentDelayDurationMs += Date.now() - delayStartedAt;
     }
   }
 
-  return { sentCount, complete: sentCount === segments.length };
+  return {
+    sentCount,
+    complete: sentCount === segments.length,
+    firstSendCompletedAt,
+    platformSendDurationMs,
+    segmentDelayDurationMs,
+  };
 }

@@ -159,12 +159,13 @@ export async function runChatPlanner(input: {
     telemetry: getLangfuseTelemetry(),
   });
   const maxInputTokens = Math.max(0, ...result.steps.map((step) => step.usage.inputTokens ?? 0));
+  const toolCallCount = result.steps.reduce((count, step) => count + step.toolCalls.length, 0);
 
   logger.info("[message.planner-replyer.planner] Planner 调用完成", {
     sessionId: input.sessionId,
     durationMs: Date.now() - startedAt,
     inputTokens: maxInputTokens,
-    toolCallCount: result.steps.reduce((count, step) => count + step.toolCalls.length, 0),
+    toolCallCount,
     action: selectedAction?.type ?? "none",
     pendingCount: input.pendingMessages.length,
   });
@@ -174,6 +175,7 @@ export async function runChatPlanner(input: {
     planChanges,
     turnMessages: [persistedInput, ...result.responseMessages],
     maxInputTokens,
+    toolCallCount,
     internalNote: result.text.trim(),
   };
 }

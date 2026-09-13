@@ -21,6 +21,7 @@ export interface PlannerReplyerResult {
   planChanges: AgentPlanChange[];
   turnMessages: ModelMessage[];
   maxInputTokens: number;
+  toolCallCount: number;
   internalNote: string;
 }
 

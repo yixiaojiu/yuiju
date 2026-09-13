@@ -4,6 +4,7 @@ import {
   Activity,
   BookOpenText,
   Brain,
+  ChartNoAxesCombined,
   ChevronDown,
   FilePenLine,
   FileText,
@@ -28,6 +29,7 @@ const NAVIGATION_ITEMS = [
   { key: "chat", href: "/chat", label: "聊天", icon: MessageCircle },
   { key: "activity", href: "/activity", label: "动态", icon: Activity },
   { key: "diary", href: "/diary", label: "日记", icon: BookOpenText },
+  { key: "analytics", href: "/analytics", label: "性能", icon: ChartNoAxesCombined },
   { key: "logs", href: "/logs", label: "日志", icon: FileText },
   { key: "memory", href: "/memory", label: "记忆", icon: Brain },
 ] as const;
@@ -175,7 +177,10 @@ export function AppShell({ children, showInternalPages, showWebChat }: AppShellP
       return showWebChat;
     }
 
-    return showInternalPages || (item.key !== "logs" && item.key !== "memory");
+    return (
+      showInternalPages ||
+      (item.key !== "analytics" && item.key !== "logs" && item.key !== "memory")
+    );
   });
 
   useEffect(() => {

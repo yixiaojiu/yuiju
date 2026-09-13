@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
 import { activityRoute } from "./activity";
+import { analyticsRoute } from "./analytics";
 import { diaryRoute } from "./diary";
 import { filesRoute } from "./files";
 import { homeRoute } from "./home";
@@ -18,6 +19,7 @@ app.get("/hello", async (context) => {
 
 app.route("/home", homeRoute);
 app.route("/activity", activityRoute);
+app.route("/analytics", analyticsRoute);
 app.route("/diary", diaryRoute);
 app.route("/state", stateRoute);
 app.route("/logs", logsRoute);
