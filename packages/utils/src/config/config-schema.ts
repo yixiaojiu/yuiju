@@ -118,6 +118,7 @@ export interface YuijuLlmModelConfig {
    *   请求会被 provider 拒绝，而不是静默降级。
    */
   supportsJsonSchema?: boolean;
+  context_window_tokens?: number;
 }
 
 export interface YuijuEmbeddingModelConfig extends YuijuLlmModelConfig {
@@ -255,6 +256,7 @@ const yuijuLlmModelConfigSchema: z.ZodType<YuijuLlmModelConfig> = z.object({
   apiKey: z.string(),
   model: z.string(),
   supportsJsonSchema: z.boolean().optional(),
+  context_window_tokens: z.number().int().positive().optional(),
 });
 
 const yuijuLlmModelSourcesConfigSchema: z.ZodType<YuijuLlmModelSourcesConfig> = z.tuple(

@@ -70,6 +70,7 @@ export async function sendAndRecordSatoriGroupReply(input: {
       sentMessageIds[0] ?? `${input.sourceMessage.messageId}:reply:${lineIndex}`;
     const storedSentMessage = await createStoredSatoriGroupBotMessage({
       sourceMessage: input.sourceMessage,
+      selfId: input.session.selfId,
       messageId: sentMessageId,
       elements,
       timestamp: Date.now(),

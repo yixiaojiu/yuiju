@@ -1,7 +1,7 @@
 import type { Session } from "@satorijs/core";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { handleStoredSatoriGroupMessage } from "@/chat/group-pipeline-router";
 import { chatManager } from "@/chat/manager";
-import { handleStoredSatoriChatMessage } from "@/chat/reply-strategy";
 import { logger } from "@/utils/logger";
 import { createStoredSatoriGroupMessage } from "@/utils/message";
 
@@ -44,5 +44,5 @@ export async function groupMessageHandler(session: Session) {
 
   await chatManager.recordGroupMessage(storedMessage);
 
-  await handleStoredSatoriChatMessage({ session, storedMessage });
+  await handleStoredSatoriGroupMessage({ session, storedMessage });
 }

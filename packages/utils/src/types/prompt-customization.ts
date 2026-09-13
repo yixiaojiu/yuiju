@@ -2,6 +2,8 @@ export const promptCustomizationKeys = [
   "character",
   "world",
   "chat",
+  "chatBehavior",
+  "chatReply",
   "chooseAction",
   "diary",
 ] as const;

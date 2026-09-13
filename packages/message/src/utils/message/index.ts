@@ -12,6 +12,7 @@ export {
 } from "./reply";
 export {
   createStoredSatoriGroupMessage,
+  createStoredSatoriGroupPokeMessage,
   createStoredSatoriPrivateMessage,
 } from "./satori";
 export type {
@@ -21,6 +22,7 @@ export type {
   HistoryJsonItem,
   HistoryMessageItem,
   HistoryMessageSegment,
+  HistoryPokeSegment,
   HistoryReplySegment,
   StoredSatoriChatMessage,
   StoredSatoriGroupMessage,

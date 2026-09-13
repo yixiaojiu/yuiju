@@ -214,6 +214,7 @@ export function startMessageInternalApi(input: InternalApiInput) {
 
       const storedSentMessage = await createStoredSatoriGroupBotMessage({
         sourceMessage,
+        selfId: sourceMessage.sender.id,
         messageId: sentMessageId,
         elements,
         timestamp: currentTimestamp,

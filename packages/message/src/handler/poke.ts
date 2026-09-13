@@ -2,7 +2,12 @@ import { setTimeout } from "node:timers/promises";
 import type { Session } from "@satorijs/core";
 import type { OneBotBot } from "@yuiju/satorijs-adapter-onebot";
 import { ActionId, initCharacterStateData } from "@yuiju/utils";
+import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { ExperimentId, experimentManager } from "@yuiju/utils/experiment/experiment-manager";
+import { chatManager } from "@/chat/manager";
+import { plannerReplyerGroupChatManager } from "@/chat/planner-replyer/manager";
 import { logger } from "@/utils/logger";
+import { createStoredSatoriGroupPokeMessage } from "@/utils/message/satori";
 
 const MIN_POKE_REPLY_DELAY_MS = 2000;
 const MAX_POKE_REPLY_DELAY_MS = 4000;
@@ -25,6 +30,25 @@ export async function onebotPokeHandler(session: Session): Promise<void> {
 
   const userId = session.userId;
   if (!userId) {
+    return;
+  }
+
+  if (session.guildId && experimentManager.isEnabled(ExperimentId.PlannerReplyerChat)) {
+    const groupId = Number(session.guildId);
+    if (
+      !Number.isInteger(groupId) ||
+      !getYuijuConfig().message.onebot.groupWhiteList.includes(groupId)
+    ) {
+      return;
+    }
+
+    const storedMessage = await createStoredSatoriGroupPokeMessage(session);
+    await chatManager.recordGroupMessage(storedMessage);
+    await plannerReplyerGroupChatManager.handleMessage({
+      session,
+      storedMessage,
+      forceTrigger: true,
+    });
     return;
   }
 

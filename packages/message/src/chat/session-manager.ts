@@ -248,6 +248,17 @@ export class ChatSessionManager<TMessage extends StoredSatoriChatMessage> {
     };
   }
 
+  getMessages(sessionId: string): readonly TMessage[] {
+    const conversationState = this.conversationBySessionId.get(sessionId);
+    if (!conversationState) {
+      return [];
+    }
+
+    const messages = this.trimConversation(conversationState.messages);
+    conversationState.messages = messages;
+    return [...messages];
+  }
+
   async flushUserWindow(sessionId: string) {
     const summaryChunk = this.summaryChunkBySessionId.get(sessionId);
     if (summaryChunk) {

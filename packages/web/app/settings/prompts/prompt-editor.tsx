@@ -23,6 +23,14 @@ const promptLabels: Record<PromptCustomizationKey, { label: string; description:
     label: "聊天",
     description: "聊天参与方式、表达风格、关系处理与回复倾向。",
   },
+  chatBehavior: {
+    label: "聊天 Planner",
+    description: "实验群聊链路的参与判断、注意力延续和行动选择。",
+  },
+  chatReply: {
+    label: "聊天 Replyer",
+    description: "实验群聊链路最终可见消息的口吻、粒度和表达边界。",
+  },
   chooseAction: {
     label: "ChooseAction",
     description: "生活节奏、状态优先级、消费态度与行动决策倾向。",

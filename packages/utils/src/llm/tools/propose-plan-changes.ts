@@ -13,7 +13,7 @@ export interface CreateChatPlanChangesProposalToolInput {
   historyJson: string;
 }
 
-async function reviewAndApplyChatPlanChanges(input: {
+export async function reviewAndApplyChatPlanChanges(input: {
   planChanges: AgentPlanChange[];
   summary?: string;
   historyJson: string;
@@ -57,6 +57,35 @@ async function reviewAndApplyChatPlanChanges(input: {
 
   logger.info("[message.plan] 聊天计划变更已应用", {
     changes: appliedPlanChanges,
+  });
+}
+
+export function createCollectedChatPlanChangesProposalTool(input: {
+  canCollect: boolean;
+  collect: (planChanges: AgentPlanChange[]) => void;
+}) {
+  let hasCollected = false;
+
+  return tool({
+    description: "记录计划变更提案；当前只收集提案，社交行动成功结束后才会审查并应用。",
+    inputSchema: z.object({
+      planChanges: z.array(agentPlanChangeToolSchema).min(1).describe("候选计划变更"),
+    }),
+    execute: async ({ planChanges }) => {
+      if (!input.canCollect || hasCollected) {
+        return {
+          status: "rejected",
+          message: "当前逻辑轮次已经记录过一次计划变更提案。",
+        };
+      }
+
+      hasCollected = true;
+      input.collect(planChanges);
+      return {
+        status: "collected",
+        message: "计划变更提案已记录，当前尚未应用。",
+      };
+    },
   });
 }
 

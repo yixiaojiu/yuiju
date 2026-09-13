@@ -3,6 +3,7 @@ import { Context, HTTP } from "@satorijs/core";
 import OneBotBot from "@yuiju/satorijs-adapter-onebot";
 import { connectDB, initializePersonMemoryHeat } from "@yuiju/utils";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { ExperimentId, experimentManager } from "@yuiju/utils/experiment/experiment-manager";
 import { initializeLangfuseTelemetry } from "@yuiju/utils/llm/langfuse-telemetry";
 import { chatManager } from "./chat/manager";
 import { groupMessageHandler } from "./handler/group-message";
@@ -55,6 +56,11 @@ satori.on("internal/session", async (session) => {
     }
 
     const normalizedSession = await normalizeSatoriSession(session);
+
+    if (normalizedSession.guildId && experimentManager.isEnabled(ExperimentId.PlannerReplyerChat)) {
+      await onebotPokeHandler(normalizedSession);
+      return;
+    }
 
     onebotPokeHandler(normalizedSession);
 

@@ -4,13 +4,15 @@ import type {
 } from "../types/prompt-customization";
 import { defaultCharacterPrompt } from "./character-card";
 import { defaultDiaryPrompt } from "./diary";
-import { defaultChatPrompt } from "./message";
+import { defaultChatBehaviorPrompt, defaultChatPrompt, defaultChatReplyPrompt } from "./message";
 import { defaultChooseActionPrompt, defaultWorldPrompt } from "./world-view";
 
 export const defaultPromptCustomizations: Record<PromptCustomizationKey, string> = {
   character: defaultCharacterPrompt,
   world: defaultWorldPrompt,
   chat: defaultChatPrompt,
+  chatBehavior: defaultChatBehaviorPrompt,
+  chatReply: defaultChatReplyPrompt,
   chooseAction: defaultChooseActionPrompt,
   diary: defaultDiaryPrompt,
 };

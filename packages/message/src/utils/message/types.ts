@@ -19,6 +19,7 @@ export interface StoredSatoriGroupMessage {
   timestamp: number;
   elements: h[];
   content: HistoryMessageSegment[];
+  origin?: "planner-replyer";
   rawSession?: Session;
 }
 
@@ -66,8 +67,17 @@ export interface HistoryTextSegment {
 export interface HistoryReplySegment {
   type: "reply";
   data: {
+    messageId?: string;
+    senderId?: string;
     speaker?: string;
     content: HistoryMessageSegment[];
+  };
+}
+
+export interface HistoryPokeSegment {
+  type: "poke";
+  data: {
+    text: "戳了戳悠酱";
   };
 }
 
@@ -97,6 +107,7 @@ export type HistoryMessageSegment =
   | HistoryImageSegment
   | HistoryAtSegment
   | HistoryReplySegment
+  | HistoryPokeSegment
   | HistoryFaceSegment
   | HistoryRecallSegment
   | h;

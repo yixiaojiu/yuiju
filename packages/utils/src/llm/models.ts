@@ -5,7 +5,7 @@ import type { YuijuLlmModelSourcesConfig } from "../config/config-schema";
 import { logger } from "../logger";
 
 // 模型调用失败后的冷却时间
-const MODEL_SOURCE_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+const MODEL_SOURCE_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 
 type LlmModelName = "chat" | "strong" | "flash" | "vision";
 

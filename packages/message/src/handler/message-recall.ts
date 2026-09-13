@@ -1,5 +1,6 @@
 import type { Session } from "@satorijs/core";
 import { getYuijuConfig } from "@yuiju/utils/config/config";
+import { handleStoredSatoriGroupRecall } from "@/chat/group-pipeline-router";
 import { chatManager } from "@/chat/manager";
 import { handleStoredSatoriChatRecall } from "@/chat/reply-strategy";
 import { logger } from "@/utils/logger";
@@ -90,7 +91,7 @@ export async function messageRecallHandler(session: Session) {
       recallRequestId: recallMessage.messageId,
     });
 
-    await handleStoredSatoriChatRecall({ session, storedMessage: recallMessage });
+    await handleStoredSatoriGroupRecall({ session, storedMessage: recallMessage });
   } catch (error) {
     logger.error("[message.recall] 处理消息撤回事件失败", error);
   }

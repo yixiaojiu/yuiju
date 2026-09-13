@@ -48,6 +48,39 @@ export async function createStoredSatoriGroupMessage(
   };
 }
 
+export async function createStoredSatoriGroupPokeMessage(
+  session: Session,
+): Promise<StoredSatoriGroupMessage> {
+  if (!session.channelId) {
+    throw new Error("OneBot 群戳事件缺少 channelId");
+  }
+
+  const channelId = session.channelId;
+  const platform = "onebot";
+  const sender = await getSatoriSender(session);
+
+  return {
+    source: "satori",
+    scene: "group",
+    platform,
+    messageId: session.messageId || `poke:${channelId}:${sender.id}:${session.timestamp}`,
+    channelId,
+    guildId: session.guildId,
+    sessionId: buildSatoriGroupSessionKey(platform, channelId),
+    sessionLabel: await getSatoriGroupSessionLabel(session, platform, channelId),
+    sender,
+    timestamp: session.timestamp || Date.now(),
+    elements: [],
+    content: [
+      {
+        type: "poke",
+        data: { text: "戳了戳悠酱" },
+      },
+    ],
+    rawSession: session,
+  };
+}
+
 export async function createStoredSatoriPrivateMessage(
   session: Session,
 ): Promise<StoredSatoriPrivateMessage | null> {
@@ -82,9 +115,11 @@ export async function createStoredSatoriPrivateMessage(
 
 export async function createStoredSatoriGroupBotMessage(input: {
   sourceMessage: StoredSatoriGroupMessage;
+  selfId: string;
   messageId: string;
   elements: h[];
   timestamp: number;
+  origin?: "planner-replyer";
 }): Promise<StoredSatoriGroupMessage> {
   return {
     source: "satori",
@@ -96,13 +131,14 @@ export async function createStoredSatoriGroupBotMessage(input: {
     sessionId: input.sourceMessage.sessionId,
     sessionLabel: input.sourceMessage.sessionLabel,
     sender: {
-      id: input.sourceMessage.rawSession?.selfId || input.sourceMessage.sender.id,
+      id: input.selfId,
       displayName: SUBJECT_NAME,
       isSelf: true,
     },
     timestamp: input.timestamp,
     elements: input.elements,
     content: await projectSatoriElementsToHistoryContent(elementsWithoutQuote(input.elements)),
+    origin: input.origin,
   };
 }
 
@@ -229,6 +265,8 @@ async function projectSatoriQuoteToHistoryContent(
   return {
     type: "reply",
     data: {
+      messageId: quote.id,
+      senderId: quote.user?.id,
       speaker: getSatoriQuoteSpeaker(quote),
       content: await projectSatoriQuotedMessageContent(quote),
     },

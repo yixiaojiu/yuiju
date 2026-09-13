@@ -27,7 +27,8 @@
         {
           "baseUrl": "https://api.siliconflow.cn/v1",
           "apiKey": "xxx",
-          "model": "MiniMaxAI/MiniMax-M2.5"
+          "model": "MiniMaxAI/MiniMax-M2.5",
+          "context_window_tokens": 128000
         }
       ],
       "vision": [
