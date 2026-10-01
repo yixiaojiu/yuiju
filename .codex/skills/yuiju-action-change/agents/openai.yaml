@@ -1,4 +1,0 @@
-interface:
-  display_name: "Yuiju Action 改动"
-  short_description: "指导 Yuiju Action 改动避免遗漏。"
-  default_prompt: "修改 Yuiju Action、移动路线、耗时、prompt 或 Action 相关状态时使用 $yuiju-action-change。"

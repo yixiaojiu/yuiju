@@ -28,23 +28,14 @@
 
 ## 项目约束
 
-- Monorepo 使用 pnpm，核心包位于 `packages/`。
-- `@yuiju/world` 是世界模拟引擎，包含引擎循环、行为执行、状态管理和 LLM 决策。
-- `@yuiju/message` 负责外部消息通信。
-- `@yuiju/web` 提供状态与世界运行的可视化界面。
-- `@yuiju/utils` 存放通用类型、配置、数据库、LLM、记忆与提示词能力。
-- 模块导入必须使用能够直接定位声明文件的具体路径，不要通过包根入口或 barrel index 间接导入。
-- LLM 提示词应集中维护在 `@yuiju/utils/src/prompt/`；无参数静态提示词优先导出常量，业务包只组合上下文。
-- 业务配置统一来自根目录 `yuiju.config.json`，不要新增分散的隐式配置来源。
-- `NODE_ENV` 仍然是运行时环境变量，不放进 `yuiju.config.json`。
-
-## 架构约定
-
-- Redis 是角色实时状态的真相源。
-- MongoDB 用于保存行为历史、记忆等可追溯记录。
-- 行为系统按场景组织，每个行为必须定义清晰的 `precondition`。
-- 参数化行为应让参数来源、校验和执行副作用保持可见。
-- 当前项目处于早期开发阶段，技术方案优先按最佳方案设计，不需要兼容旧逻辑。
+- Monorepo 使用 pnpm，应用位于 `apps/`，公共技术能力位于 `packages/shared/`。
+- `apps/character-runtime` 负责角色大脑、聊天、场景 loop、情绪、计划与记忆。
+- `apps/world-simulator` 负责世界运转、实际状态、行动执行和事件推送，不负责角色的 LLM 决策。
+- `apps/dashboard` 使用 Next.js，提供管理界面及 Hono API，API 统一使用 Node.js runtime。
+- `packages/shared` 放实际共用的技术能力与集中维护的提示词定义，不放大脑、聊天、记忆等业务执行逻辑。
+- 旧应用与旧包保留作参考，新功能在新架构中实现，不要求兼容旧逻辑。
+- 项目内部模块使用能够直接定位声明文件的具体路径导入，不通过包根入口或 barrel index 聚合导入。
+- 提示词定义集中维护在 `packages/shared/src/prompt/`，按业务模块分目录，导出包含 `key`、`template` 和可选 `description` 的常量；通过 `definitions.ts` 汇集，由模板系统首次渲染时自动注册，业务只通过 key 渲染。
 
 ## 验证命令
 

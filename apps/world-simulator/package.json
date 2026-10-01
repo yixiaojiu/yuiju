@@ -1,0 +1,14 @@
+{
+  "name": "@yuiju/world-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "NODE_ENV=production tsx src/main.ts",
+    "dev": "NODE_ENV=development tsx src/main.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@yuiju/shared": "workspace:*"
+  }
+}

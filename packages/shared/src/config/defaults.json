@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "app": {
+    "timezone": "Asia/Shanghai"
+  },
+  "database": {},
+  "llm": {
+    "models": {
+      "chat": { "providers": [] },
+      "strong": { "providers": [] },
+      "flash": { "providers": [] },
+      "multimodal": { "providers": [] },
+      "embedding": { "providers": [] }
+    }
+  },
+  "characters": {}
+}

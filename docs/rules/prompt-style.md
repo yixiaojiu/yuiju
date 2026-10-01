@@ -26,6 +26,8 @@
 
 ## 维护位置
 
-- LLM prompt 文案集中维护在 `@yuiju/utils/src/prompt/`。
+- 新系统的提示词定义集中维护在 `packages/shared/src/prompt/`，按业务模块分目录，例如 `conversation/planner.ts`、`conversation/replyer.ts`。
+- 每个提示词导出包含唯一 `key`、默认 `template` 和可选 `description` 的常量；模板变量使用 `{{variableName}}`。
+- 内置提示词在 `definitions.ts` 中显式汇集；模板系统首次渲染时自动加载并注册，并发调用共用一次初始化。业务只调用 `renderPrompt(key, variables)`，不负责注册；定义文件不在导入时自动注册。
 - 业务包只组合上下文和调用 LLM，不在业务流程里散写大段 prompt。
 - 修改 prompt 时同步检查 structured output schema 的 `describe` 文案，避免视角或语义不一致。
