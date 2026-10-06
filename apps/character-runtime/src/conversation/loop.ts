@@ -1,11 +1,22 @@
+import { load_config } from "@yuiju/shared/config/load";
+import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
-import type { ConversationMessage, ConversationScope, IncomingEvent } from "./message";
+import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { generateText } from "ai";
+import type { Character } from "../character";
+import {
+  type ConversationMessage,
+  type ConversationScope,
+  type IncomingEvent,
+  renderMessage,
+} from "./message";
 import type { OneBotConnection } from "./onebot";
 import { Planner } from "./planner";
 import { Replyer } from "./replyer";
 import {
-  queryConversationMessages,
-  saveConversationMessage,
+  type ConversationRuntime,
+  type ConversationState,
+  loadConversationState,
   saveConversationState,
 } from "./storage";
 import type { ConversationToolContext } from "./tools";
@@ -16,65 +27,47 @@ import {
   RECHECK_INTERVAL_MS,
 } from "./trigger";
 
-/** Planner 选择的主动等待；定向消息可提前结束等待。时间单位为 Unix 毫秒。 */
-export type ConversationWait = {
-  /** 开始等待的时间，用于告知 Planner 实际等待了多久。 */
-  startedAt: number;
-  /** 预计结束时间，到期后即使没有新消息也继续判断。 */
-  until: number;
-};
+/** Planner 主动等待的 Unix 毫秒起止时间；定向消息可提前结束等待。 */
+export type ConversationWait = { startedAt: number; until: number };
 
-/** 一次调度判断：有 input 就执行；否则按 nextCheckAt 复查，未给时间则等新消息。 */
+/** 判断阶段只给出输入快照或下次检查时间，不创建定时器、不修改状态。 */
 type NextRound = {
-  /** 可以执行时固定的输入快照；与 nextCheckAt 不同时返回。 */
   input?: {
-    /** 本轮准备处理的外部消息，不含执行期间新到的消息。 */
     messages: ConversationMessage[];
-    /** 本轮回复可见的收发历史。 */
     history: ConversationMessage[];
-    /** 本批输入的末尾序号；等待到期且无新消息时沿用已处理位置。 */
     throughSequence: number;
+    intentions: { id: string; text: string }[];
   };
-  /** 主动等待已到期或被打断时的实际秒数；0 也表示等待结束。 */
+  /** 等待实际秒数；0 也表示结束等待。 */
   waitedSeconds?: number;
-  /** 下次复查的 Unix 毫秒时间；只返回时间，不在判断过程中创建定时器。 */
   nextCheckAt?: number;
 };
 
-/** 单个群的串行决策循环；模型运行期间仍接收消息，留到下一轮处理。 */
+/** 单群决策串行运行；模型调用期间仍接收消息，状态提交使用同一条短写入队列。 */
 export class ConversationLoop {
-  /** 当前群的工具循环与上下文，通过 tool message 感知执行结果。 */
   private readonly planner: Planner;
-  /** 当前群的回复生成与摘要，轮次执行期间不吸收新输入的压缩结果。 */
   private readonly replyer: Replyer;
-  /** 已接收和已发送的事件；轮次结束或旁听时裁剪已压缩的旧记录。 */
+  /** 真实收发历史，不含模型工具交互；只保留未消费、未压缩和触发评分需要的记录。 */
   private history: ConversationMessage[] = [];
-  /** 尚未处理的外部输入；新消息追加，成功处理后按本轮边界移除。 */
-  private pending: ConversationMessage[] = [];
-  /** 收发事件共用的最新序号；从历史末尾恢复，每次记录事件时递增。 */
-  private sequence = 0;
-  /** 已消费的外部输入位置；只有轮次返回 processed 时推进，不因失败回退。 */
-  private processedThrough = 0;
-  /** Planner 选择 wait 时设置；到期或被定向消息打断后清除。 */
-  private waiting: ConversationWait | undefined;
-  /** 失败时已知的输入边界；必须收到更晚的消息才能再规划，轮次处理完成后清除。 */
-  private failedThroughSequence: number | undefined;
-  /** 连续主动沉默的轮数；选择等待或平台确认发送后归零，生成失败不算沉默。 */
-  private silentRounds = 0;
-  /** 普通消息的沉默退避截止时间（Unix 毫秒）；0 表示无退避，定向消息可绕过。 */
-  private silenceCooldownUntil = 0;
-
-  /** stop 时关闭；之后不再接收输入或启动新轮次，在途轮次仍完成。 */
+  /** 业务状态的唯一内存实例，Redis 的 runtime 字段是它的恢复快照。 */
+  private runtime: ConversationRuntime = {
+    sequence: 0,
+    processedThrough: 0,
+    plannerInputThrough: 0,
+    silentRounds: 0,
+    silenceCooldownUntil: 0,
+  };
   private acceptingMessages = true;
-  /** 首条消息触发的初始化任务；并发接收共用它，完成前不记录新输入。 */
-  private initializationTask: Promise<void> | undefined;
-  /** 收发共用的队列尾部；每项在 finally 中放行，只表示写入结束，不携带业务错误。 */
-  private messageWriteQueue: Promise<void> = Promise.resolve();
-  /** 当前群唯一的循环任务；存在时仅记下唤醒请求，停止时等待其完成。 */
+  /** 恢复和平台连接都完成后才开放调度；连接建立期间只记录消息。 */
+  private scheduling = false;
+  /** 角色确认可以聊天后才开放；发送前还会再次检查，拦截已在途的生成。 */
+  private participationAllowed = false;
+  /** Redis 提交失败后停止该会话，避免继续在无法确定的持久化状态上发送。 */
+  private persistenceError: Error | undefined;
+  /** 队列只覆盖状态变更与提交，不占用模型生成或平台请求的时间。 */
+  private stateWriteQueue: Promise<void> = Promise.resolve();
   private runningTask: Promise<void> | undefined;
-  /** 新消息或定时器设置；每次调度判断前清除，保留任务退出期间到达的唤醒。 */
   private wakeRequested = false;
-  /** 主动等待或冷场复查的定时器；开始运行或停止时取消。 */
   private wakeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -82,287 +75,501 @@ export class ConversationLoop {
     private readonly selfId: string,
     private readonly names: string[],
     private readonly connection: OneBotConnection,
+    private readonly character: Character,
   ) {
     this.planner = new Planner(scope);
     this.replyer = new Replyer(scope);
   }
 
-  /** 读取历史并准备两个模型上下文；旧历史仅作为背景，不重新触发回复。 */
-  private async initialize() {
-    this.history = await queryConversationMessages(this.scope, { after: 0 });
-    this.sequence = this.history.at(-1)?.sequence ?? 0;
-    // 启动时读取的历史只提供背景，不重新触发旧消息的回复。
-    this.processedThrough = this.sequence;
-    await Promise.all([this.planner.initialize(), this.replyer.initialize()]);
+  /** 待处理输入由历史与消费边界派生，避免维护另一份可漂移的队列。 */
+  private get pending() {
+    return this.history.filter(
+      (message) => !message.isSelf && message.sequence > this.runtime.processedThrough,
+    );
   }
 
-  /**
-   * 将外部输入排入写入队列，落库后加入待处理消息并唤醒循环。
-   * 返回值只等待输入记录，不等待模型回复；落库失败交给接入方报告。
-   */
-  async receive(input: IncomingEvent): Promise<void> {
-    if (!this.acceptingMessages) {
+  /** 主动从 Redis 恢复；缺失 key 才创建新会话，读取和解析错误直接交给启动方。 */
+  async initialize(): Promise<void> {
+    const state = await loadConversationState(this.scope);
+    if (state) {
+      this.runtime = state.runtime;
+      this.history = state.history;
+    }
+    await Promise.all([
+      this.planner.initialize(
+        state ? state.planner : { history: [], summary: { text: "", coveredThrough: 0 } },
+      ),
+      this.replyer.initialize(state ? state.replyerSummary : { text: "", coveredThrough: 0 }),
+    ]);
+
+    if (this.runtime.currentRound?.sendAttempted) {
+      // 平台与 Redis 不能组成事务；已尝试发送的中断批次宁可少回复，不自动重放。
+      this.runtime.processedThrough = this.runtime.currentRound.throughSequence;
+      this.runtime.currentRound = undefined;
+      this.runtime.failedThroughSequence = undefined;
+      this.runtime.waiting = undefined;
+    }
+    // 无发送的 currentRound 保留为恢复后的待执行轮次，包括没有新输入的等待续接。
+    this.pruneHistory();
+    await this.commit({
+      runtime: this.runtime,
+      history: this.history,
+      planner: this.planner.state,
+      replyerSummary: this.replyer.summary,
+    });
+  }
+
+  /** OneBot 可发送后开放调度，恢复 wait 定时器及尚未消费的输入。 */
+  resume(): void {
+    if (this.persistenceError) throw this.persistenceError;
+    this.scheduling = true;
+    this.requestRun();
+  }
+
+  async receiveIntention(id: string, text: string): Promise<string> {
+    if (!this.participationAllowed) {
+      return "当前暂停群聊，未提交分享。";
+    }
+    const release = await this.acquireStateWrite();
+    try {
+      const intents = this.runtime.shareIntents ?? [];
+      if (!this.participationAllowed) {
+        return "角色已经暂停群聊，未提交分享。";
+      }
+      if (intents.some((intent) => intent.id === id)) {
+        return "这次分享意图已经交给聊天规划，不重复提交。";
+      }
+      this.runtime.shareIntents = [
+        ...intents.filter(
+          (intent) => !intent.consumed || intent.receivedAt >= Date.now() - 30 * 86_400_000,
+        ),
+        { id, text, consumed: false, receivedAt: Date.now() },
+      ];
+      await this.commit({ runtime: this.runtime });
+      this.requestRun();
+      return "已交给这个群的聊天规划；是否发送与如何表达由它决定。";
+    } finally {
+      release();
+    }
+  }
+
+  /** 暂停不等待 LLM；恢复先整理固定原文范围，新到消息留给正常 trigger。 */
+  async setParticipationAllowed(allowed: boolean): Promise<void> {
+    if (!allowed) {
+      this.participationAllowed = false;
+      clearTimeout(this.wakeTimer);
+      const release = await this.acquireStateWrite();
+      try {
+        if (!this.runtime.paused) {
+          this.runtime.paused = {
+            summary: this.replyer.summary.text,
+            coveredThrough: this.replyer.summary.coveredThrough,
+          };
+          this.runtime.waiting = undefined;
+          await this.commit({ runtime: this.runtime });
+        }
+      } finally {
+        release();
+      }
       return;
     }
-    this.initializationTask ??= this.initialize();
-    const release = await this.acquireMessageWrite();
+    if (this.participationAllowed) {
+      return;
+    }
+    await this.runningTask;
+    if (this.runtime.paused) {
+      await this.summarizePausedMessages();
+    }
+    this.participationAllowed = true;
+    this.requestRun();
+  }
+
+  private async summarizePausedMessages(): Promise<void> {
+    const through = this.runtime.sequence;
+    const config = await load_config();
+    const windowTokens = config.llm!.models!.flash!.context_window_tokens!;
+    const instructions = await renderPrompt("conversation.paused");
+    const timezone = config.app!.timezone!;
+    while (this.runtime.paused!.coveredThrough < through) {
+      const previous = this.runtime.paused!;
+      const batch: ConversationMessage[] = [];
+      let bytes = Buffer.byteLength(instructions + previous.summary, "utf8");
+      for (const message of this.history.filter(
+        (item) => item.sequence > previous.coveredThrough && item.sequence <= through,
+      )) {
+        const size = Buffer.byteLength(renderMessage(message, timezone), "utf8");
+        if (bytes + size >= windowTokens * 0.7) {
+          break;
+        }
+        batch.push(message);
+        bytes += size;
+      }
+      if (!batch.length) {
+        throw new Error("暂停聊天的最小消息单位无法放入摘要窗口");
+      }
+      const result = await generateText({
+        model: flashModel,
+        instructions,
+        maxRetries: 0,
+        reasoning: "none",
+        prompt: `已有背景：\n${previous.summary}\n\n后续交流：\n${batch.map((message) => renderMessage(message, timezone)).join("\n")}`,
+      });
+      if (result.finishReason !== "stop" || !result.text.trim()) {
+        throw new Error("暂停聊天摘要未正常生成，保留原文及暂停状态");
+      }
+      const release = await this.acquireStateWrite();
+      try {
+        this.runtime.paused = {
+          summary: result.text.trim(),
+          coveredThrough: batch.at(-1)!.sequence,
+        };
+        await this.commit({ runtime: this.runtime });
+      } finally {
+        release();
+      }
+    }
+    const paused = this.runtime.paused!;
+    await this.replyer.replacePausedSummary({ text: paused.summary, coveredThrough: through });
+    const release = await this.acquireStateWrite();
     try {
-      await this.initializationTask;
-      const message: ConversationMessage = { ...input, sequence: ++this.sequence };
+      this.planner.appendBackground(
+        `暂停期间的交流背景（仅供理解后续消息，不追补回复）：\n${paused.summary}`,
+      );
+      this.runtime.processedThrough = through;
+      this.runtime.plannerInputThrough = through;
+      this.runtime.currentRound = undefined;
+      this.runtime.failedThroughSequence = undefined;
+      this.runtime.waiting = undefined;
+      this.runtime.paused = undefined;
+      this.pruneHistory();
+      await this.commit({
+        runtime: this.runtime,
+        history: this.history,
+        planner: this.planner.state,
+        replyerSummary: this.replyer.summary,
+      });
+    } finally {
+      release();
+    }
+  }
 
-      // 收到消息先落库，成功后才成为会话的待处理输入。
-      await saveConversationMessage(this.scope, message);
+  /** 接收只等待 Redis 提交，不等待 Planner、Replyer 或 MongoDB。 */
+  async receive(input: IncomingEvent): Promise<void> {
+    if (this.persistenceError) throw this.persistenceError;
+    if (!this.acceptingMessages) return;
+    const release = await this.acquireStateWrite();
+    try {
+      const message: ConversationMessage = { ...input, sequence: ++this.runtime.sequence };
       this.history.push(message);
-      this.pending.push(message);
-
-      // 当前轮次结束前不把新到消息压进 Replyer 摘要，保持本轮输入快照。
-      if (!this.runningTask) {
+      if (!this.runningTask && !this.runtime.paused) {
         this.replyer.observe(this.history);
       }
       this.pruneHistory();
+      await this.commit(
+        {
+          runtime: this.runtime,
+          history: this.history,
+          replyerSummary: this.replyer.summary,
+        },
+        [message],
+      );
       this.requestRun();
     } finally {
       release();
     }
   }
 
-  /**
-   * 平台确认后先保留真实历史与本轮快照、重置退避，再落库。
-   * 写入失败不抹去已发送事实；工具通过 return 将记录及失败情况交给 Planner。
-   */
+  /** 真实发送先写入内存和本轮快照；保存失败也不能抹去平台确认的事实。 */
   private async recordSent(
     inputs: IncomingEvent[],
     roundHistory: ConversationMessage[],
   ): Promise<void> {
-    const release = await this.acquireMessageWrite();
+    const release = await this.acquireStateWrite();
     try {
       const messages = inputs.map(
-        (input): ConversationMessage => ({ ...input, sequence: ++this.sequence }),
+        (input): ConversationMessage => ({ ...input, sequence: ++this.runtime.sequence }),
       );
       this.history.push(...messages);
       roundHistory.push(...messages);
-      this.silentRounds = 0;
-      this.silenceCooldownUntil = 0;
-      for (const message of messages) {
-        await saveConversationMessage(this.scope, message);
-      }
+      this.runtime.silentRounds = 0;
+      this.runtime.silenceCooldownUntil = 0;
+      await this.commit({ runtime: this.runtime, history: this.history }, messages);
     } finally {
       release();
     }
   }
 
-  /**
-   * 先同步登记当前写入的位置，再等待前一项结束，保证并发调用按到达顺序执行。
-   * @returns 放行下一项的函数，调用方必须在 finally 中调用；业务错误直接向上抛出。
-   */
-  private async acquireMessageWrite(): Promise<() => void> {
-    const previousWrite = this.messageWriteQueue;
-    // Promise 的 executor 同步执行，在 await 之前完成队列登记和 release 赋值。
+  /** 每次工具发送前等待此提交；并发 poke 与 reply 也不能绕过持久化边界。 */
+  private async beforeSend(): Promise<void> {
+    const release = await this.acquireStateWrite();
+    try {
+      if (!this.participationAllowed) {
+        throw new Error("角色当前暂停群聊，不能发送消息");
+      }
+      this.runtime.currentRound!.sendAttempted = true;
+      await this.commit({ runtime: this.runtime });
+    } finally {
+      release();
+    }
+  }
+
+  /** 完整模型步骤或压缩后的上下文才可提交，不保存孤立的工具调用。 */
+  private async savePlannerContext(): Promise<void> {
+    const release = await this.acquireStateWrite();
+    try {
+      await this.commit({ planner: this.planner.state });
+    } finally {
+      release();
+    }
+  }
+
+  /** 摘要与它对应的原文裁剪必须一起提交，避免恢复后丢失未覆盖的原文。 */
+  private async saveReplyerSummary(): Promise<void> {
+    const release = await this.acquireStateWrite();
+    try {
+      this.pruneHistory();
+      await this.commit({ history: this.history, replyerSummary: this.replyer.summary });
+    } finally {
+      release();
+    }
+  }
+
+  /** 只在初始化或持有写入队列时调用；失败后停止调度，不自动重放不确定的提交。 */
+  private async commit(
+    changes: Partial<ConversationState>,
+    events: ConversationMessage[] = [],
+  ): Promise<void> {
+    if (this.persistenceError) throw this.persistenceError;
+    try {
+      await saveConversationState(this.scope, changes, events);
+    } catch (error) {
+      this.persistenceError = new Error("会话 Redis 提交失败，已停止接收和调度", { cause: error });
+      this.acceptingMessages = false;
+      this.scheduling = false;
+      clearTimeout(this.wakeTimer);
+      logger.error(this.persistenceError.message, { ...this.scope, error });
+      throw this.persistenceError;
+    }
+  }
+
+  /** 在 await 前登记队列位置；调用方必须在 finally 中放行下一次状态变更。 */
+  private async acquireStateWrite(): Promise<() => void> {
+    const previousWrite = this.stateWriteQueue;
     let release!: () => void;
-    this.messageWriteQueue = new Promise<void>((resolve) => {
+    this.stateWriteQueue = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previousWrite;
     return release;
   }
 
-  /** 合并消息和定时器的唤醒请求；已有任务时不启动第二个循环。 */
-  private requestRun() {
-    if (!this.acceptingMessages) {
+  private requestRun(): void {
+    if (!this.scheduling || !this.participationAllowed) {
       return;
     }
     this.wakeRequested = true;
-    if (this.runningTask) {
-      return;
-    }
-    this.runningTask = this.runTask();
+    if (!this.runningTask) this.runningTask = this.runTask();
   }
 
-  /** 管理运行任务的异常与退出交接；await 确保清理发生在 runningTask 赋值之后。 */
-  private async runTask() {
+  /** 统一收口后台调度的异常，并接住任务退出时到达的新唤醒。 */
+  private async runTask(): Promise<void> {
     try {
       await this.run();
     } catch (error) {
       logger.error("群会话调度失败", { ...this.scope, error });
     } finally {
       this.runningTask = undefined;
-      // 接住 run 返回到任务清理之间到达的新唤醒。
-      if (this.wakeRequested) {
-        this.requestRun();
-      }
+      if (this.wakeRequested) this.requestRun();
     }
   }
 
-  /**
-   * 依次检查主动等待、失败后新输入和触发评分，并固定本轮输入。
-   * 只读取当前状态；清除等待、设置定时器和执行轮次都由 run 负责。
-   * @param now 本次判断的 Unix 毫秒时间。
-   * @returns 可执行的输入、下次检查时间，或空结果（只等新消息）。
-   */
   private getNextRound(now: number): NextRound {
-    const directed = this.pending.some((message) =>
-      isDirectedMessage(message, this.selfId, this.names),
-    );
+    const pending = this.pending;
+    const intentions = (this.runtime.shareIntents ?? []).filter((intent) => !intent.consumed);
+    const { waiting, failedThroughSequence, currentRound } = this.runtime;
+    const directed = pending.some((message) => isDirectedMessage(message, this.selfId, this.names));
     let waitedSeconds: number | undefined;
-    if (this.waiting) {
-      if (now < this.waiting.until && !directed) {
-        return { nextCheckAt: this.waiting.until };
+    if (waiting) {
+      if (now < waiting.until && !directed && !intentions.length) {
+        return { nextCheckAt: waiting.until };
       }
-      waitedSeconds = (now - this.waiting.startedAt) / 1000;
+      waitedSeconds = (now - waiting.startedAt) / 1000;
     }
-
-    if (!this.pending.length && waitedSeconds === undefined) {
+    if (!pending.length && !intentions.length && waitedSeconds === undefined && !currentRound) {
       return {};
     }
-    const failedThroughSequence = this.failedThroughSequence;
     if (
       failedThroughSequence !== undefined &&
-      !this.pending.some((message) => message.sequence > failedThroughSequence)
+      !intentions.length &&
+      !pending.some((message) => message.sequence > failedThroughSequence)
     ) {
       return { waitedSeconds };
     }
-
     const trigger = evaluateTrigger({
-      pending: this.pending,
+      pending,
       history: this.history,
       directed,
-      nextEligibleAt: this.silenceCooldownUntil,
+      nextEligibleAt: this.runtime.silenceCooldownUntil,
       now,
     });
-    if (waitedSeconds === undefined && !trigger.shouldRun) {
+    if (!currentRound && !intentions.length && waitedSeconds === undefined && !trigger.shouldRun) {
       return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
     }
-
-    const messages = [...this.pending];
-    const throughSequence = messages.at(-1)?.sequence ?? this.processedThrough;
+    const throughSequence = pending.at(-1)?.sequence ?? this.runtime.processedThrough;
     return {
       input: {
-        messages,
+        messages: pending,
         history: this.history.filter(
           (message) => message.sequence <= throughSequence || message.isSelf,
         ),
         throughSequence,
+        intentions,
       },
       waitedSeconds,
     };
   }
 
-  /** 判断下一轮、执行、推进处理位置、维护上下文并保存状态；新输入留到下一轮。 */
-  private async run() {
+  /** 状态判断与输入提交在队列中完成，释放队列后才调用模型。 */
+  private async run(): Promise<void> {
     clearTimeout(this.wakeTimer);
-    while (this.acceptingMessages && this.wakeRequested) {
+    while (this.scheduling && this.participationAllowed && this.wakeRequested) {
       this.wakeRequested = false;
-      const next = this.getNextRound(Date.now());
-      if (next.waitedSeconds !== undefined) {
-        this.waiting = undefined;
-      }
-      if (!next.input) {
-        if (next.nextCheckAt !== undefined) {
-          this.wakeTimer = setTimeout(() => this.requestRun(), next.nextCheckAt - Date.now());
-        }
-        return;
-      }
-
-      // 触发器已允许六条积压绕过退避；执行前清除旧截止时间。
-      if (next.input.messages.length >= 6) {
-        this.silenceCooldownUntil = 0;
-      }
-      const { messages, history, throughSequence } = next.input;
-      const result = await this.runRound(messages, history, next.waitedSeconds);
-      if (result === "processed") {
-        this.pending = this.pending.filter((message) => message.sequence > throughSequence);
-        this.processedThrough = throughSequence;
-        this.failedThroughSequence = undefined;
-      } else {
-        this.failedThroughSequence = throughSequence;
-      }
-
-      this.replyer.observe(this.history);
-      this.pruneHistory();
+      let next: NextRound;
+      const release = await this.acquireStateWrite();
       try {
-        await saveConversationState(this.scope, {
-          processedThrough: this.processedThrough,
-          planner: this.planner.state,
-          replyerSummary: this.replyer.summary,
-          waiting: this.waiting,
-          failedThroughSequence: this.failedThroughSequence,
-          silentRounds: this.silentRounds,
-          silenceCooldownUntil: this.silenceCooldownUntil,
+        if (!this.scheduling || !this.participationAllowed) {
+          return;
+        }
+        next = this.getNextRound(Date.now());
+        if (next.waitedSeconds !== undefined) this.runtime.waiting = undefined;
+        if (!next.input) {
+          if (next.waitedSeconds !== undefined) await this.commit({ runtime: this.runtime });
+          if (this.scheduling && next.nextCheckAt !== undefined) {
+            this.wakeTimer = setTimeout(() => this.requestRun(), next.nextCheckAt - Date.now());
+          }
+          return;
+        }
+        const { messages, throughSequence } = next.input;
+        if (messages.length >= 6) this.runtime.silenceCooldownUntil = 0;
+        this.runtime.currentRound = { throughSequence, sendAttempted: false };
+        const newMessages = messages.filter(
+          (message) => message.sequence > this.runtime.plannerInputThrough,
+        );
+        this.planner.appendInput(newMessages, next.waitedSeconds);
+        for (const intention of next.input.intentions) {
+          this.planner.appendBackground(
+            `你想与这个群分享的事情（由你判断现在是否适合表达）：${intention.text}`,
+          );
+          this.runtime.shareIntents!.find((intent) => intent.id === intention.id)!.consumed = true;
+        }
+        this.runtime.plannerInputThrough = throughSequence;
+        await this.commit({
+          runtime: this.runtime,
+          ...((newMessages.length > 0 ||
+            next.waitedSeconds !== undefined ||
+            next.input.intentions.length > 0) && {
+            planner: this.planner.state,
+          }),
         });
-      } catch (error) {
-        // 状态写入失败不能回退已消费位置；等新消息后再判断，避免重发已执行的行动。
-        logger.error("聊天会话状态保存失败", { ...this.scope, stage: "save-state", error });
-        this.failedThroughSequence = this.pending.at(-1)?.sequence ?? throughSequence;
-        return;
+      } finally {
+        release();
       }
-      this.wakeRequested = this.pending.length > 0 || this.waiting !== undefined;
+
+      const execution = await this.runRound(next.input);
+      const finishWrite = await this.acquireStateWrite();
+      try {
+        if (this.persistenceError) throw this.persistenceError;
+        if (!execution.failed || execution.sendAttempted || execution.waitSeconds !== undefined) {
+          this.runtime.processedThrough = next.input.throughSequence;
+          this.runtime.failedThroughSequence = undefined;
+        } else {
+          this.runtime.failedThroughSequence = next.input.throughSequence;
+        }
+        if (execution.waitSeconds !== undefined) {
+          const startedAt = Date.now();
+          this.runtime.waiting = { startedAt, until: startedAt + execution.waitSeconds * 1000 };
+          this.runtime.silentRounds = 0;
+          this.runtime.silenceCooldownUntil = 0;
+        } else if (!execution.failed && !execution.sendAttempted) {
+          this.runtime.silentRounds += 1;
+          if (this.runtime.silentRounds >= 2) {
+            this.runtime.silenceCooldownUntil =
+              Date.now() +
+              BACKOFF_DELAYS_MS[
+                Math.min(this.runtime.silentRounds - 2, BACKOFF_DELAYS_MS.length - 1)
+              ];
+          }
+        }
+        this.runtime.currentRound = undefined;
+        if (!this.runtime.paused) {
+          this.replyer.observe(this.history);
+        }
+        this.pruneHistory();
+        await this.commit({
+          runtime: this.runtime,
+          history: this.history,
+          replyerSummary: this.replyer.summary,
+        });
+        this.wakeRequested =
+          this.pending.length > 0 ||
+          this.runtime.waiting !== undefined ||
+          (this.runtime.shareIntents ?? []).some((intent) => !intent.consumed);
+      } finally {
+        finishWrite();
+      }
     }
   }
 
-  /**
-   * 运行一轮工具循环，随后安排等待、维护退避并决定是否消费本批输入。
-   * 已尝试平台发送的批次不能重跑；未发送的失败批次保留，等新消息后再判断。
-   */
-  private async runRound(
-    messages: ConversationMessage[],
-    history: ConversationMessage[],
-    waitedSeconds?: number,
-  ): Promise<"processed" | "retry"> {
+  /** 工具通过具名回调提交副作用；模型失败不抹去已确认的发送结果。 */
+  private async runRound(input: NonNullable<NextRound["input"]>): Promise<ConversationToolContext> {
     const execution: ConversationToolContext = {
       connection: this.connection,
       replyer: this.replyer,
-      history,
-      historyThrough: history.at(-1)?.sequence ?? 0,
-      recordSent: async (events) => await this.recordSent(events, history),
+      history: input.history,
+      historyThrough: input.history.at(-1)?.sequence ?? 0,
+      beforeSend: async () => await this.beforeSend(),
+      recordSent: async (events) => await this.recordSent(events, input.history),
+      saveReplyerSummary: async () => await this.saveReplyerSummary(),
       sendAttempted: false,
       failed: false,
+      canParticipate: () => this.participationAllowed,
+      readCharacter: async () => await this.character.readConversationContext(),
+      notifyCharacter: async (description, messageIds) =>
+        await this.character.notifyFromConversation(this.scope, description, messageIds),
     };
     try {
-      await this.planner.run(messages, execution, waitedSeconds);
-      if (execution.waitSeconds !== undefined) {
-        const startedAt = Date.now();
-        this.waiting = { startedAt, until: startedAt + execution.waitSeconds * 1000 };
-        this.silentRounds = 0;
-        this.silenceCooldownUntil = 0;
-        return "processed";
-      }
-      if (execution.failed) {
-        return execution.sendAttempted ? "processed" : "retry";
-      }
-      if (!execution.sendAttempted) {
-        this.silentRounds += 1;
-        if (this.silentRounds >= 2) {
-          this.silenceCooldownUntil =
-            Date.now() +
-            BACKOFF_DELAYS_MS[Math.min(this.silentRounds - 2, BACKOFF_DELAYS_MS.length - 1)];
-        }
-      }
-      return "processed";
+      await this.planner.run(execution, async () => await this.savePlannerContext());
     } catch (error) {
+      execution.failed = true;
       logger.error("聊天工具循环失败", { ...this.scope, error });
-      return execution.sendAttempted ? "processed" : "retry";
     }
+    return execution;
   }
 
-  /** 保留未处理输入、未压缩原文，以及触发评分所需的近五分钟消息。 */
-  private pruneHistory() {
+  private pruneHistory(): void {
     const recentSince = Date.now() - 300_000;
-    const coveredThrough = this.replyer.summary.coveredThrough;
     this.history = this.history.filter(
       (message) =>
-        message.sequence > this.processedThrough ||
-        message.sequence > coveredThrough ||
+        (!message.isSelf && message.sequence > this.runtime.processedThrough) ||
+        message.sequence > this.replyer.summary.coveredThrough ||
         message.timestamp >= recentSince,
     );
   }
 
-  /** 关闭接收与定时唤醒，等待在途写入、当前轮次、初始化和后台压缩自然结束。 */
-  async stop() {
+  /** 停止新输入与调度，等待在途轮次和压缩，最终快照仍必须等待 Redis 确认。 */
+  async stop(): Promise<void> {
     this.acceptingMessages = false;
+    this.scheduling = false;
     clearTimeout(this.wakeTimer);
-    await this.messageWriteQueue;
     await this.runningTask;
-    await this.initializationTask;
+    await this.stateWriteQueue;
     await Promise.all([this.planner.stop(), this.replyer.stop()]);
+    this.pruneHistory();
+    await this.commit({
+      runtime: this.runtime,
+      history: this.history,
+      planner: this.planner.state,
+      replyerSummary: this.replyer.summary,
+    });
   }
 }

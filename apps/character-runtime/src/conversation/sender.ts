@@ -9,6 +9,7 @@ export async function* sendReply(
   channelId: string,
   text: string,
   target: ReplyTarget,
+  beforeSend: () => Promise<void>,
 ) {
   const segments = splitChatReply(text);
   for (const [index, segment] of segments.entries()) {
@@ -23,6 +24,7 @@ export async function* sendReply(
       await delay(milliseconds);
     }
     // 第一段立即发送且携带引用 / @；后续段只发正文，避免重复提醒。
+    await beforeSend();
     yield await connection.sendText(channelId, segment, index === 0 ? target : {});
   }
 }

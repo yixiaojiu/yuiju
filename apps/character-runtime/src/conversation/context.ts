@@ -28,12 +28,23 @@ export class ConversationContext {
   private task: Promise<void> | undefined;
   /** 后台任务只产出摘要，下一次请求前再替换其覆盖的历史前缀。 */
   private completed: ContextSummary | undefined;
-  private currentSummary: ContextSummary = { text: "", coveredThrough: 0 };
+  private currentSummary: Readonly<ContextSummary>;
 
-  constructor(private readonly options: ContextOptions) {}
+  constructor(
+    private readonly options: ContextOptions,
+    summary: Readonly<ContextSummary>,
+  ) {
+    this.currentSummary = summary;
+  }
 
   get summary(): Readonly<ContextSummary> {
     return this.currentSummary;
+  }
+
+  /** 暂停聊天整理后替换背景；调用方先等待旧压缩结束，再提交覆盖边界。 */
+  replaceSummary(summary: ContextSummary): void {
+    this.currentSummary = summary;
+    this.completed = undefined;
   }
 
   applyCompression() {

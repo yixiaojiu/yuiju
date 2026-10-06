@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError } from "ai";
 import type { Config } from "../config/schema";
+import { logger } from "../logger/logger";
 
 export type LlmModels = NonNullable<NonNullable<Config["llm"]>["models"]>;
 type ProviderConfig = NonNullable<LlmModels["chat"]>["providers"][number];
@@ -47,13 +49,33 @@ export function createProvider(config: ProviderConfig, name: string) {
     // request 提供默认参数，业务请求的同名字段优先；嵌套对象整项覆盖，embedding 同样适用。
     fetch: async (url, init) => {
       if (typeof init?.body !== "string") throw new Error("LLM 请求体必须是 JSON 字符串");
+      const requestBody = { ...config.request, ...JSON.parse(init.body) };
       const request = {
         ...init,
-        body: JSON.stringify({ ...config.request, ...JSON.parse(init.body) }),
+        body: JSON.stringify(requestBody),
       };
+      const traceId = logger.isLevelEnabled("silly") ? randomUUID() : undefined;
+      const startedAt = Date.now();
+      if (traceId) {
+        logger.silly("e2e.llm.request", { traceId, provider: name, request: requestBody });
+      }
       try {
-        return await fetch(url, request);
+        const response = await fetch(url, request);
+        if (traceId) {
+          // 临时观察非流式正文；副本不替代 SDK 消费，流式请求不等整条流结束。
+          logger.silly("e2e.llm.response", {
+            traceId,
+            provider: name,
+            status: response.status,
+            elapsedMs: Date.now() - startedAt,
+            body: requestBody.stream ? "流式正文未记录" : await response.clone().text(),
+          });
+        }
+        return response;
       } catch (error) {
+        if (traceId) {
+          logger.silly("e2e.llm.error", { traceId, provider: name, error });
+        }
         if (init.signal?.aborted || !(error instanceof TypeError)) throw error;
         throw new APICallError({
           message: "LLM 网络请求失败",

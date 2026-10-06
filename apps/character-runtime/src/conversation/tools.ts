@@ -3,6 +3,9 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, tool, type UserContent } from "ai";
 import { z } from "zod";
+import { recallExperiences, recallSchema } from "../memory/experiences";
+import { formatPeople, readPeople } from "../memory/people";
+import { formatPlans, readPlans } from "../plan/plan";
 import {
   type ConversationMessage,
   type ConversationScope,
@@ -48,9 +51,30 @@ const pokeSchema = z.object({
 const waitSchema = z.object({
   seconds: z.number().int().min(1).max(60).describe("你想等待多少秒后再判断。"),
 });
+const noticeSchema = z.strictObject({
+  description: z.string().min(1).describe("你认为值得角色关注的交流或安排请求，不替角色接受承诺"),
+  messageIds: z.array(z.string().min(1)).min(1).describe("提供直接依据的真实消息 id"),
+});
+const personSchema = z.strictObject({ "sender-id": z.string().min(1) });
 
 /** 不绑定执行逻辑的工具定义，规划和压缩共用同一套 schema。 */
 export const plannerTools = {
+  notifyCharacter: tool({
+    description: "你可以将重要交流告知角色大脑，不为普通消息重复触发。",
+    inputSchema: noticeSchema,
+  }),
+  recall: tool({
+    description: "你可以回忆仍能想起的世界亲历及本群交流，按当前状态理解。",
+    inputSchema: recallSchema,
+  }),
+  readPerson: tool({
+    description: "你可以读取对这个人的已有认识，仅呈现本群可以使用的内容。",
+    inputSchema: personSchema,
+  }),
+  readPlans: tool({
+    description: "你可以查看角色已经接受的安排与进展。",
+    inputSchema: z.strictObject({}),
+  }),
   understandMedia: tool({
     description: "你按需查看图片、聆听音频或观看视频，获得文字理解结果后继续判断。",
     inputSchema: understandMediaSchema,
@@ -73,6 +97,10 @@ export const plannerToolDescription = JSON.stringify(
       reply: replySchema,
       poke: pokeSchema,
       wait: waitSchema,
+      notifyCharacter: noticeSchema,
+      recall: recallSchema,
+      readPerson: personSchema,
+      readPlans: z.strictObject({}),
     }).map(([name, schema]) => [
       name,
       {
@@ -87,6 +115,9 @@ export type ReplyInput = ReplyTarget & { replyContext: string };
 
 /** 一轮工具执行使用的会话依赖与进度；由 loop 持有，模型调用失败后仍可判断是否已发送。 */
 export type ConversationToolContext = {
+  canParticipate: () => boolean;
+  readCharacter: () => Promise<string>;
+  notifyCharacter: (description: string, messageIds: string[]) => Promise<string>;
   connection: OneBotConnection;
   replyer: Replyer;
   /** 固定本轮收到的消息，执行期间仅追加已确认发送的事件。 */
@@ -95,6 +126,10 @@ export type ConversationToolContext = {
   historyThrough: number;
   /** 将平台确认的事件写入真实历史和本轮快照，再持久化。 */
   recordSent: (events: IncomingEvent[]) => Promise<void>;
+  /** 每段回复或戳一戳发出前，等待会话保存发送标记。 */
+  beforeSend: () => Promise<void>;
+  /** Replyer 应用新摘要后，由会话保存摘要和原文裁剪。 */
+  saveReplyerSummary: () => Promise<void>;
   /** 进入平台发送前设置；即使结果未确认，也不能重跑整个输入批次。 */
   sendAttempted: boolean;
   /** 本轮是否出现工具失败；失败不能计为主动沉默。 */
@@ -112,6 +147,63 @@ export function createPlannerTools(
   let replyQueue = Promise.resolve();
 
   return {
+    notifyCharacter: tool({
+      ...plannerTools.notifyCharacter,
+      async execute({ description, messageIds }) {
+        try {
+          if (!context.canParticipate()) {
+            return "角色已经暂停群聊，不唤醒角色处理这段交流。";
+          }
+          if (
+            messageIds.some(
+              (id) =>
+                !context.history.some((message) => message.kind === "message" && message.id === id),
+            )
+          ) {
+            return "来源消息不在当前真实交流中，请使用可见消息的 id。";
+          }
+          return await context.notifyCharacter(description, messageIds);
+        } catch (error) {
+          logger.error("告知角色失败", { ...scope, error });
+          return `告知角色失败：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
+    recall: tool({
+      ...plannerTools.recall,
+      async execute(input) {
+        try {
+          return await recallExperiences(scope.characterId, input, scope);
+        } catch (error) {
+          logger.error("聊天回忆失败", { ...scope, error });
+          return `回忆暂未成功：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
+    readPerson: tool({
+      ...plannerTools.readPerson,
+      async execute({ "sender-id": userId }) {
+        try {
+          return await formatPeople(
+            await readPeople(scope.characterId, { platform: scope.platform, userId }, scope),
+          );
+        } catch (error) {
+          logger.error("人物认识读取失败", { ...scope, error });
+          return `人物认识读取失败：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
+    readPlans: tool({
+      ...plannerTools.readPlans,
+      async execute() {
+        try {
+          return await formatPlans(await readPlans(scope.characterId));
+        } catch (error) {
+          logger.error("角色计划读取失败", { ...scope, error });
+          return `角色计划读取失败：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
     understandMedia: tool({
       ...plannerTools.understandMedia,
       execute: async (input, { abortSignal }) => await understandMedia(input, scope, abortSignal),
@@ -128,7 +220,7 @@ export function createPlannerTools(
         await previousReply;
 
         const sent: IncomingEvent[] = [];
-        let stage: "replyer" | "send" | "storage" = "replyer";
+        let stage = "replyer";
         let failure: string | undefined;
         try {
           const replyInput = { ...input, senderId };
@@ -136,14 +228,20 @@ export function createPlannerTools(
             replyInput,
             [...context.history],
             context.historyThrough,
+            context.saveReplyerSummary,
+            await context.readCharacter(),
           );
-          stage = "send";
-          context.sendAttempted = true;
           for await (const events of sendReply(
             context.connection,
             scope.channelId,
             text,
             replyInput,
+            async () => {
+              stage = "prepare-send";
+              await context.beforeSend();
+              context.sendAttempted = true;
+              stage = "send";
+            },
           )) {
             // 先保存本次工具确认的结果，落库失败也不能抹去发送事实。
             sent.push(...events);
@@ -156,7 +254,10 @@ export function createPlannerTools(
           logger.error("回复工具执行失败", { ...scope, stage, error });
           switch (stage) {
             case "replyer":
-              failure = "回复生成失败，未发送。";
+              failure = `回复生成失败，未发送：${error instanceof Error ? error.message : String(error)}`;
+              break;
+            case "prepare-send":
+              failure = "本段发送前状态保存失败，后续发送已停止。";
               break;
             case "send":
               failure = "发送中断，以下记录之外的发送结果未确认。";
@@ -177,9 +278,11 @@ export function createPlannerTools(
       ...plannerTools.poke,
       execute: async ({ "sender-id": senderId }) => {
         const sent: IncomingEvent[] = [];
-        let stage: "send" | "storage" = "send";
+        let stage: "prepare-send" | "send" | "storage" = "prepare-send";
         let failure: string | undefined;
         try {
+          await context.beforeSend();
+          stage = "send";
           context.sendAttempted = true;
           const event = await context.connection.poke(scope.channelId, senderId);
           sent.push(event);
@@ -189,9 +292,11 @@ export function createPlannerTools(
           context.failed = true;
           logger.error("戳一戳工具执行失败", { ...scope, stage, error });
           failure =
-            stage === "send"
-              ? "戳一戳执行失败，结果未确认。"
-              : "以下戳一戳已确认执行，记录保存失败。";
+            stage === "prepare-send"
+              ? "发送前状态保存失败，未执行戳一戳。"
+              : stage === "send"
+                ? "戳一戳执行失败，结果未确认。"
+                : "以下戳一戳已确认执行，记录保存失败。";
         }
         const result = sent.map((message) => renderMessage(message, timezone));
         if (failure) result.unshift(failure);

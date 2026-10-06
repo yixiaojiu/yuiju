@@ -6,6 +6,7 @@ import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, type ModelMessage, stepCountIs } from "ai";
 import { type ContextUnit, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
+import type { ConversationState } from "./storage";
 import {
   type ConversationToolContext,
   createPlannerTools,
@@ -25,7 +26,7 @@ export class Planner {
 
   constructor(private readonly scope: ConversationScope) {}
 
-  async initialize() {
+  async initialize(state: ConversationState["planner"]) {
     const config = await load_config();
     this.timezone = config.app!.timezone!;
     const windowTokens = config.llm?.models?.flash?.context_window_tokens;
@@ -37,27 +38,34 @@ export class Planner {
       renderPrompt("conversation.planner"),
       renderPrompt("conversation.plannerCompression"),
     ]);
-    this.context = new ConversationContext({
-      scope: this.scope,
-      stage: "planner",
-      system: `${persona}\n\n${rules}`,
-      compressionPrompt,
-      model: flashModel,
-      windowTokens,
-      tools: plannerTools,
-      toolDescription: plannerToolDescription,
-    });
+    this.history = state.history;
+    this.sequence = Math.max(state.summary.coveredThrough, state.history.at(-1)?.sequence ?? 0);
+    this.context = new ConversationContext(
+      {
+        scope: this.scope,
+        stage: "planner",
+        system: `${persona}\n\n${rules}`,
+        compressionPrompt,
+        model: flashModel,
+        windowTokens,
+        tools: plannerTools,
+        toolDescription: plannerToolDescription,
+      },
+      state.summary,
+    );
   }
 
   get state() {
     return { history: this.history, summary: this.context.summary };
   }
 
-  async run(
-    messages: ConversationMessage[],
-    execution: ConversationToolContext,
-    waitedSeconds?: number,
-  ): Promise<void> {
+  /** 只供后续交流了解背景，不以恢复聊天为由触发补答。 */
+  appendBackground(text: string): void {
+    this.history.push({ sequence: ++this.sequence, messages: [{ role: "user", content: text }] });
+  }
+
+  /** 由会话在提交队列内追加，与 plannerInputThrough 一起保存。 */
+  appendInput(messages: ConversationMessage[], waitedSeconds?: number): void {
     const input: ModelMessage[] = [];
     if (waitedSeconds !== undefined) {
       input.push({
@@ -73,28 +81,50 @@ export class Planner {
         }),
       ),
     );
-    this.history.push({ sequence: ++this.sequence, messages: input });
+    if (input.length) this.history.push({ sequence: ++this.sequence, messages: input });
+  }
 
+  async run(execution: ConversationToolContext, saveContext: () => Promise<void>): Promise<void> {
     const startedAt = Date.now();
+    this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
+    await saveContext();
+    // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
+    let stepSaveError: Error | undefined;
     const result = await generateText({
       model: flashModel,
-      messages: input,
+      messages: this.history.flatMap((unit) => unit.messages),
       reasoning: "none",
       allowSystemInMessages: true,
       tools: createPlannerTools(this.scope, this.timezone, execution),
       maxRetries: 0,
       stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
       prepareStep: async () => {
+        if (!execution.canParticipate()) {
+          throw new Error("角色已暂停群聊，结束当前聊天思考");
+        }
+        if (stepSaveError) throw stepSaveError;
         // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
-        const messages = await this.context.prepare(this.history, []);
-        this.history = this.history.filter(
-          (unit) => unit.sequence > this.context.summary.coveredThrough,
-        );
-        return { messages };
+        const previousSummary = this.context.summary;
+        try {
+          return { messages: await this.context.prepare(this.history, []) };
+        } finally {
+          // prepare 可能已应用一份摘要，再因窗口仍不足而失败；已应用的状态也要成对保存。
+          if (previousSummary !== this.context.summary) {
+            this.history = this.history.filter(
+              (unit) => unit.sequence > this.context.summary.coveredThrough,
+            );
+            await saveContext();
+          }
+        }
       },
-      onStepEnd: ({ response, content }) => {
+      onStepEnd: async ({ response, content }) => {
         // SDK 在本步工具全部结束后提供该步消息；多工具调用与结果作为一个单位记录。
         this.history.push({ sequence: ++this.sequence, messages: response.messages });
+        try {
+          await saveContext();
+        } catch (error) {
+          stepSaveError = new Error("Planner 完整步骤保存失败", { cause: error });
+        }
         for (const output of content) {
           if (output.type === "tool-error") {
             execution.failed = true;
@@ -108,6 +138,7 @@ export class Planner {
       },
     });
 
+    if (stepSaveError) throw stepSaveError;
     if (result.finishReason !== "stop" && result.finishReason !== "tool-calls") {
       throw new Error(`Planner 未完成：${result.finishReason}`);
     }

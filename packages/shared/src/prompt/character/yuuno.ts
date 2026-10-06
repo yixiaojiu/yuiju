@@ -1,7 +1,7 @@
 import type { PromptTemplate } from "../template";
 
-export const yunoPersona: PromptTemplate = {
-  key: "character.persona.yuno",
+export const yuunoPersona: PromptTemplate = {
+  key: "character.persona.yuuno",
   description: "悠乃的稳定人设与世界背景",
   template: `
 ## 人物设定

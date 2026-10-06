@@ -4,9 +4,8 @@ import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, type ModelMessage } from "ai";
-import { ConversationContext } from "./context";
+import { type ContextSummary, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
-import { queryConversationMessages } from "./storage";
 import type { ReplyInput } from "./tools";
 
 /** 每群独立的回复上下文；长期历史只保留真实交流，本轮回复意图作为末尾临时任务。 */
@@ -17,7 +16,7 @@ export class Replyer {
 
   constructor(private readonly scope: ConversationScope) {}
 
-  async initialize() {
+  async initialize(summary: Readonly<ContextSummary>) {
     const config = await load_config();
     this.timezone = config.app!.timezone!;
     const windowTokens = config.llm?.models?.chat?.context_window_tokens;
@@ -29,18 +28,26 @@ export class Replyer {
       renderPrompt("conversation.replyer"),
       renderPrompt("conversation.replyerCompression"),
     ]);
-    this.context = new ConversationContext({
-      scope: this.scope,
-      stage: "replyer",
-      system: `${persona}\n\n${rules}`,
-      compressionPrompt,
-      model: chatModel,
-      windowTokens,
-    });
+    this.context = new ConversationContext(
+      {
+        scope: this.scope,
+        stage: "replyer",
+        system: `${persona}\n\n${rules}`,
+        compressionPrompt,
+        model: chatModel,
+        windowTokens,
+      },
+      summary,
+    );
   }
 
   get summary() {
     return this.context.summary;
+  }
+
+  async replacePausedSummary(summary: ContextSummary): Promise<void> {
+    await this.context.stop();
+    this.context.replaceSummary(summary);
   }
 
   observe(history: ConversationMessage[]) {
@@ -61,18 +68,24 @@ export class Replyer {
   }
 
   /** historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。 */
-  async reply(input: ReplyInput, history: ConversationMessage[], historyThrough: number) {
-    this.context.applyCompression();
+  async reply(
+    input: ReplyInput,
+    history: ConversationMessage[],
+    historyThrough: number,
+    saveSummary: () => Promise<void>,
+    characterContext: string,
+  ) {
+    const previousSummary = this.context.summary;
 
-    // 引用原文可能已移出内存，按消息 ID 查询；查询结果只用于本次任务，不回填历史。
-    let quote = input.quoteMessageId
-      ? history.find((message) => message.kind === "message" && message.id === input.quoteMessageId)
-      : undefined;
-    if (input.quoteMessageId && !quote) {
-      [quote] = await queryConversationMessages(this.scope, { messageId: input.quoteMessageId });
-      if (!quote) {
-        throw new Error(`引用的消息不存在：${input.quoteMessageId}`);
-      }
+    // 引用只使用当前可见的事实；不为一次回复同步读取 MongoDB。
+    const quote = history.find(
+      (message) => message.kind === "message" && message.id === input.quoteMessageId,
+    );
+    const embeddedQuote = history
+      .flatMap((message) => (message.kind === "message" && message.quote ? [message.quote] : []))
+      .find((item) => item.id === input.quoteMessageId && item.content !== undefined);
+    if (input.quoteMessageId && !quote && !embeddedQuote) {
+      throw new Error(`当前上下文没有引用原文：${input.quoteMessageId}`);
     }
 
     const mentioned = input.senderId
@@ -81,8 +94,22 @@ export class Replyer {
 
     // 当前任务始终放在历史之后，避免每次不同的回复意图破坏稳定前缀。
     const taskLines = [`本次交流意图：${input.replyContext}`];
+    taskLines.push(`当前角色状态：\n${characterContext}`);
     if (quote) {
       taskLines.push(`本次引用：${renderMessage(quote, this.timezone)}`);
+    }
+    if (!quote && embeddedQuote) {
+      taskLines.push(
+        `本次引用：${h(
+          "quote",
+          {
+            id: embeddedQuote.id,
+            senderId: embeddedQuote.senderId,
+            senderName: embeddedQuote.senderName,
+          },
+          h.parse(embeddedQuote.content!),
+        ).toString()}`,
+      );
     }
     if (input.senderId) {
       taskLines.push(
@@ -105,6 +132,8 @@ export class Replyer {
         task,
       ],
     );
+
+    if (previousSummary !== this.context.summary) await saveSummary();
 
     const startedAt = Date.now();
     const result = await generateText({

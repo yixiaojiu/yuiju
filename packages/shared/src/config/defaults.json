@@ -1,7 +1,10 @@
 {
   "version": 1,
   "app": {
-    "timezone": "Asia/Shanghai"
+    "timezone": "Asia/Shanghai",
+    "world_simulator": {
+      "base_url": "http://127.0.0.1:48100"
+    }
   },
   "database": {},
   "llm": {
