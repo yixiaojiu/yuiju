@@ -12,7 +12,14 @@ export type CharacterEvent = {
   | { type: "connected" }
   | { type: "activity_due"; activityId: string; endsAt: number }
   | { type: "plan_attention"; planId: string; attentionAt: number; revision: number }
-  | { type: "conversation"; scope: ConversationScope; description: string; messageIds: string[] }
+  | {
+      type: "conversation";
+      scope: ConversationScope;
+      description: string;
+      messageIds: string[];
+      /** 反馈所回应的主 loop 事件；不填表示独立的群聊信息。 */
+      relatedEventId?: string;
+    }
 );
 
 /** 只负责持久接收；调用方随后显式唤醒，丢失唤醒也能在重启后恢复。 */

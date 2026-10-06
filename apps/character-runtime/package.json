@@ -7,7 +7,8 @@
     "start": "NODE_ENV=production tsx src/main.ts",
     "dev": "NODE_ENV=development tsx src/main.ts",
     "type-check": "tsc --noEmit",
-    "test": "vitest run --reporter=verbose"
+    "test": "vitest run --reporter=verbose",
+    "eval:agents": "vitest run --config evals/vitest.config.ts"
   },
   "dependencies": {
     "@yuiju/shared": "workspace:*",

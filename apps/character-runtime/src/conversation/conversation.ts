@@ -1,6 +1,8 @@
 import { logger } from "@yuiju/shared/logger/logger";
 import type { Character } from "../character";
+import type { ConversationAgentEvent } from "../communication";
 import { ConversationLoop } from "./loop";
+import type { ConversationScope } from "./message";
 import { type OneBotConfig, OneBotConnection } from "./onebot";
 
 export class Conversation {
@@ -58,13 +60,13 @@ export class Conversation {
   }
 
   /** 广播意图，各群独立决定是否表达；同一请求 ID 在各自会话内去重。 */
-  async share(id: string, text: string): Promise<string> {
+  async share(event: ConversationAgentEvent): Promise<string> {
     const groups = [...this.sessions];
     if (!groups.length) {
       return "当前没有已连接的 QQ 群，未提交分享。";
     }
     const results = await Promise.allSettled(
-      groups.map(([, session]) => session.receiveIntention(id, text)),
+      groups.map(([, session]) => session.receiveAgentEvent(event)),
     );
     return results
       .map((result, index) => {
@@ -75,11 +77,26 @@ export class Conversation {
         logger.error("广播分享意图提交失败", {
           characterId: this.character.id,
           channelId,
-          requestId: id,
+          requestId: event.id,
           error: result.reason,
         });
         return `QQ 群 ${channelId}：分享意图提交失败，接收结果未确认。`;
       })
       .join("\n");
+  }
+
+  /** 决策反馈只交回来源群，群已退出白名单时明确告知未投递。 */
+  async receiveAgentEvent(
+    scope: ConversationScope,
+    event: ConversationAgentEvent,
+  ): Promise<string> {
+    if (scope.characterId !== this.character.id || scope.platform !== "onebot") {
+      throw new Error("事件来源与当前角色的 QQ 会话不匹配");
+    }
+    const session = this.sessions.get(scope.channelId);
+    if (!session) {
+      return `未投递：来源 QQ 群 ${scope.channelId} 当前未接入。`;
+    }
+    return await session.receiveAgentEvent(event);
   }
 }

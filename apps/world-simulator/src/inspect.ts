@@ -168,6 +168,47 @@ export function observePlace(
   };
 }
 
+/** 地点输入按准确 ID、准确名称、名称关键词解析；歧义交给调用方选择。 */
+function resolveKnownPlace(
+  input: string,
+  field: "place" | "fromPlace" | "toPlace",
+  context: ActionContext,
+): WorldResult<string> {
+  if (context.knownPlaceIds.has(input)) {
+    return { ok: true, value: input };
+  }
+  const knownPlaces = [...context.knownPlaceIds].map((id) => context.map.placesById.get(id)!);
+  const exactMatches = knownPlaces.filter((place) => place.name === input);
+  const matches =
+    exactMatches.length > 0
+      ? exactMatches
+      : knownPlaces.filter((place) => place.name.includes(input));
+  if (matches.length === 1) {
+    return { ok: true, value: matches[0].id };
+  }
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      code: "place_not_known",
+      message: `参数 ${field}=${JSON.stringify(input)} 未匹配到你熟悉的地点。\n你可以使用准确 ID、完整名称或名称关键词；先调用 inspect_world({"type":"places"}) 查看熟悉地点，也可以传 query 按关键词检索。`,
+    };
+  }
+  return {
+    ok: false,
+    code: "place_ambiguous",
+    message: [
+      `参数 ${field}=${JSON.stringify(input)} 匹配到多个地点：`,
+      ...matches.map(
+        (place) =>
+          `${place.name}（placeId=${place.id}），位置：${getPlacePath(context.map, place.id)
+            .map((item) => item.name)
+            .join(" / ")}`,
+      ),
+      `请将 ${field} 改为其中一个准确 ID 后重新查询。`,
+    ].join("\n"),
+  };
+}
+
 /** 在角色视角内组装响应；内部坐标和未知私人地点不会被序列化给客户端。 */
 export function inspectWorld(
   input: InspectWorldInput,
@@ -175,23 +216,36 @@ export function inspectWorld(
   definition: WorldCharacterDefinition,
   names: ReadonlyMap<string, string>,
 ): WorldResult<InspectWorldResult> {
+  if (input.type === "places") {
+    const query = input.query;
+    const places = [...context.knownPlaceIds]
+      .map((id) => context.map.placesById.get(id)!)
+      .filter(
+        (place) =>
+          query === undefined ||
+          [place.id, place.name, place.description].some((text) => text.includes(query)),
+      )
+      .map((place) => ({
+        place: placeRef(place),
+        hierarchy: getPlacePath(context.map, place.id).map(placeRef),
+        description: place.description,
+      }));
+    return { ok: true, value: { type: "places", places } };
+  }
   if (input.type === "relation") {
-    if (
-      !context.knownPlaceIds.has(input.fromPlaceId) ||
-      !context.knownPlaceIds.has(input.toPlaceId)
-    ) {
-      return { ok: false, code: "place_not_known", message: "无法查询未知地点的关系" };
+    const from = resolveKnownPlace(input.fromPlace, "fromPlace", context);
+    if (!from.ok) {
+      return from;
+    }
+    const to = resolveKnownPlace(input.toPlace, "toPlace", context);
+    if (!to.ok) {
+      return to;
     }
     const directRoutes = context.map.routesByFromPlaceId
-      .get(input.fromPlaceId)!
-      .filter((route) => route.toPlaceId === input.toPlaceId)
+      .get(from.value)!
+      .filter((route) => route.toPlaceId === to.value)
       .map((route) => routeView(route, context));
-    const routePath = findKnownRoutePath(
-      context.map,
-      input.fromPlaceId,
-      input.toPlaceId,
-      context.knownPlaceIds,
-    );
+    const routePath = findKnownRoutePath(context.map, from.value, to.value, context.knownPlaceIds);
     let path: RoutePathView;
     if (routePath === null) {
       path = { status: "no_known_path" };
@@ -216,45 +270,66 @@ export function inspectWorld(
       ok: true,
       value: {
         type: "relation",
-        from: placeRef(context.map.placesById.get(input.fromPlaceId)!),
-        to: placeRef(context.map.placesById.get(input.toPlaceId)!),
-        spatial: getSpatialRelation(context.map, input.fromPlaceId, input.toPlaceId),
+        from: placeRef(context.map.placesById.get(from.value)!),
+        to: placeRef(context.map.placesById.get(to.value)!),
+        spatial: getSpatialRelation(context.map, from.value, to.value),
         directRoutes,
         path,
       },
     };
   }
 
-  const placeId =
-    input.type === "place"
-      ? input.placeId
-      : input.type === "action" && input.placeId !== undefined
-        ? input.placeId
-        : context.character.placeId;
-  if (placeId !== null && !context.knownPlaceIds.has(placeId)) {
-    return { ok: false, code: "place_not_known", message: "无法查询未知地点" };
+  let placeId = context.character.placeId;
+  if (input.type !== "current" && input.place !== undefined) {
+    const resolved = resolveKnownPlace(input.place, "place", context);
+    if (!resolved.ok) {
+      return resolved;
+    }
+    placeId = resolved.value;
   }
   const queryContext = { ...context, placeId };
   if (input.type === "action") {
     const action = actionsById.get(input.actionId);
     if (!action || !actionIsKnown(action, definition)) {
-      return { ok: false, code: "action_not_available", message: "没有可查询的该行动" };
+      const available = actions.filter(
+        (item) =>
+          actionIsKnown(item, definition) &&
+          (item.placeIds === null || (placeId !== null && item.placeIds.includes(placeId))),
+      );
+      return {
+        ok: false,
+        code: "action_not_available",
+        message: `无法查询行动 actionId=${JSON.stringify(input.actionId)}。\n该地点可了解的行动：\n${available.map((item) => `${item.id}：${item.description}`).join("\n")}\n请使用上述 actionId 查询；其他地点的行动可通过 type=place 查询。`,
+      };
     }
     if (action.placeIds !== null && placeId === null) {
       return {
         ok: false,
         code: "place_required",
-        message: "移动期间查询地点行动需要指定已知 placeId",
+        message: `查询行动 ${input.actionId} 需要具体地点；你正在移动，没有当前地点。请通过 place 参数指定熟悉地点的 ID、名称或名称关键词。`,
       };
     }
     if (action.placeIds !== null && !action.placeIds.includes(placeId!)) {
-      return { ok: false, code: "action_not_available", message: "该地点不提供此行动" };
+      const locations = action.placeIds.filter((id) => context.knownPlaceIds.has(id));
+      return {
+        ok: false,
+        code: "action_not_available",
+        message: [
+          `${context.map.placesById.get(placeId!)!.name}（placeId=${placeId}）不提供行动 ${input.actionId}。`,
+          locations.length > 0
+            ? `你熟悉的可查询地点：${locations.map((id) => `${context.map.placesById.get(id)!.name}（placeId=${id}）`).join("、")}。请通过 place 参数指定其中一个地点。`
+            : "你的熟悉范围内没有提供此行动的地点。请通过 type=current 查询当前可了解的行动。",
+        ].join("\n"),
+      };
     }
     let payload: JsonObject | undefined;
     if (input.payload !== undefined) {
       const parsed = parseActionPayload(action, input.payload);
       if (!parsed.ok) {
-        return parsed;
+        return {
+          ...parsed,
+          message: `行动 ${input.actionId} 的 payload 参数不合法：\n${parsed.message}\n要求的参数 schema：${JSON.stringify(z.toJSONSchema(action.schema))}`,
+        };
       }
       payload = parsed.value;
     }
@@ -263,6 +338,7 @@ export function inspectWorld(
       value: {
         type: "action",
         actionId: action.id,
+        place: placeId === null ? null : placeRef(context.map.placesById.get(placeId)!),
         description: action.description,
         payloadSchema: z.toJSONSchema(action.schema),
         options: action.options ? action.options(queryContext) : [],
@@ -288,17 +364,17 @@ export function inspectWorld(
     .map((action) => ({ actionId: action.id, description: action.description }));
   const observation = observePlace(placeId, context, names);
   if (input.type === "place") {
-    const place = context.map.placesById.get(input.placeId)!;
+    const place = context.map.placesById.get(placeId!)!;
     return {
       ok: true,
       value: {
         type: "place",
         place: placeRef(place),
-        hierarchy: getPlacePath(context.map, input.placeId).map(placeRef),
+        hierarchy: getPlacePath(context.map, place.id).map(placeRef),
         description: place.description,
         openingHours: openingHours[place.id] ?? null,
         children: context.map.childrenByParentId
-          .get(input.placeId)!
+          .get(place.id)!
           .filter((child) => context.knownPlaceIds.has(child.id))
           .map(placeRef),
         routes,

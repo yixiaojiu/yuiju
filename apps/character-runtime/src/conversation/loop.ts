@@ -1,9 +1,11 @@
 import { load_config } from "@yuiju/shared/config/load";
+import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText } from "ai";
 import type { Character } from "../character";
+import { COMMUNICATION_RETENTION_MS, type ConversationAgentEvent } from "../communication";
 import {
   type ConversationMessage,
   type ConversationScope,
@@ -36,7 +38,7 @@ type NextRound = {
     messages: ConversationMessage[];
     history: ConversationMessage[];
     throughSequence: number;
-    intentions: { id: string; text: string }[];
+    agentEvents: ConversationAgentEvent[];
   };
   /** 等待实际秒数；0 也表示结束等待。 */
   waitedSeconds?: number;
@@ -126,28 +128,30 @@ export class ConversationLoop {
     this.requestRun();
   }
 
-  async receiveIntention(id: string, text: string): Promise<string> {
-    if (!this.participationAllowed) {
-      return "当前暂停群聊，未提交分享。";
-    }
+  /** 先持久接收再唤醒；忙碌时留到下一轮，暂停聊天时保留到恢复。 */
+  async receiveAgentEvent(event: ConversationAgentEvent): Promise<string> {
     const release = await this.acquireStateWrite();
     try {
-      const intents = this.runtime.shareIntents ?? [];
-      if (!this.participationAllowed) {
-        return "角色已经暂停群聊，未提交分享。";
+      if (this.persistenceError) {
+        throw this.persistenceError;
       }
-      if (intents.some((intent) => intent.id === id)) {
-        return "这次分享意图已经交给聊天规划，不重复提交。";
+      if (!this.acceptingMessages) {
+        throw new Error("会话已经停止接收事件");
       }
-      this.runtime.shareIntents = [
-        ...intents.filter(
-          (intent) => !intent.consumed || intent.receivedAt >= Date.now() - 30 * 86_400_000,
+      const events = this.runtime.agentEvents ?? [];
+      if (events.some((received) => received.id === event.id)) {
+        return `事件已投递，不重复提交。事件 ID：${event.id}`;
+      }
+      this.runtime.agentEvents = [
+        ...events.filter(
+          (received) =>
+            !received.consumed || received.occurredAt >= Date.now() - COMMUNICATION_RETENTION_MS,
         ),
-        { id, text, consumed: false, receivedAt: Date.now() },
+        { ...event, consumed: false },
       ];
       await this.commit({ runtime: this.runtime });
       this.requestRun();
-      return "已交给这个群的聊天规划；是否发送与如何表达由它决定。";
+      return `已投递给本群 Planner，事件 ID：${event.id}。是否、何时发送群消息由它决定。`;
     } finally {
       release();
     }
@@ -211,7 +215,6 @@ export class ConversationLoop {
         model: flashModel,
         instructions,
         maxRetries: 0,
-        reasoning: "none",
         prompt: `已有背景：\n${previous.summary}\n\n后续交流：\n${batch.map((message) => renderMessage(message, timezone)).join("\n")}`,
       });
       if (result.finishReason !== "stop" || !result.text.trim()) {
@@ -385,22 +388,22 @@ export class ConversationLoop {
 
   private getNextRound(now: number): NextRound {
     const pending = this.pending;
-    const intentions = (this.runtime.shareIntents ?? []).filter((intent) => !intent.consumed);
+    const agentEvents = (this.runtime.agentEvents ?? []).filter((event) => !event.consumed);
     const { waiting, failedThroughSequence, currentRound } = this.runtime;
     const directed = pending.some((message) => isDirectedMessage(message, this.selfId, this.names));
     let waitedSeconds: number | undefined;
     if (waiting) {
-      if (now < waiting.until && !directed && !intentions.length) {
+      if (now < waiting.until && !directed && !agentEvents.length) {
         return { nextCheckAt: waiting.until };
       }
       waitedSeconds = (now - waiting.startedAt) / 1000;
     }
-    if (!pending.length && !intentions.length && waitedSeconds === undefined && !currentRound) {
+    if (!pending.length && !agentEvents.length && waitedSeconds === undefined && !currentRound) {
       return {};
     }
     if (
       failedThroughSequence !== undefined &&
-      !intentions.length &&
+      !agentEvents.length &&
       !pending.some((message) => message.sequence > failedThroughSequence)
     ) {
       return { waitedSeconds };
@@ -412,7 +415,7 @@ export class ConversationLoop {
       nextEligibleAt: this.runtime.silenceCooldownUntil,
       now,
     });
-    if (!currentRound && !intentions.length && waitedSeconds === undefined && !trigger.shouldRun) {
+    if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
       return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
     }
     const throughSequence = pending.at(-1)?.sequence ?? this.runtime.processedThrough;
@@ -423,7 +426,7 @@ export class ConversationLoop {
           (message) => message.sequence <= throughSequence || message.isSelf,
         ),
         throughSequence,
-        intentions,
+        agentEvents,
       },
       waitedSeconds,
     };
@@ -456,18 +459,26 @@ export class ConversationLoop {
           (message) => message.sequence > this.runtime.plannerInputThrough,
         );
         this.planner.appendInput(newMessages, next.waitedSeconds);
-        for (const intention of next.input.intentions) {
-          this.planner.appendBackground(
-            `你想与这个群分享的事情（由你判断现在是否适合表达）：${intention.text}`,
-          );
-          this.runtime.shareIntents!.find((intent) => intent.id === intention.id)!.consumed = true;
+        if (next.input.agentEvents.length) {
+          const timezone = (await load_config()).app!.timezone!;
+          for (const event of next.input.agentEvents) {
+            this.planner.appendBackground(
+              [
+                `来自主 loop 的${event.type === "share" ? "分享意图" : "交流反馈"}（事件 ID：${event.id}）`,
+                `发生时间：${formatLlmDateTime(event.occurredAt, timezone)}`,
+                ...(event.type === "result" ? [`关联事件 ID：${event.relatedEventId}`] : []),
+                event.content,
+              ].join("\n"),
+            );
+            this.runtime.agentEvents!.find((received) => received.id === event.id)!.consumed = true;
+          }
         }
         this.runtime.plannerInputThrough = throughSequence;
         await this.commit({
           runtime: this.runtime,
           ...((newMessages.length > 0 ||
             next.waitedSeconds !== undefined ||
-            next.input.intentions.length > 0) && {
+            next.input.agentEvents.length > 0) && {
             planner: this.planner.state,
           }),
         });
@@ -513,7 +524,7 @@ export class ConversationLoop {
         this.wakeRequested =
           this.pending.length > 0 ||
           this.runtime.waiting !== undefined ||
-          (this.runtime.shareIntents ?? []).some((intent) => !intent.consumed);
+          (this.runtime.agentEvents ?? []).some((event) => !event.consumed);
       } finally {
         finishWrite();
       }
@@ -534,8 +545,20 @@ export class ConversationLoop {
       failed: false,
       canParticipate: () => this.participationAllowed,
       readCharacter: async () => await this.character.readConversationContext(),
-      notifyCharacter: async (description, messageIds) =>
-        await this.character.notifyFromConversation(this.scope, description, messageIds),
+      notifyCharacter: async (description, messageIds, relatedEventId) => {
+        if (
+          relatedEventId &&
+          !this.runtime.agentEvents?.some((event) => event.id === relatedEventId && event.consumed)
+        ) {
+          return "未投递：关联事件不在本群已接收的主 loop 输入中，请使用可见的事件 ID。";
+        }
+        return await this.character.notifyFromConversation(
+          this.scope,
+          description,
+          messageIds,
+          relatedEventId,
+        );
+      },
     };
     try {
       await this.planner.run(execution, async () => await this.savePlannerContext());

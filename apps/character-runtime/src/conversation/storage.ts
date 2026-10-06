@@ -7,6 +7,7 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { modelMessageSchema } from "ai";
 import type { mongo } from "mongoose";
 import { z } from "zod";
+import { type ConversationAgentEvent, conversationAgentEventSchema } from "../communication";
 import type { ExperienceMaterial } from "../memory/experiences";
 import { characterKey } from "../storage";
 import type { ContextSummary, ContextUnit } from "./context";
@@ -31,8 +32,8 @@ export type ConversationRuntime = {
   silenceCooldownUntil: number;
   /** 暂停期原文只用于摘要；恢复后直接推进消费边界，不补跑回复。 */
   paused?: { summary: string; coveredThrough: number };
-  /** 分享意图不是伪造的群消息；consumed 表示已交给 Planner，不表示已经发送。 */
-  shareIntents?: { id: string; text: string; consumed: boolean; receivedAt: number }[];
+  /** 主 loop 的输入；consumed 表示已注入 Planner 上下文，不代表已对外发送。 */
+  agentEvents?: (ConversationAgentEvent & { consumed: boolean })[];
 };
 
 /** Redis Hash 的四个字段；调用方只提交本次变更涉及的字段。 */
@@ -87,14 +88,12 @@ const stateSchema: z.ZodType<ConversationState> = z.strictObject({
     silentRounds: sequenceSchema,
     silenceCooldownUntil: z.number(),
     paused: z.strictObject({ summary: z.string(), coveredThrough: sequenceSchema }).optional(),
-    shareIntents: z
+    agentEvents: z
       .array(
-        z.strictObject({
-          id: z.string(),
-          text: z.string(),
-          consumed: z.boolean(),
-          receivedAt: z.number(),
-        }),
+        z.discriminatedUnion("type", [
+          conversationAgentEventSchema.options[0].extend({ consumed: z.boolean() }),
+          conversationAgentEventSchema.options[1].extend({ consumed: z.boolean() }),
+        ]),
       )
       .optional(),
   }),

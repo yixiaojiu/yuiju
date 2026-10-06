@@ -5,6 +5,7 @@ import { logger } from "@yuiju/shared/logger/logger";
 import type { ActivityView } from "@yuiju/shared/world/protocol";
 import { receiveCharacterEvent, trackWorldActivity } from "./agent-loop/events";
 import { MainAgentLoop } from "./agent-loop/main";
+import { readCommunicationSource, saveCommunicationSource } from "./communication";
 import { Conversation } from "./conversation/conversation";
 import type { ConversationScope } from "./conversation/message";
 import { describeEmotion, Emotion } from "./emotion/emotion";
@@ -50,8 +51,35 @@ export class Character {
       characterId: id,
       world: this.world,
       emotion: this.emotion,
-      share: async (requestId, text) =>
-        this.conversation ? await this.conversation.share(requestId, text) : "角色未连接 QQ 群聊。",
+      share: async (requestId, text, occurredAt) => {
+        if (!this.conversation) {
+          return "角色未连接 QQ 群聊，未投递。";
+        }
+        await saveCommunicationSource(id, requestId, { type: "main" }, occurredAt);
+        return await this.conversation.share({
+          id: requestId,
+          type: "share",
+          content: text,
+          occurredAt,
+        });
+      },
+      respondConversation: async (requestId, eventId, content, occurredAt) => {
+        const source = await readCommunicationSource(id, eventId);
+        if (source?.type !== "conversation") {
+          return "未投递：eventId 不是有效的群聊事件或关联已过期，请使用收到的群聊事件 ID。";
+        }
+        if (!this.conversation) {
+          return "角色未连接 QQ 群聊，未投递。";
+        }
+        await saveCommunicationSource(id, requestId, { type: "main" }, occurredAt);
+        return await this.conversation.receiveAgentEvent(source.scope, {
+          id: requestId,
+          type: "result",
+          content,
+          occurredAt,
+          relatedEventId: eventId,
+        });
+      },
       observeActivity: async (activity) => await this.observeActivity(activity),
       syncWorldActivity: async () => await this.syncWorldActivity(),
     });
@@ -119,20 +147,31 @@ export class Character {
     scope: ConversationScope,
     description: string,
     messageIds: string[],
+    relatedEventId?: string,
   ): Promise<string> {
+    if (relatedEventId) {
+      const source = await readCommunicationSource(this.id, relatedEventId);
+      if (source?.type !== "main") {
+        return "未投递：关联事件不存在、不是主 loop 事件或已超过 30 天。";
+      }
+    }
     const id = createHash("sha256")
-      .update(JSON.stringify([scope, [...messageIds].sort(), description]))
+      .update(JSON.stringify([scope, [...messageIds].sort(), description, relatedEventId]))
       .digest("hex");
+    const eventId = `conversation:${id}`;
+    const occurredAt = Date.now();
+    await saveCommunicationSource(this.id, eventId, { type: "conversation", scope }, occurredAt);
     await receiveCharacterEvent(this.id, {
-      id: `conversation:${id}`,
-      occurredAt: Date.now(),
+      id: eventId,
+      occurredAt,
       type: "conversation",
       scope,
       description,
       messageIds,
+      relatedEventId,
     });
     this.agent.wake();
-    return "已告知角色当前决策流程；是否采纳或形成安排，仍由角色自己决定。";
+    return `已投递给主 loop，事件 ID：${eventId}。尚不代表已作出决定。`;
   }
 
   async stop() {

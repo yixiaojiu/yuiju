@@ -23,16 +23,17 @@ export class Replyer {
     if (!windowTokens) {
       throw new Error("群聊需要配置 chat.context_window_tokens");
     }
-    const [persona, rules, compressionPrompt] = await Promise.all([
+    const [persona, rules, characterPrompt, compressionPrompt] = await Promise.all([
       renderPrompt(`character.persona.${this.scope.characterId}`),
       renderPrompt("conversation.replyer"),
+      renderPrompt(`conversation.replyer.${this.scope.characterId}`),
       renderPrompt("conversation.replyerCompression"),
     ]);
     this.context = new ConversationContext(
       {
         scope: this.scope,
         stage: "replyer",
-        system: `${persona}\n\n${rules}`,
+        system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
         compressionPrompt,
         model: chatModel,
         windowTokens,
@@ -141,7 +142,6 @@ export class Replyer {
       messages,
       allowSystemInMessages: true,
       maxRetries: 0,
-      reasoning: "none",
     });
     logger.info("聊天文字生成完成", {
       ...this.scope,

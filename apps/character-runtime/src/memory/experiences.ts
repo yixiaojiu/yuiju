@@ -1,24 +1,19 @@
-import { createHash } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { mongoCollectionName } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
-import { embedTexts } from "@yuiju/shared/llm/embedding";
-import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { strongModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
-import timezonePlugin from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import { z } from "zod";
 import { stringifyLlmMemory } from "../conversation/platform";
 import { characterKey } from "../storage";
+import { indexExperienceMemory, removeMemoryIndex } from "./vector-index";
 
-dayjs.extend(utc);
-dayjs.extend(timezonePlugin);
 dayjs.extend(isoWeek);
+dayjs.extend(utc);
 
 /** 可追溯的亲历依据；不保存模型隐藏推理，不把上下文摘要作为新事实。 */
 export type ExperienceMaterial = {
@@ -26,7 +21,7 @@ export type ExperienceMaterial = {
   occurredAt: number;
   source: "world" | "action" | "feeling" | "conversation";
   content: string;
-  /** 群聊来源只能用于原会话的回忆与披露。世界亲历没有群范围。 */
+  /** 原始素材保留交流来源，帮助正文区分线上交流与世界亲历。 */
   conversation?: { platform: string; channelId: string };
   people: { platform: string; userId: string; name: string }[];
 };
@@ -78,321 +73,178 @@ export type StoredMaterial = ExperienceMaterial & {
   organized?: boolean;
   expiresAt?: Date;
 };
+/** 一篇普通正文；日期使用项目时区的自然日，向量只是外部派生索引。 */
 export type ExperienceMemory = {
   id: string;
   characterId: string;
-  grain: "detail" | "week" | "month" | "year";
-  period: string;
-  from: number;
-  through: number;
-  availableAt: number;
+  grain: "day" | "week" | "month" | "year";
+  startDate: string;
+  endDate: string;
   text: string;
-  embedding: number[];
-  conversation?: { platform: string; channelId: string };
-  /** 合并后待清理的较细记录；不提供按来源 ID 读取细节的工具。 */
-  replaces: string[];
-  /** 内部感受可能含跨会话原因，只供角色决策回忆，不自动进入群聊检索。 */
-  privateToCharacter: boolean;
 };
-const dayMs = 86_400_000;
-const grainDays = { detail: 7, week: 30, month: 180, year: Infinity };
+
+export const MEMORY_RETENTION_DAYS = { day: 7, week: 30, month: 180 };
 
 export async function materialCollection() {
   return (await getMongoDatabase()).collection<StoredMaterial>(
     mongoCollectionName("character_materials"),
   );
 }
+
 export async function memoryCollection() {
   return (await getMongoDatabase()).collection<ExperienceMemory>(
     mongoCollectionName("character_memories"),
   );
 }
 
-/** 同日、同来源材料整理为若干往事，元信息由实际来源计算。 */
-export async function prepareExperienceMemories(
+/** ID 对应固定周期；跨月的周仍分段，避免月概括混入另一个月份。 */
+export function memoryPeriodId(grain: ExperienceMemory["grain"], date: string): string {
+  const day = dayjs.utc(date);
+  const period =
+    grain === "day"
+      ? date
+      : grain === "week"
+        ? `${day.format("YYYY-MM")}/W${day.isoWeek()}`
+        : grain === "month"
+          ? day.format("YYYY-MM")
+          : day.format("YYYY");
+  return `${grain}:${period}`;
+}
+
+/** 分批只更新一篇草稿，生成失败不覆盖已经保存的完整正文。 */
+export async function prepareExperienceMemory(
   characterId: string,
-  batchId: string,
+  date: string,
   materials: ExperienceMaterial[],
-  timezone: string,
+  previousText: string,
   signal: AbortSignal,
-): Promise<ExperienceMemory[]> {
-  const result = await generateStructuredOutput({
+): Promise<ExperienceMemory> {
+  const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.experiences")}`;
+  const prompt = stringifyLlmMemory({ date, previousText, materials });
+  const budget = (await load_config()).llm!.models!.strong!.context_window_tokens! * 0.8;
+  if (Buffer.byteLength(instructions + prompt, "utf8") >= budget) {
+    throw new Error("每日记忆草稿与本批素材超过整理窗口");
+  }
+  const result = await generateText({
     model: strongModel,
-    output: Output.object({
-      schema: z.strictObject({
-        memories: z
-          .array(
-            z.strictObject({
-              text: z.string().min(1).max(1200),
-              sourceIds: z.array(z.string()).min(1),
-            }),
-          )
-          .max(40),
-      }),
-    }),
-    instructions: await renderPrompt("memory.experiences"),
-    prompt: stringifyLlmMemory(materials),
+    instructions,
+    prompt,
+    maxRetries: 0,
     abortSignal: signal,
   });
-  const records = result.output.memories.map((memory, index) => {
-    const sources = memory.sourceIds.map((id) => {
-      const source = materials.find((material) => material.id === id);
-      if (!source) {
-        throw new Error(`经历记忆引用了不存在的来源：${id}`);
-      }
-      return source;
-    });
-    const from = Math.min(...sources.map((source) => source.occurredAt));
-    return {
-      id: `${batchId}:${index}`,
-      characterId,
-      grain: "detail" as const,
-      period: dayjs(from).tz(timezone).format("YYYY-MM-DD"),
-      from,
-      through: Math.max(...sources.map((source) => source.occurredAt)),
-      availableAt: from,
-      text: memory.text,
-      privateToCharacter: materials[0].source === "feeling",
-      conversation: materials[0].conversation,
-      replaces: [],
-    };
-  });
-  if (!records.length) {
-    return [];
+  if (result.finishReason !== "stop" || !result.text.trim()) {
+    throw new Error("每日记忆正文未正常生成，保留原文和整理进度");
   }
-  const embeddings = await embedTexts(
-    records.map((record) => record.text),
-    { abortSignal: signal },
-  );
-  return records.map((record, index) => ({ ...record, embedding: embeddings[index] }));
+  return {
+    id: memoryPeriodId("day", date),
+    characterId,
+    grain: "day",
+    startDate: date,
+    endDate: date,
+    text: result.text.trim(),
+  };
 }
 
-export async function saveExperienceMemories(records: ExperienceMemory[]): Promise<void> {
-  if (!records.length) {
-    return;
-  }
+/** 正文按固定周期覆盖；索引提交由调用方显式执行，并保存恢复进度。 */
+export async function saveExperienceMemory(memory: ExperienceMemory): Promise<void> {
   const collection = await memoryCollection();
   await collection.createIndex({ characterId: 1, id: 1 }, { unique: true });
-  await collection.createIndex({ characterId: 1, grain: 1, from: 1 });
-  await collection.bulkWrite(
-    records.map((record) => ({
-      updateOne: {
-        filter: { characterId: record.characterId, id: record.id },
-        update: { $setOnInsert: record },
-        upsert: true,
-      },
-    })),
-  );
+  await collection.createIndex({ characterId: 1, grain: 1, startDate: 1 });
+  await collection.replaceOne({ characterId: memory.characterId, id: memory.id }, memory, {
+    upsert: true,
+  });
 }
 
-/** 先写粗记忆再清理来源；未越过遗忘阈值的原文仍保留，到期再删除。 */
-async function finishMemoryReplacements(characterId: string, now: number): Promise<void> {
-  const collection = await memoryCollection();
-  for (const record of await collection
-    .find({ characterId, "replaces.0": { $exists: true } })
-    .toArray()) {
-    const sources = await collection.find({ characterId, id: { $in: record.replaces } }).toArray();
-    const expired = sources.filter(
-      (source) =>
-        source.grain === record.grain || source.from + grainDays[source.grain] * dayMs < now,
-    );
-    if (expired.length) {
-      await collection.deleteMany({ characterId, id: { $in: expired.map((source) => source.id) } });
-    }
-    await collection.updateOne(
-      { characterId, id: record.id },
-      {
-        $set: {
-          replaces: sources
-            .filter((source) => !expired.includes(source))
-            .map((source) => source.id),
-        },
-      },
-    );
-  }
-}
+/** 粗记忆已经生成后，索引失败与删除失败都使用这份草稿继续，不再次总结来源。 */
+type MemoryMerge = { memory: ExperienceMemory; sourceIds: string[] };
 
-/** 提前一天准备会到期的概括；查询仍按实际发生时间独立限制粒度。 */
+/** 从最旧日期判断是否到期；整篇向更粗粒度归并，不留下过期细节供检索。 */
 export async function coarsenExperiences(
   characterId: string,
-  timezone: string,
-  now: number,
+  today: string,
   signal: AbortSignal,
 ): Promise<void> {
+  const redis = await getRedis();
+  const key = `${characterKey(characterId)}:memory:merge`;
   const collection = await memoryCollection();
+  const instructions = await renderPrompt("memory.coarsen");
   const inputBudget = (await load_config()).llm!.models!.strong!.context_window_tokens! * 0.8;
-  await finishMemoryReplacements(characterId, now);
-  for (const grain of ["detail", "week", "month"] as const) {
-    const all = await collection.find({ characterId }).toArray();
-    const covered = new Set(all.flatMap((record) => record.replaces));
-    const nextGrain = grain === "detail" ? "week" : grain === "week" ? "month" : "year";
-    const groups = new Map<string, ExperienceMemory[]>();
-    for (const record of all) {
-      if (
-        record.grain !== grain ||
-        covered.has(record.id) ||
-        record.from + grainDays[grain] * dayMs > now + dayMs
-      ) {
-        continue;
+  while (true) {
+    signal.throwIfAborted();
+    const stored = await redis.get(key);
+    let merge: MemoryMerge | null = stored === null ? null : JSON.parse(stored);
+    if (!merge) {
+      // 每次完成一组再查询；刚形成的周/月概括也可能因长期停机而需要继续归并。
+      const expired = await collection
+        .find({
+          characterId,
+          $or: (["day", "week", "month"] as const).map((grain) => ({
+            grain,
+            startDate: {
+              $lt: dayjs
+                .utc(today)
+                .subtract(MEMORY_RETENTION_DAYS[grain], "day")
+                .format("YYYY-MM-DD"),
+            },
+          })),
+        })
+        .sort({ startDate: 1, id: 1 })
+        .toArray();
+      if (!expired.length) {
+        return;
       }
-      const date = dayjs(record.from).tz(timezone);
-      // 跨月周分段，月、年概括不会混入另一个月份或年份。
-      const period =
-        nextGrain === "week"
-          ? `${date.format("YYYY-MM")}/W${date.isoWeek()}`
-          : nextGrain === "month"
-            ? date.format("YYYY-MM")
-            : date.format("YYYY");
-      const key = JSON.stringify([period, record.conversation ?? null, record.privateToCharacter]);
-      const group = groups.get(key) ?? [];
-      group.push(record);
-      groups.set(key, group);
-    }
-    for (const [key, incoming] of groups) {
-      const [period] = JSON.parse(key) as [string];
-      const conversation = incoming[0].conversation;
-      const privateToCharacter = incoming[0].privateToCharacter;
-      const instructions = await renderPrompt("memory.coarsen", {
-        grain: nextGrain === "week" ? "周" : nextGrain === "month" ? "月" : "年",
+      const first = expired[0];
+      const grain = first.grain === "day" ? "week" : first.grain === "week" ? "month" : "year";
+      const id = memoryPeriodId(grain, first.startDate);
+      const previous = await collection.findOne({ characterId, id });
+      const incoming = expired.filter(
+        (record) => record.grain === first.grain && memoryPeriodId(grain, record.startDate) === id,
+      );
+      const sources: ExperienceMemory[] = previous ? [previous] : [];
+      const sourceIds: string[] = [];
+      let size = Buffer.byteLength(instructions + stringifyLlmMemory(sources), "utf8");
+      for (const memory of incoming) {
+        const bytes = Buffer.byteLength(stringifyLlmMemory(memory), "utf8");
+        if (size + bytes >= inputBudget) {
+          break;
+        }
+        sources.push(memory);
+        sourceIds.push(memory.id);
+        size += bytes;
+      }
+      if (!sourceIds.length) {
+        throw new Error("旧概括与最小记忆正文超过归并窗口");
+      }
+      const result = await generateText({
+        model: strongModel,
+        instructions,
+        prompt: stringifyLlmMemory({ grain, memories: sources }),
+        maxRetries: 0,
+        abortSignal: signal,
       });
-      while (incoming.length) {
-        signal.throwIfAborted();
-        // 一个时期的积压也可能超过窗口，分批合入同一概括；每批落库后再继续。
-        const existing = (
-          await collection.find({ characterId, grain: nextGrain, period }).toArray()
-        ).filter(
-          (record) =>
-            record.privateToCharacter === privateToCharacter &&
-            JSON.stringify(record.conversation ?? null) === JSON.stringify(conversation ?? null),
-        );
-        const sources: ExperienceMemory[] = [...existing];
-        let bytes = Buffer.byteLength(
-          instructions + existing.map((record) => `${record.period}：${record.text}`).join("\n\n"),
-          "utf8",
-        );
-        let consumed = 0;
-        for (const record of incoming) {
-          const size = Buffer.byteLength(`${record.period}：${record.text}\n\n`, "utf8");
-          if (bytes + size >= inputBudget) {
-            break;
-          }
-          sources.push(record);
-          bytes += size;
-          consumed += 1;
-        }
-        if (consumed === 0) {
-          throw new Error("记忆概括与最小新增单位超过输入预算，保留来源记录");
-        }
-        const id = createHash("sha256")
-          .update(
-            sources
-              .map((record) => record.id)
-              .sort()
-              .join("\n"),
-          )
-          .digest("hex");
-        const result = await generateText({
-          model: strongModel,
-          instructions,
-          prompt: sources.map((record) => `${record.period}：${record.text}`).join("\n\n"),
-          maxRetries: 0,
-          abortSignal: signal,
-        });
-        if (result.finishReason !== "stop" || !result.text.trim()) {
-          throw new Error("经历概括未正常完成，保留较细记录");
-        }
-        const [embedding] = await embedTexts([result.text.trim()], { abortSignal: signal });
-        await saveExperienceMemories([
-          {
-            id,
-            characterId,
-            grain: nextGrain,
-            period,
-            from: Math.min(...sources.map((source) => source.from)),
-            through: Math.max(...sources.map((source) => source.through)),
-            availableAt: Math.min(
-              ...sources.map((source) =>
-                source.grain === nextGrain
-                  ? source.availableAt
-                  : source.from + grainDays[source.grain] * dayMs,
-              ),
-            ),
-            text: result.text.trim(),
-            embedding,
-            conversation,
-            privateToCharacter,
-            replaces: [...new Set(sources.flatMap((source) => [source.id, ...source.replaces]))],
-          },
-        ]);
-        await finishMemoryReplacements(characterId, now);
-        incoming.splice(0, consumed);
+      if (result.finishReason !== "stop" || !result.text.trim()) {
+        throw new Error("经历概括未正常完成，保留较细记忆");
       }
+      merge = {
+        sourceIds,
+        memory: {
+          id,
+          characterId,
+          grain,
+          startDate: sources.map((source) => source.startDate).sort()[0],
+          endDate: sources
+            .map((source) => source.endDate)
+            .sort()
+            .at(-1)!,
+          text: result.text.trim(),
+        },
+      };
+      await redis.set(key, JSON.stringify(merge));
     }
+    await saveExperienceMemory(merge.memory);
+    await indexExperienceMemory(merge.memory, signal);
+    await removeMemoryIndex(characterId, merge.sourceIds);
+    await collection.deleteMany({ characterId, id: { $in: merge.sourceIds } });
+    await redis.del(key);
   }
-}
-
-export const recallSchema = z.strictObject({
-  query: z.string().min(1).optional().describe("你想起的事情或问题；不填时按时间回顾"),
-  since: z.number().int().optional().describe("经历起始时间，Unix 毫秒"),
-  until: z.number().int().optional().describe("经历截止时间，Unix 毫秒"),
-  limit: z.number().int().min(1).max(20),
-});
-
-/** 时间与语义查询共用粒度、角色和会话限制，不开放原材料反查。 */
-export async function recallExperiences(
-  characterId: string,
-  input: z.infer<typeof recallSchema>,
-  scope?: { platform: string; channelId: string },
-): Promise<string> {
-  const now = Date.now();
-  const records = (
-    await (await memoryCollection()).find({ characterId, availableAt: { $lte: now } }).toArray()
-  ).filter((record) => {
-    const age = now - record.from;
-    const allowed =
-      record.grain === "detail"
-        ? age <= 7 * dayMs
-        : record.grain === "week"
-          ? age > 7 * dayMs && age <= 30 * dayMs
-          : record.grain === "month"
-            ? age > 30 * dayMs && age <= 180 * dayMs
-            : age > 180 * dayMs;
-    return (
-      allowed &&
-      (!scope || !record.privateToCharacter) &&
-      (input.since === undefined || record.through >= input.since) &&
-      (input.until === undefined || record.from <= input.until) &&
-      (!scope ||
-        !record.conversation ||
-        (record.conversation.platform === scope.platform &&
-          record.conversation.channelId === scope.channelId))
-    );
-  });
-  if (input.query && records.length) {
-    const [query] = await embedTexts([input.query]);
-    const similarity = (record: ExperienceMemory) => {
-      if (record.embedding.length !== query.length) {
-        throw new Error("记忆向量维度与查询模型不一致，需要重新索引");
-      }
-      let dot = 0;
-      let left = 0;
-      let right = 0;
-      for (let index = 0; index < query.length; index++) {
-        dot += query[index] * record.embedding[index];
-        left += query[index] ** 2;
-        right += record.embedding[index] ** 2;
-      }
-      return dot / Math.sqrt(left * right);
-    };
-    const scores = new Map(records.map((record) => [record.id, similarity(record)]));
-    records.sort((a, b) => scores.get(b.id)! - scores.get(a.id)!);
-  } else {
-    records.sort((a, b) => b.through - a.through);
-  }
-  return (
-    records
-      .slice(0, input.limit)
-      .map((record) => `${record.period}（${record.grain}）：${record.text}`)
-      .join("\n\n") || "没有找到当前还能回忆的相关往事。"
-  );
 }

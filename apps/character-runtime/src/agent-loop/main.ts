@@ -54,11 +54,12 @@ export class MainAgentLoop {
     }
     this.windowTokens = windowTokens;
     this.timezone = config.app!.timezone!;
-    const [persona, rules] = await Promise.all([
+    const [persona, rules, characterPrompt] = await Promise.all([
       renderPrompt(`character.persona.${this.execution.characterId}`),
       renderPrompt("agentLoop.main"),
+      renderPrompt(`agentLoop.main.${this.execution.characterId}`),
     ]);
-    this.instructions = `${persona}\n\n${rules}`;
+    this.instructions = `${persona}\n\n${rules}\n\n${characterPrompt}`;
   }
 
   start(): void {
@@ -257,7 +258,12 @@ export class MainAgentLoop {
         }
       } else {
         lines.push(
-          `来自 ${formatLlmPlatform(event.scope.platform)} 群 ${event.scope.channelId} 的交流：${event.description}\n来源消息：${event.messageIds.join("、")}`,
+          [
+            `来自 ${formatLlmPlatform(event.scope.platform)} 群 ${event.scope.channelId} 的交流（事件 ID：${event.id}）`,
+            ...(event.relatedEventId ? [`关联事件 ID：${event.relatedEventId}`] : []),
+            event.description,
+            ...(event.messageIds.length ? [`来源消息：${event.messageIds.join("、")}`] : []),
+          ].join("\n"),
         );
       }
     }

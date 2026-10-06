@@ -3,8 +3,8 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, tool, type UserContent } from "ai";
 import { z } from "zod";
-import { recallExperiences, recallSchema } from "../memory/experiences";
 import { formatPeople, readPeople } from "../memory/people";
+import { recallExperiences, recallSchema } from "../memory/recall";
 import { formatPlans, readPlans } from "../plan/plan";
 import {
   type ConversationMessage,
@@ -41,7 +41,9 @@ const replySchema = z.object({
   replyContext: z
     .string()
     .min(1)
-    .describe("你本次想表达什么，以及必要事实与交流背景；不写成品台词。"),
+    .describe(
+      "你本次想表达的意思、立场及必要事实背景；供 Replyer 组织措辞，不是成品台词或句式要求。",
+    ),
   quoteMessageId: z.string().min(1).optional().describe("你要引用的消息 id；不引用则不填。"),
   "sender-id": z.string().min(1).optional().describe("你要 @ 的人的 sender-id；不 @ 则不填。"),
 });
@@ -52,19 +54,33 @@ const waitSchema = z.object({
   seconds: z.number().int().min(1).max(60).describe("你想等待多少秒后再判断。"),
 });
 const noticeSchema = z.strictObject({
-  description: z.string().min(1).describe("你认为值得角色关注的交流或安排请求，不替角色接受承诺"),
-  messageIds: z.array(z.string().min(1)).min(1).describe("提供直接依据的真实消息 id"),
+  description: z
+    .string()
+    .min(1)
+    .describe(
+      "你要传递的事情及相关事实，包括涉及的人、尚未确定的内容和你已经表达的态度；区分对方的说法与你自己的决定。",
+    ),
+  messageIds: z
+    .array(z.string().min(1))
+    .describe("你提供直接依据的真实消息 id；反馈主 loop 事件且没有相关群消息时可为空"),
+  relatedEventId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("你反馈的主 loop 事件 ID；独立的群聊信息不填，不是消息 id"),
 });
 const personSchema = z.strictObject({ "sender-id": z.string().min(1) });
 
 /** 不绑定执行逻辑的工具定义，规划和压缩共用同一套 schema。 */
 export const plannerTools = {
   notifyCharacter: tool({
-    description: "你可以将重要交流告知角色大脑，不为普通消息重复触发。",
+    description:
+      "你将群聊中值得带回生活里考虑的事情传递给主 loop，供后续生活决策使用。也可以通过 relatedEventId 反馈主 loop 事件的实际交流结果。通知只投递事件，不等待决定、不发送群消息，也不表示接受邀请或建立计划。",
     inputSchema: noticeSchema,
   }),
   recall: tool({
-    description: "你可以回忆仍能想起的世界亲历及本群交流，按当前状态理解。",
+    description:
+      "你可以回忆已经整理的生活经历。search 按语义搜索相关片段，read 按日期返回完整正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。记忆属于你，表达时结合当前聊天语境。",
     inputSchema: recallSchema,
   }),
   readPerson: tool({
@@ -76,11 +92,13 @@ export const plannerTools = {
     inputSchema: z.strictObject({}),
   }),
   understandMedia: tool({
-    description: "你按需查看图片、聆听音频或观看视频，获得文字理解结果后继续判断。",
+    description:
+      "你可以查看图片、聆听音频或观看视频。传入媒体类型和标签 src 中的完整地址，可附上关注的问题；返回的文字理解或读取失败信息，供后续判断和回复使用。",
     inputSchema: understandMediaSchema,
   }),
   reply: tool({
-    description: "你提供交流意图，生成并发送回复，返回实际发送的消息。",
+    description:
+      "你提供想表达的意思和必要背景，Replyer 结合聊天记录与人设生成文字并发送，返回实际发送结果。引用和 @ 可选，分别使用消息 id 和 sender-id。",
     inputSchema: replySchema,
   }),
   poke: tool({ description: "你戳一戳某个人，返回实际执行结果。", inputSchema: pokeSchema }),
@@ -105,7 +123,7 @@ export const plannerToolDescription = JSON.stringify(
       name,
       {
         description: plannerTools[name as keyof typeof plannerTools].description,
-        inputSchema: z.toJSONSchema(schema),
+        inputSchema: z.toJSONSchema(schema, { io: "input" }),
       },
     ]),
   ),
@@ -117,7 +135,11 @@ export type ReplyInput = ReplyTarget & { replyContext: string };
 export type ConversationToolContext = {
   canParticipate: () => boolean;
   readCharacter: () => Promise<string>;
-  notifyCharacter: (description: string, messageIds: string[]) => Promise<string>;
+  notifyCharacter: (
+    description: string,
+    messageIds: string[],
+    relatedEventId?: string,
+  ) => Promise<string>;
   connection: OneBotConnection;
   replyer: Replyer;
   /** 固定本轮收到的消息，执行期间仅追加已确认发送的事件。 */
@@ -149,10 +171,13 @@ export function createPlannerTools(
   return {
     notifyCharacter: tool({
       ...plannerTools.notifyCharacter,
-      async execute({ description, messageIds }) {
+      async execute({ description, messageIds, relatedEventId }) {
         try {
           if (!context.canParticipate()) {
             return "角色已经暂停群聊，不唤醒角色处理这段交流。";
+          }
+          if (!relatedEventId && !messageIds.length) {
+            return "未投递：独立的群聊信息需要提供来源消息 id；反馈主 loop 事件时请提供 relatedEventId。";
           }
           if (
             messageIds.some(
@@ -162,7 +187,7 @@ export function createPlannerTools(
           ) {
             return "来源消息不在当前真实交流中，请使用可见消息的 id。";
           }
-          return await context.notifyCharacter(description, messageIds);
+          return await context.notifyCharacter(description, messageIds, relatedEventId);
         } catch (error) {
           logger.error("告知角色失败", { ...scope, error });
           return `告知角色失败：${error instanceof Error ? error.message : String(error)}`;
@@ -173,7 +198,7 @@ export function createPlannerTools(
       ...plannerTools.recall,
       async execute(input) {
         try {
-          return await recallExperiences(scope.characterId, input, scope);
+          return await recallExperiences(scope.characterId, input);
         } catch (error) {
           logger.error("聊天回忆失败", { ...scope, error });
           return `回忆暂未成功：${error instanceof Error ? error.message : String(error)}`;

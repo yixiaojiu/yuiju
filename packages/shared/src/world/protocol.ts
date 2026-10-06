@@ -12,16 +12,17 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export const inspectWorldSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("current") }),
-  z.strictObject({ type: z.literal("place"), placeId: z.string().min(1) }),
+  z.strictObject({ type: z.literal("places"), query: z.string().trim().min(1).optional() }),
+  z.strictObject({ type: z.literal("place"), place: z.string().trim().min(1) }),
   z.strictObject({
     type: z.literal("relation"),
-    fromPlaceId: z.string().min(1),
-    toPlaceId: z.string().min(1),
+    fromPlace: z.string().trim().min(1),
+    toPlace: z.string().trim().min(1),
   }),
   z.strictObject({
     type: z.literal("action"),
     actionId: z.string().min(1),
-    placeId: z.string().min(1).optional(),
+    place: z.string().trim().min(1).optional(),
     payload: z.string().optional(),
   }),
 ]);
@@ -95,6 +96,10 @@ export type ObservationView =
     };
 export type InspectWorldResult =
   | {
+      type: "places";
+      places: { place: PlaceRef; hierarchy: PlaceRef[]; description: string }[];
+    }
+  | {
       type: "current";
       now: number;
       position: PositionView;
@@ -130,6 +135,8 @@ export type InspectWorldResult =
   | {
       type: "action";
       actionId: string;
+      /** 本次查询采用的地点；移动中查询通用行动时为 null。 */
+      place: PlaceRef | null;
       description: string;
       payloadSchema: Record<string, unknown>;
       options: JsonValue[];
@@ -142,6 +149,7 @@ export type WorldErrorCode =
   | "invalid_payload"
   | "character_not_found"
   | "place_not_known"
+  | "place_ambiguous"
   | "place_required"
   | "action_not_available"
   | "route_not_known"

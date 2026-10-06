@@ -33,9 +33,10 @@ export class Planner {
     if (!windowTokens) {
       throw new Error("群聊需要配置 flash.context_window_tokens");
     }
-    const [persona, rules, compressionPrompt] = await Promise.all([
+    const [persona, rules, characterPrompt, compressionPrompt] = await Promise.all([
       renderPrompt(`character.persona.${this.scope.characterId}`),
       renderPrompt("conversation.planner"),
+      renderPrompt(`conversation.planner.${this.scope.characterId}`),
       renderPrompt("conversation.plannerCompression"),
     ]);
     this.history = state.history;
@@ -44,7 +45,7 @@ export class Planner {
       {
         scope: this.scope,
         stage: "planner",
-        system: `${persona}\n\n${rules}`,
+        system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
         compressionPrompt,
         model: flashModel,
         windowTokens,
@@ -93,7 +94,6 @@ export class Planner {
     const result = await generateText({
       model: flashModel,
       messages: this.history.flatMap((unit) => unit.messages),
-      reasoning: "none",
       allowSystemInMessages: true,
       tools: createPlannerTools(this.scope, this.timezone, execution),
       maxRetries: 0,

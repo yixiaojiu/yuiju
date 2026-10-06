@@ -13,8 +13,9 @@ import {
 import { tool } from "ai";
 import { z } from "zod";
 import { describeEmotion, type Emotion } from "../emotion/emotion";
-import { recallExperiences, recallSchema, recordExperience } from "../memory/experiences";
+import { recordExperience } from "../memory/experiences";
 import { formatPeople, readPeople } from "../memory/people";
+import { recallExperiences, recallSchema } from "../memory/recall";
 import { readSelfCognition } from "../memory/self-cognition";
 import {
   formatPlans,
@@ -43,6 +44,14 @@ const shareSchema = z.strictObject({
     .describe("你想向各个 QQ 群分享的自己的经历或表达意图；不包含任何群的私人内容"),
 });
 
+const conversationResponseSchema = z.strictObject({
+  eventId: z.string().min(1).describe("你要回应的群聊事件 ID，来自输入中的事件 ID，不是消息 id"),
+  content: z
+    .string()
+    .min(1)
+    .describe("你对这件事的决定、进展或需要补充的信息；区分打算与已发生的结果"),
+});
+
 /** 工具说明与 schema 供执行和上下文压缩共用；execute 在绑定角色时补充。 */
 export const agentTools = {
   inspect_character: tool({
@@ -58,8 +67,14 @@ export const agentTools = {
       "你可以把分享意图广播给所有已连接的 QQ 群，各群独立决定是否、何时以及如何表达。提交不代表已经发送。",
     inputSchema: shareSchema,
   }),
+  respond_conversation: tool({
+    description:
+      "你将决定、进展或问题交回来源群的聊天规划。程序根据事件 ID 定位群聊，提交不代表已发出群消息，也不等待对方处理。",
+    inputSchema: conversationResponseSchema,
+  }),
   recall: tool({
-    description: "你可以按时间或事情回忆仍能想起的经历，结合现在的状态理解往事。",
+    description:
+      "你可以回忆已经整理的生活经历。search 按语义搜索片段，read 按日期读取完整记忆；日期为 YYYY-MM-DD，查询遵守遗忘范围。",
     inputSchema: recallSchema,
   }),
   read_person: tool({
@@ -71,26 +86,53 @@ export const agentTools = {
     inputSchema: feelingSchema,
   }),
   inspect_world: tool({
-    description: "你可以查询当前环境、熟悉地点、方位关系或行动的条件与参数。",
+    description:
+      "你可以查询当前状态、熟悉地点、方位关系或行动说明。action 查询返回执行条件、耗时、payload 的参数 schema 与可选内容；条件反映实际状态，指定查询地点不会使你到达那里。地点支持准确 ID、完整名称和名称关键词，多个匹配会返回候选；places 可用于检索地点及其准确 ID。",
     // 模型接收根对象参数；pipe 保留各查询类型的必填字段与严格字段约束。
     inputSchema: z
       .strictObject({
         type: z
-          .enum(["current", "place", "relation", "action"])
+          .enum(["current", "places", "place", "relation", "action"])
           .describe(
-            "你查询 current 时只传 type；place 传 placeId；relation 传 fromPlaceId 和 toPlaceId；action 传 actionId，可选 placeId 和 payload",
+            "你查询 current 时只传 type；places 可选 query，不传则列出熟悉地点；place 传 place；relation 传 fromPlace 和 toPlace；action 传 actionId，可选 place 和 payload",
           ),
-        placeId: z.string().min(1).optional(),
-        fromPlaceId: z.string().min(1).optional(),
-        toPlaceId: z.string().min(1).optional(),
-        actionId: z.string().min(1).optional(),
-        payload: z.string().optional(),
+        query: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("你检索地点时使用的关键词，匹配 ID、名称或地点描述中的文字"),
+        place: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("你查询的地点：准确 ID、完整名称或名称关键词；查询行动时不传则使用当前地点"),
+        fromPlace: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("你查询关系的起点：准确 ID、完整名称或名称关键词"),
+        toPlace: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("你查询关系的终点：准确 ID、完整名称或名称关键词"),
+        actionId: z.string().min(1).optional().describe("你从世界查询结果中获得的准确行动 ID"),
+        payload: z
+          .string()
+          .optional()
+          .describe(
+            "你要检查的行动参数，按该行动的参数 schema 编写为 JSON 字符串；不传则查询 schema 与选项",
+          ),
       })
       .pipe(inspectWorldSchema),
   }),
   execute_action: tool({
     description:
-      "你可以执行世界行动。先查询其参数 schema，再传入 payload JSON 字符串。持续活动开始后立即返回。",
+      "你向世界提交行动选择，payload 是按 inspect_world 的 action 查询所提供 schema 填写的 JSON 字符串。世界检查实际条件并执行，返回拒绝原因或执行结果。持续活动返回开始信息与预计结束时间，完成结果由后续世界事件提供；进行中会占用你的世界活动，工具返回不表示活动已经结束。",
     inputSchema: executeActionSchema,
   }),
   read_plans: tool({
@@ -123,7 +165,13 @@ export type AgentToolContext = {
   characterId: string;
   world: WorldClient;
   emotion: Emotion;
-  share: (requestId: string, text: string) => Promise<string>;
+  share: (requestId: string, text: string, occurredAt: number) => Promise<string>;
+  respondConversation: (
+    requestId: string,
+    eventId: string,
+    content: string,
+    occurredAt: number,
+  ) => Promise<string>;
   /** 世界确认的活动及时影响聊天权限；不等待本轮思考全部结束。 */
   observeActivity: (activity: ActivityView | null) => Promise<void>;
   /** 查询并同步当前活动；返回 null 表示成功，否则将未确认原因交给模型。 */
@@ -207,6 +255,10 @@ export function createAgentTools(
       ...agentTools.share,
       execute: async (input) => await executeAction("share", input),
     }),
+    respond_conversation: tool({
+      ...agentTools.respond_conversation,
+      execute: async (input) => await executeAction("respond_conversation", input),
+    }),
     express_feeling: tool({
       ...agentTools.express_feeling,
       execute: async (input) => await executeAction("express_feeling", input),
@@ -254,7 +306,7 @@ export function createAgentTools(
           return `世界查询未成功：${error instanceof Error ? error.message : String(error)}`;
         }
         if (!result.ok) {
-          return result.message;
+          return `世界查询失败（${result.code}）：\n${result.message}`;
         }
         if (result.value.type === "current") {
           await context.observeActivity(result.value.activity);
@@ -282,7 +334,11 @@ export async function executeAgentAction(
   }
   if (call.name === "share") {
     const input = shareSchema.parse(call.input);
-    return await context.share(requestId, input.intention);
+    return await context.share(requestId, input.intention, createdAt);
+  }
+  if (call.name === "respond_conversation") {
+    const input = conversationResponseSchema.parse(call.input);
+    return await context.respondConversation(requestId, input.eventId, input.content, createdAt);
   }
   if (call.name === "execute_action") {
     let result: WorldResult<ExecuteActionResult>;

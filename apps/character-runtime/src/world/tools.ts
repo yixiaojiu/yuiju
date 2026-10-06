@@ -3,16 +3,22 @@ import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import type {
   InspectWorldResult,
   ObservationView,
+  PlaceRef,
   PositionView,
   RouteView,
   WorldEvent,
 } from "@yuiju/shared/world/protocol";
 
+/** 地点引用始终携带名称与准确 ID，供后续查询直接使用。 */
+function formatPlace(place: PlaceRef): string {
+  return `${place.name}（placeId=${place.placeId}）`;
+}
+
 function formatRoutes(routes: RouteView[]): string {
   return routes
     .map((route) =>
       [
-        `${route.from.name} → ${route.to.name}（routeId=${route.routeId}），${route.mode === "walk" ? "步行" : "电车"} ${route.durationMinutes} 分钟，消耗 ${route.cost.money} 金币、${route.cost.stamina} 体力、${route.cost.satiety} 饱腹。`,
+        `${formatPlace(route.from)} → ${formatPlace(route.to)}（routeId=${route.routeId}），${route.mode === "walk" ? "步行" : "电车"} ${route.durationMinutes} 分钟，消耗 ${route.cost.money} 金币、${route.cost.stamina} 体力、${route.cost.satiety} 饱腹。`,
         ...route.conditions.map(
           (condition) =>
             `${condition.description}：${condition.status === "met" ? "当前满足" : condition.status === "unmet" ? "当前不满足" : "当前未知"}`,
@@ -23,9 +29,9 @@ function formatRoutes(routes: RouteView[]): string {
 }
 function formatPosition(position: PositionView, timezone: string): string {
   if (position.type === "moving") {
-    return `正在从${position.from.name}前往${position.to.name}，预计 ${formatLlmDateTime(position.endsAt, timezone)} 到达。`;
+    return `正在从${formatPlace(position.from)}前往${formatPlace(position.to)}，预计 ${formatLlmDateTime(position.endsAt, timezone)} 到达。`;
   }
-  return `位置：${position.hierarchy.map((place) => place.name).join(" / ")}（placeId=${position.place.placeId}）`;
+  return `位置：${position.hierarchy.map(formatPlace).join(" / ")}`;
 }
 function formatObservation(observation: ObservationView): string {
   if (observation.status === "not_observed") {
@@ -52,6 +58,17 @@ export async function formatWorldEvent(event: WorldEvent): Promise<string> {
 /** 程序按固定结构表达地图；不让模型读取内部坐标，也不额外调用模型翻译。 */
 export async function formatWorldView(view: InspectWorldResult): Promise<string> {
   const timezone = (await load_config()).app!.timezone!;
+  if (view.type === "places") {
+    if (view.places.length === 0) {
+      return '你的熟悉范围内没有匹配的地点。你可以更换关键词，或调用 inspect_world({"type":"places"}) 查看全部熟悉地点。';
+    }
+    return [
+      "熟悉地点：",
+      ...view.places.map(
+        (item) => `${item.hierarchy.map(formatPlace).join(" / ")}：${item.description}`,
+      ),
+    ].join("\n");
+  }
   if (view.type === "current") {
     return [
       formatLlmDateTime(view.now, timezone),
@@ -70,12 +87,12 @@ export async function formatWorldView(view: InspectWorldResult): Promise<string>
   }
   if (view.type === "place") {
     return [
-      `位置：${view.hierarchy.map((place) => place.name).join(" / ")}（placeId=${view.place.placeId}）`,
+      `位置：${view.hierarchy.map(formatPlace).join(" / ")}`,
       view.description,
       view.openingHours
         ? `常规开放时间：${String(view.openingHours[0]).padStart(2, "0")}:00–${String(view.openingHours[1]).padStart(2, "0")}:00。`
         : "常规全天开放。",
-      `内部已知地点：${view.children.map((place) => `${place.name}（placeId=${place.placeId}）`).join("、") || "无"}`,
+      `内部已知地点：${view.children.map(formatPlace).join("、") || "无"}`,
       formatObservation(view.observation),
       formatRoutes(view.routes),
       `可了解的行动：\n${view.actions.map((action) => `${action.actionId}：${action.description}`).join("\n")}`,
@@ -96,12 +113,17 @@ export async function formatWorldView(view: InspectWorldResult): Promise<string>
     };
     const spatial = view.spatial;
     let relation: string;
-    if (spatial.type === "direction")
-      relation = `${spatial.to.name}在${spatial.from.name}的${directions[spatial.direction]}方向（比较范围：${spatial.map.name}）。`;
-    else if (spatial.type === "contains") relation = `${view.to.name}位于${view.from.name}内部。`;
-    else if (spatial.type === "inside") relation = `${view.from.name}位于${view.to.name}内部。`;
-    else if (spatial.type === "same_place") relation = "这是同一个地点。";
-    else relation = "地图布局位置重合，无法区分方位。";
+    if (spatial.type === "direction") {
+      relation = `${formatPlace(spatial.to)}在${formatPlace(spatial.from)}的${directions[spatial.direction]}方向（比较范围：${formatPlace(spatial.map)}）。`;
+    } else if (spatial.type === "contains") {
+      relation = `${formatPlace(view.to)}位于${formatPlace(view.from)}内部。`;
+    } else if (spatial.type === "inside") {
+      relation = `${formatPlace(view.from)}位于${formatPlace(view.to)}内部。`;
+    } else if (spatial.type === "same_place") {
+      relation = "这是同一个地点。";
+    } else {
+      relation = "地图布局位置重合，无法区分方位。";
+    }
     const path =
       view.path.status === "found"
         ? `一条已知路径（${view.path.totalDurationMinutes} 分钟）：\n${formatRoutes(view.path.steps)}`
@@ -109,7 +131,7 @@ export async function formatWorldView(view: InspectWorldResult): Promise<string>
           ? "没有已知连接路径。"
           : "无需移动。";
     return [
-      `${view.from.name}（placeId=${view.from.placeId}）→ ${view.to.name}（placeId=${view.to.placeId}）`,
+      `${formatPlace(view.from)} → ${formatPlace(view.to)}`,
       relation,
       view.directRoutes.length
         ? `直达路线：\n${formatRoutes(view.directRoutes)}`
@@ -127,6 +149,7 @@ export async function formatWorldView(view: InspectWorldResult): Promise<string>
   };
   return [
     `行动：${view.actionId}`,
+    view.place ? `查询地点：${formatPlace(view.place)}` : "查询地点：移动中，无当前地点。",
     view.description,
     `耗时：${view.durationDescription}`,
     ...view.conditions.map((condition) => `${condition.description}：${labels[condition.status]}`),

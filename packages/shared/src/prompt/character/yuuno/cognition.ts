@@ -1,4 +1,4 @@
-import type { PromptTemplate } from "../template";
+import type { PromptTemplate } from "../../template";
 
 export const yuunoInitialCognition: PromptTemplate = {
   key: "character.initialCognition.yuuno",

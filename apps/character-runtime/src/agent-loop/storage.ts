@@ -6,7 +6,13 @@ import type { CharacterEvent } from "./events";
 /** 有副作用的工具调用；id 同时作为业务请求的去重标识，不依赖模型生成的调用 ID。 */
 export type AgentAction = {
   id: string;
-  name: "share" | "express_feeling" | "execute_action" | "create_plan" | "update_plan";
+  name:
+    | "respond_conversation"
+    | "share"
+    | "express_feeling"
+    | "execute_action"
+    | "create_plan"
+    | "update_plan";
   input: unknown;
   createdAt: number;
   /** 缺失表示执行结果尚未持久确认；恢复时沿用原 id 与参数。 */

@@ -157,7 +157,6 @@ return 1
         output: Output.object({ schema: emotionUpdateSchema }),
         instructions: await renderPrompt("emotion.update"),
         prompt: JSON.stringify({ previous, pending }),
-        reasoning: "none",
         abortSignal: this.stopping.signal,
       });
       const sources = new Map(
