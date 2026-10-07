@@ -1,4 +1,5 @@
 import { getMultimodalModel } from "@yuiju/shared/llm/models";
+import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, tool, type UserContent } from "ai";
@@ -41,8 +42,9 @@ const replySchema = z.object({
   replyContext: z
     .string()
     .min(1)
+    .optional()
     .describe(
-      "你本次想表达的意思、立场及必要事实背景；供 Replyer 组织措辞，不是成品台词或句式要求。",
+      "你补充 Replyer 看不到的相关信息，例如查询结果、媒体理解或主 loop 事件，保留来源、时间、已确定的决定与不确定性。交错话题需要定位时，可指出本次接哪件事。Replyer 已有群聊、人设和当前角色状态；没有额外上下文时不填。不提供回复提纲、口吻指令、心理解读或成品台词。",
     ),
   quoteMessageId: z.string().min(1).optional().describe("你要引用的消息 id；不引用则不填。"),
   "sender-id": z.string().min(1).optional().describe("你要 @ 的人的 sender-id；不 @ 则不填。"),
@@ -80,11 +82,12 @@ export const plannerTools = {
   }),
   recall: tool({
     description:
-      "你可以回忆已经整理的生活经历。search 按语义搜索相关片段，read 按日期返回完整正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。记忆属于你，表达时结合当前聊天语境。",
+      "你可以回忆已经整理的生活经历。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。记忆属于你，表达时结合当前聊天语境。",
     inputSchema: recallSchema,
   }),
   readPerson: tool({
-    description: "你可以读取对这个人的已有认识，仅呈现本群可以使用的内容。",
+    description:
+      "你可以读取对这个人的已有认识。同一平台身份跨群共用画像，并联合读取手动关联的其他平台身份。",
     inputSchema: personSchema,
   }),
   readPlans: tool({
@@ -93,17 +96,18 @@ export const plannerTools = {
   }),
   understandMedia: tool({
     description:
-      "你可以查看图片、聆听音频或观看视频。传入媒体类型和标签 src 中的完整地址，可附上关注的问题；返回的文字理解或读取失败信息，供后续判断和回复使用。",
+      "你可以查看图片、聆听音频或观看视频。传入媒体类型和标签 src 中的完整地址，可附上关注的问题；返回的文字理解或读取失败信息，供后续判断和回复使用。长结果会省略中间内容，可减少本次媒体数量或提出更具体的问题。",
     inputSchema: understandMediaSchema,
   }),
   reply: tool({
     description:
-      "你提供想表达的意思和必要背景，Replyer 结合聊天记录与人设生成文字并发送，返回实际发送结果。引用和 @ 可选，分别使用消息 id 和 sender-id。",
+      "你决定参与文字交流，Replyer 根据聊天记录、人设与补充上下文自行决定具体说什么并发送，返回实际发送结果。没有额外上下文时可直接调用；引用和 @ 可选，分别使用消息 id 和 sender-id。",
     inputSchema: replySchema,
   }),
   poke: tool({ description: "你戳一戳某个人，返回实际执行结果。", inputSchema: pokeSchema }),
   wait: tool({
-    description: "你在当前步骤的工具全部完成后暂停，等待指定秒数再继续判断。",
+    description:
+      "你安排一次主动定时唤醒：本步工具完成后暂停，到期即使无人发消息也会再判断。用于对方明确还没说完等具体短暂停顿。它不是结束工具，也不是等待下一条群消息；旁听、聊完、等别人回话时不调用工具即可结束。",
     inputSchema: waitSchema,
   }),
 };
@@ -129,7 +133,7 @@ export const plannerToolDescription = JSON.stringify(
   ),
 );
 /** 工具入口将 sender-id 转为发送接口使用的 senderId，不再包装为待执行的行动。 */
-export type ReplyInput = ReplyTarget & { replyContext: string };
+export type ReplyInput = ReplyTarget & { replyContext?: string };
 
 /** 一轮工具执行使用的会话依赖与进度；由 loop 持有，模型调用失败后仍可判断是否已发送。 */
 export type ConversationToolContext = {
@@ -204,19 +208,21 @@ export function createPlannerTools(
           return `回忆暂未成功：${error instanceof Error ? error.message : String(error)}`;
         }
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     readPerson: tool({
       ...plannerTools.readPerson,
       async execute({ "sender-id": userId }) {
         try {
-          return await formatPeople(
-            await readPeople(scope.characterId, { platform: scope.platform, userId }, scope),
+          return formatPeople(
+            await readPeople(scope.characterId, { platform: scope.platform, userId }),
           );
         } catch (error) {
           logger.error("人物认识读取失败", { ...scope, error });
           return `人物认识读取失败：${error instanceof Error ? error.message : String(error)}`;
         }
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     readPlans: tool({
       ...plannerTools.readPlans,
@@ -228,10 +234,12 @@ export function createPlannerTools(
           return `角色计划读取失败：${error instanceof Error ? error.message : String(error)}`;
         }
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     understandMedia: tool({
       ...plannerTools.understandMedia,
       execute: async (input, { abortSignal }) => await understandMedia(input, scope, abortSignal),
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     reply: tool({
       ...plannerTools.reply,

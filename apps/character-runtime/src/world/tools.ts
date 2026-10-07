@@ -75,9 +75,11 @@ export async function formatWorldView(view: InspectWorldResult): Promise<string>
       formatPosition(view.position, timezone),
       `体力 ${view.body.stamina}，饱腹 ${view.body.satiety}，金币 ${view.money}，手机电量 ${view.phoneBattery}%。`,
       `背包：${view.inventory.map((item) => `${item.name}（itemId=${item.itemId}）${item.quantity} 份`).join("、") || "空"}`,
-      view.activity
-        ? `正在${view.activity.actionId}，预计 ${formatLlmDateTime(view.activity.endsAt, timezone)} 结束。`
-        : "当前没有进行中的活动。",
+      view.activity?.actionId === "空闲发呆"
+        ? "发呆中，暂时没有安排，可以随时选择行动。"
+        : view.activity
+          ? `正在${view.activity.actionId}，预计 ${formatLlmDateTime(view.activity.endsAt!, timezone)} 结束。`
+          : "当前没有进行中的活动。",
       formatObservation(view.observation),
       formatRoutes(view.routes),
       `可了解的行动：\n${view.actions.map((action) => `${action.actionId}：${action.description}`).join("\n")}`,

@@ -14,8 +14,11 @@ import { emotionUpdatePrompt } from "./emotion/update";
 import {
   coarseMemoryPrompt,
   cognitionPrompt,
+  cognitionReviewPrompt,
+  conversationMemoryPrompt,
   experiencePrompt,
   peoplePrompt,
+  peopleReviewPrompt,
 } from "./memory/organize";
 import type { PromptTemplate } from "./template";
 import { worldRandomEventPrompt } from "./world/random-event";
@@ -26,9 +29,12 @@ export const promptDefinitions: readonly PromptTemplate[] = [
   yuunoPlannerPrompt,
   yuunoReplyerPrompt,
   experiencePrompt,
+  cognitionReviewPrompt,
   coarseMemoryPrompt,
   cognitionPrompt,
+  conversationMemoryPrompt,
   peoplePrompt,
+  peopleReviewPrompt,
   yuunoInitialCognition,
   emotionUpdatePrompt,
   mainAgentPrompt,

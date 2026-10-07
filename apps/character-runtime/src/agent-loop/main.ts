@@ -95,9 +95,46 @@ export class MainAgentLoop {
           if (!batch.events.length) {
             continue;
           }
+          const hasIdleReminder = batch.events.some(
+            (event) => event.type === "world" && event.event.type === "idle_reminder",
+          );
+          if (hasIdleReminder) {
+            // 处理前确认活动仍相同；离线积攒的多次提醒只保留本批最新的一条。
+            const current = await this.execution.world.inspect({ type: "current" });
+            if (!current.ok) {
+              throw new Error(`无法确认空闲提醒对应的活动：${current.message}`);
+            }
+            if (current.value.type === "current") {
+              const activity = current.value.activity;
+              await this.execution.observeActivity(activity);
+              const latestReminder = [...batch.events]
+                .reverse()
+                .find(
+                  (event) =>
+                    event.type === "world" &&
+                    event.event.type === "idle_reminder" &&
+                    activity?.actionId === "空闲发呆" &&
+                    event.event.activity?.activityId === activity.activityId,
+                );
+              batch.events = batch.events.filter(
+                (event) =>
+                  event.type !== "world" ||
+                  event.event.type !== "idle_reminder" ||
+                  event === latestReminder,
+              );
+            }
+            if (!batch.events.length) {
+              // 只消费过期提醒，不向上下文追加空输入，也不调用模型。
+              state.round = { id: randomUUID(), ...batch };
+              await finishAgentRound(characterId, state);
+              this.wakeRequested = true;
+              continue;
+            }
+          }
           let input = await this.describeInput(batch.events);
           // 活动相关输入才同步现状，不能将迟到的事件快照当作当前活动。
           if (
+            !hasIdleReminder &&
             batch.events.some(
               (event) =>
                 event.type === "connected" ||
@@ -235,13 +272,18 @@ export class MainAgentLoop {
       if (event.type === "world") {
         const content = await formatWorldEvent(event.event);
         lines.push(content);
-        await recordExperience(characterId, {
-          id: event.id,
-          occurredAt: event.occurredAt,
-          source: "world",
-          content,
-          people: [],
-        });
+        // 行动回执与开始通知仍参与决策；经历只在结算完成后记录一次。
+        if (event.event.type === "activity_completed" || event.event.type === "weather_changed") {
+          await recordExperience(characterId, {
+            id: event.id,
+            occurredAt: event.occurredAt,
+            source: "world",
+            content,
+            ...(event.event.type === "activity_completed" && { activity: event.event.activity! }),
+            position: event.event.position,
+            people: [],
+          });
+        }
       } else if (event.type === "connected") {
         lines.push("世界连接已建立，需要了解现状时可以查询。");
       } else if (event.type === "activity_due") {

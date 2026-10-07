@@ -37,12 +37,14 @@ data/
         self-cognition.json
         people/
           links.json
+          activity.json
           <platform>/
             <platformUserId>.json
 ```
 
 - `self-cognition.json` 保存角色当前的自我认知正文与更新时间。
-- `people/<platform>/<platformUserId>.json` 保存该平台身份的人物画像，包括称呼、逐条认知、日期和来源。同一平台身份在不同群聊中共用画像。
+- `people/<platform>/<platformUserId>.json` 保存 `platform`、`userId`、`name`，以及 `facts`、`impressions` 两个带日期条目的文本字段，不关联消息来源。同一平台身份在不同群聊中共用画像。
+- `people/activity.json` 保存程序维护的活跃统计及整日统计去重标记；热度上限为 100，按热度与不活跃天数清理画像。
 - `people/links.json` 保存用户在 dashboard 中手动设置的跨平台身份关联。各平台画像分别存储，加载和更新时结合关联身份的认知，每条认知仍保留在其来源平台的画像中。
 - 经历记忆及周、月、年概括保存到数据库，不在此目录保存正文。
 

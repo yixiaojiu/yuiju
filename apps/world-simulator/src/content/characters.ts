@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createIdleActivity } from "../actions/anywhere";
 import type { WorldCharacterState } from "../state";
 
 export type WorldCharacterDefinition = {
@@ -31,13 +31,6 @@ export function createCharacterState(
     money: 200,
     phoneBattery: 100,
     inventory: {},
-    currentActivity: {
-      activityId: randomUUID(),
-      actionId: "发呆",
-      payload: { durationMinutes: 10 },
-      startedAt: now,
-      endsAt: now + 10 * 60_000,
-      settlement: { stamina: 2 },
-    },
+    currentActivity: createIdleActivity(now),
   };
 }

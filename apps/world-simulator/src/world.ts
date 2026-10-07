@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { logger } from "@yuiju/shared/logger/logger";
 import type {
@@ -5,8 +6,10 @@ import type {
   ExecuteActionResult,
   InspectWorldInput,
   InspectWorldResult,
+  WorldEvent,
   WorldResult,
 } from "@yuiju/shared/world/protocol";
+import { createIdleActivity } from "./actions/anywhere";
 import { actionsById } from "./actions/definitions";
 import { createActionContext, settleActivity, startAction } from "./actions/execution";
 import { createCharacterState, type WorldCharacterDefinition } from "./content/characters";
@@ -16,7 +19,14 @@ import { ResourceEvolution, refreshResources } from "./environment/resources";
 import { worldTime } from "./environment/time";
 import { generateWeather, WeatherEvolution, weatherPeriod } from "./environment/weather";
 import { createWorldFact, type WorldFact } from "./events";
-import { actionConditions, actionIsKnown, inspectWorld, parseActionPayload } from "./inspect";
+import {
+  actionConditions,
+  actionIsKnown,
+  activityView,
+  inspectWorld,
+  parseActionPayload,
+  positionView,
+} from "./inspect";
 import type { WorldMap } from "./map";
 import type { WorldEventQueues } from "./queue";
 import { generateRandomEvent } from "./random-event";
@@ -258,6 +268,7 @@ export class World {
         .filter(
           (character) =>
             character.currentActivity !== null &&
+            character.currentActivity.endsAt !== null &&
             !this.activityCompletionTasks.has(character.currentActivity.activityId),
         )
         .sort((a, b) =>
@@ -265,9 +276,22 @@ export class World {
         );
       const stepTime = Math.min(
         targetTime,
-        ...charactersWithActivities.map((character) => character.currentActivity!.endsAt),
+        ...charactersWithActivities.map((character) => character.currentActivity!.endsAt!),
       );
       const draftState = structuredClone(committedState);
+      // 启动补算和运行 tick 共用此入口；只补空活动，不覆盖任何已有活动。
+      let activityRepaired = false;
+      for (const character of Object.values(draftState.characters)) {
+        if (character.currentActivity !== null) {
+          continue;
+        }
+        if (character.placeId === null) {
+          throw new Error(`角色 ${character.characterId} 的位置与活动同时缺失，无法恢复为空闲发呆`);
+        }
+        character.currentActivity = createIdleActivity(stepTime);
+        activityRepaired = true;
+        logger.warn("世界发现角色活动为空，补为空闲发呆", { characterId: character.characterId });
+      }
 
       // 环境独立演化；每项规则自行判断是否需要更新，并描述实际发生的变化。
       const environmentContext: WorldAdvanceContext = {
@@ -312,8 +336,32 @@ export class World {
           );
         }
       }
-      if (environmentChanged || facts.length) {
-        await this.commitStateAndFacts(draftState, facts);
+      // 只在补算推进至当前时间后提醒；停机期间错过多少次，都只通知一次。
+      const reminders: WorldEvent[] = [];
+      if (stepTime === targetTime) {
+        for (const character of Object.values(draftState.characters)) {
+          const activity = character.currentActivity!;
+          if (activity.actionId !== "空闲发呆") {
+            continue;
+          }
+          const lastAttentionAt = activity.lastReminderAt ?? activity.startedAt;
+          if (targetTime - lastAttentionAt < 10 * 60_000) {
+            continue;
+          }
+          activity.lastReminderAt = targetTime;
+          reminders.push({
+            eventId: randomUUID(),
+            occurredAt: targetTime,
+            characterId: character.characterId,
+            type: "idle_reminder",
+            description: "你已经闲了一会儿，可以考虑接下来做什么。",
+            activity: activityView(activity),
+            position: positionView(character, this.map),
+          });
+        }
+      }
+      if (activityRepaired || environmentChanged || facts.length || reminders.length) {
+        await this.commitStateAndFacts(draftState, facts, undefined, reminders);
       }
 
       // 环境提交后再取得生成上下文。只启动任务，不能在修改队列内 await 模型。
@@ -341,7 +389,7 @@ export class World {
     // 固定活动发生时的上下文；不携带待提交的状态副本或提前计算的结算结果。
     const input = {
       name: this.characterNames.get(characterId)!,
-      occurredAt: activity.endsAt,
+      occurredAt: activity.endsAt!,
       timezone: this.timezone,
       place: this.map.placesById.get(character.placeId!)!.name,
       weather: `${this.committedState!.weather.type}，${this.committedState!.weather.temperatureLevel}`,
@@ -405,9 +453,17 @@ export class World {
     draftState: WorldState,
     facts: WorldFact[],
     receipt?: RequestReceipt,
+    notifications: readonly WorldEvent[] = [],
   ): Promise<void> {
     try {
-      await commitWorldState(this.queues, this.committedState, draftState, facts, receipt);
+      await commitWorldState(
+        this.queues,
+        this.committedState,
+        draftState,
+        facts,
+        receipt,
+        notifications,
+      );
       this.committedState = draftState;
     } catch (error) {
       this.committedState = null;

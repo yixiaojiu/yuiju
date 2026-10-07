@@ -82,7 +82,8 @@ export type ActivityView = {
   activityId: string;
   actionId: string;
   startedAt: number;
-  endsAt: number;
+  /** 空闲发呆没有结束时间；其余行动均有明确的结束时间。 */
+  endsAt: number | null;
 };
 export type ItemView = { itemId: string; name: string; quantity: number };
 export type ObservationView =
@@ -174,7 +175,7 @@ export type WorldEvent = {
   eventId: string;
   occurredAt: number;
   characterId: string;
-  type: "activity_started" | "activity_completed" | "weather_changed";
+  type: "activity_started" | "activity_completed" | "weather_changed" | "idle_reminder";
   description: string;
   activity: ActivityView | null;
   position: PositionView;
@@ -189,7 +190,9 @@ export const worldClientMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("subscribe"),
     characterId: z.string().min(1),
-    eventTypes: z.array(z.enum(["activity_started", "activity_completed", "weather_changed"])),
+    eventTypes: z.array(
+      z.enum(["activity_started", "activity_completed", "weather_changed", "idle_reminder"]),
+    ),
   }),
   z.strictObject({ type: z.literal("ack"), deliveryId: z.string().regex(/^\d+$/) }),
 ]);

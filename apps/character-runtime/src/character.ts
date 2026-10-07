@@ -140,7 +140,13 @@ export class Character {
       throw new Error("角色尚未确认世界活动状态");
     }
     const activity: ActivityView | null = JSON.parse(stored);
-    return `${activity ? `最近世界确认正在${activity.actionId}。` : "最近世界确认没有进行中的活动。"}\n${describeEmotion(emotion)}`;
+    const description =
+      activity?.actionId === "空闲发呆"
+        ? "最近世界确认正在发呆，暂时没有安排。"
+        : activity
+          ? `最近世界确认正在${activity.actionId}。`
+          : "最近世界确认没有进行中的活动。";
+    return `${description}\n${describeEmotion(emotion)}`;
   }
 
   async notifyFromConversation(

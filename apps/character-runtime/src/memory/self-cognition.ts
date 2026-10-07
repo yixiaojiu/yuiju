@@ -5,7 +5,7 @@ import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { Output } from "ai";
 import { z } from "zod";
 import { stringifyLlmMemory } from "../conversation/platform";
-import type { ExperienceMaterial } from "./experiences";
+import type { ExperienceMemory } from "./experiences";
 import { memoryPath, writeMemoryFile } from "./files";
 
 export const selfCognitionSchema = z.strictObject({
@@ -45,28 +45,34 @@ export async function readSelfCognition(characterId: string): Promise<SelfCognit
   );
 }
 
-export async function organizeSelfCognition(
+/** 根据经历草稿生成候选；自我认知审查结束后由每日任务保存，不在生成时改写当前认知。 */
+export async function prepareSelfCognition(
   characterId: string,
   batchId: string,
-  materials: ExperienceMaterial[],
+  previous: SelfCognition,
+  experience: ExperienceMemory,
   signal: AbortSignal,
-): Promise<void> {
-  const previous = await readSelfCognition(characterId);
-  if (previous.lastBatchId === batchId) {
-    return;
-  }
+  revision?: { text: string; issues: string[] },
+): Promise<SelfCognition> {
   const result = await generateStructuredOutput({
     model: strongModel,
     output: Output.object({
       schema: z.strictObject({ changed: z.boolean(), text: z.string().min(1).max(1600) }),
     }),
     instructions: `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.selfCognition")}`,
-    prompt: stringifyLlmMemory({ previous: previous.text, materials }),
+    prompt: stringifyLlmMemory({
+      previous: previous.text,
+      experience: { date: experience.startDate, text: experience.text },
+      revision,
+    }),
     abortSignal: signal,
   });
-  await writeMemoryFile(await selfCognitionPath(characterId), {
+  if (result.finishReason !== "stop") {
+    throw new Error("自我认知未完整生成，保留原文和整理进度");
+  }
+  return {
     text: result.output.changed ? result.output.text : previous.text,
     updatedAt: result.output.changed ? Date.now() : previous.updatedAt,
     lastBatchId: batchId,
-  } satisfies SelfCognition);
+  };
 }

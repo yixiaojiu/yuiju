@@ -61,7 +61,7 @@ export function positionView(character: WorldCharacterState, map: WorldMap): Pos
     from: placeRef(map.placesById.get(movement.fromPlaceId)!),
     to: placeRef(map.placesById.get(movement.toPlaceId)!),
     startedAt: activity.startedAt,
-    endsAt: activity.endsAt,
+    endsAt: activity.endsAt!,
   };
 }
 
@@ -104,7 +104,7 @@ export function actionConditions(
   const conditions: ConditionView[] = [
     {
       description: "当前没有其他进行中的活动",
-      status: context.character.currentActivity === null ? "met" : "unmet",
+      status: context.character.currentActivity?.actionId === "空闲发呆" ? "met" : "unmet",
     },
   ];
   if (action.placeIds !== null) {

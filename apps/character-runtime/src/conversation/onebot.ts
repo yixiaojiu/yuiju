@@ -85,6 +85,7 @@ export class OneBotConnection {
       retryTimes: 6,
       retryInterval: 5_000,
       retryLazy: 60_000,
+      responseTimeout: 120_000,
     });
 
     const receive = async (session: Session) => {

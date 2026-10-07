@@ -2,8 +2,9 @@ import { load_config } from "@yuiju/shared/config/load";
 import { mongoCollectionName } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
-import { strongModel } from "@yuiju/shared/llm/models";
+import { flashModel, strongModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import type { ActivityView, PositionView } from "@yuiju/shared/world/protocol";
 import { generateText } from "ai";
 import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
@@ -19,9 +20,12 @@ dayjs.extend(utc);
 export type ExperienceMaterial = {
   id: string;
   occurredAt: number;
-  source: "world" | "action" | "feeling" | "conversation";
+  source: "world" | "feeling" | "conversation";
   content: string;
-  /** 原始素材保留交流来源，帮助正文区分线上交流与世界亲历。 */
+  /** 保留世界回执中的活动起止时间及结束位置，跨日活动按 occurredAt 所在日整理。 */
+  activity?: ActivityView;
+  position?: PositionView;
+  /** 聊天原文在每日整理时转换为输入，不在素材表重复存储。 */
   conversation?: { platform: string; channelId: string };
   people: { platform: string; userId: string; name: string }[];
 };
@@ -29,7 +33,7 @@ export type ExperienceMaterial = {
 /** 同一次实际经历沿用稳定 id；Redis 接收成功后才允许输入消费，Mongo 不阻塞决策。 */
 export async function recordExperience(
   characterId: string,
-  material: ExperienceMaterial,
+  material: ExperienceMaterial & { source: "world" | "feeling" },
 ): Promise<void> {
   await (await getRedis()).hsetnx(
     `${characterKey(characterId)}:memory:pending`,
@@ -54,7 +58,7 @@ export async function archiveExperiences(characterId: string): Promise<void> {
     const batch = entries.slice(offset, offset + 100);
     await collection.bulkWrite(
       batch.map(([, value]) => {
-        const material: ExperienceMaterial = JSON.parse(value);
+        const material: Omit<StoredMaterial, "characterId"> = JSON.parse(value);
         return {
           updateOne: {
             filter: { characterId, id: material.id },
@@ -69,6 +73,7 @@ export async function archiveExperiences(characterId: string): Promise<void> {
 }
 
 export type StoredMaterial = ExperienceMaterial & {
+  source: "world" | "feeling";
   characterId: string;
   organized?: boolean;
   expiresAt?: Date;
@@ -111,16 +116,55 @@ export function memoryPeriodId(grain: ExperienceMemory["grain"], date: string): 
   return `${grain}:${period}`;
 }
 
+/** 只作为本轮经历整理的中间结果；不覆盖原始聊天，也不作为人物画像的事实依据。 */
+export type ConversationMemorySummary = {
+  platform: string;
+  channelId: string;
+  text: string;
+};
+
+/** 同一群的一批原文先压成记忆素材；输入分批与成功后的进度保存由每日任务负责。 */
+export async function summarizeMemoryConversation(
+  characterId: string,
+  date: string,
+  materials: ExperienceMaterial[],
+  signal: AbortSignal,
+): Promise<ConversationMemorySummary> {
+  const conversation = materials[0].conversation!;
+  const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.conversations")}`;
+  const prompt = stringifyLlmMemory({
+    date,
+    ...conversation,
+    messages: materials.map((material) => material.content).join("\n"),
+  });
+  const budget = (await load_config()).llm!.models!.flash!.context_window_tokens! * 0.8;
+  if (Buffer.byteLength(instructions + prompt, "utf8") >= budget) {
+    throw new Error("群聊素材超过记忆压缩窗口");
+  }
+  const result = await generateText({
+    model: flashModel,
+    instructions,
+    prompt,
+    maxRetries: 0,
+    abortSignal: signal,
+  });
+  if (result.finishReason !== "stop" || !result.text.trim()) {
+    throw new Error("群聊记忆素材未正常生成，保留整理进度");
+  }
+  return { ...conversation, text: result.text.trim() };
+}
+
 /** 分批只更新一篇草稿，生成失败不覆盖已经保存的完整正文。 */
 export async function prepareExperienceMemory(
   characterId: string,
   date: string,
   materials: ExperienceMaterial[],
+  conversations: ConversationMemorySummary[],
   previousText: string,
   signal: AbortSignal,
 ): Promise<ExperienceMemory> {
   const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.experiences")}`;
-  const prompt = stringifyLlmMemory({ date, previousText, materials });
+  const prompt = stringifyLlmMemory({ date, previousText, materials, conversations });
   const budget = (await load_config()).llm!.models!.strong!.context_window_tokens! * 0.8;
   if (Buffer.byteLength(instructions + prompt, "utf8") >= budget) {
     throw new Error("每日记忆草稿与本批素材超过整理窗口");

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { load_config } from "@yuiju/shared/config/load";
@@ -6,6 +7,7 @@ import { inject, vi } from "vitest";
 import type { CharacterEvent } from "../src/agent-loop/events";
 import type { AgentAction, AgentState } from "../src/agent-loop/storage";
 import type { Plan } from "../src/plan/plan";
+import type { ConversationQualityCase } from "./cases/conversation-quality";
 import { type EvaluationCase, type EvaluationResult, record, snapshot, traceScope } from "./report";
 
 declare module "vitest" {
@@ -16,6 +18,7 @@ declare module "vitest" {
 
 /** 每个用例重建；仅替代外部状态，不模拟 Planner 或主 loop 的判断。 */
 export const fixture = {
+  qualityToolResults: null as ConversationQualityCase["toolResults"] | null,
   events: [] as CharacterEvent[],
   agentState: null as AgentState | null,
   actions: [] as AgentAction[],
@@ -73,7 +76,29 @@ vi.mock("ai", async (importOriginal) => {
                   { ...traceScope.getStore()!, parent: toolId },
                   async () => {
                     try {
-                      const output = await execute(input, context);
+                      let output: unknown;
+                      const materials = fixture.qualityToolResults;
+                      if (materials && name === "understandMedia") {
+                        const media = (input as { media: { url: string }[] }).media;
+                        output = media
+                          .map(({ url }) => {
+                            if (!(url in materials.media)) {
+                              throw new Error(`用例未定义媒体材料：${url}`);
+                            }
+                            return materials.media[url];
+                          })
+                          .join("\n");
+                      } else if (materials && name === "recall") {
+                        output = materials.recall;
+                      } else if (materials && name === "readPerson") {
+                        const id = (input as { "sender-id": string })["sender-id"];
+                        output =
+                          id in materials.people
+                            ? materials.people[id]
+                            : "没有当前可用的人物认识；这不代表第一次相识。";
+                      } else {
+                        output = await execute(input, context);
+                      }
                       // 测评中止后不再把工具结果送入下一次模型请求。
                       scope.signal.throwIfAborted();
                       record("effect", `${name} 返回`, output);
@@ -239,6 +264,7 @@ export async function runEvaluation(
     () => controller.abort(new Error("测评超过 90 秒，已中止模型请求")),
     90_000,
   );
+  fixture.qualityToolResults = null;
   fixture.events = [];
   fixture.actions = [];
   fixture.plans = [];
@@ -270,8 +296,9 @@ export async function runEvaluation(
   try {
     await traceScope.run({ result, startedAt, signal: controller.signal }, async () => {
       const config = await load_config();
-      result.configuration = {
+      result.configuration = snapshot({
         environment: "development",
+        caseHash: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
         timezone: config.app?.timezone,
         models: Object.fromEntries(
           (["flash", "chat", "strong"] as const).map((name) => [
@@ -282,11 +309,12 @@ export async function runEvaluation(
                 destination: new URL(provider.base_url).origin,
                 model: provider.model,
                 supportsStructuredOutputs: provider.supports_structured_outputs,
+                request: provider.request,
               })),
             },
           ]),
         ),
-      };
+      });
       await execute(controller.signal);
       controller.signal.throwIfAborted();
     });

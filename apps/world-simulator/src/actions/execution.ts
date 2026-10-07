@@ -5,6 +5,7 @@ import { createWorldFact, type WorldFact } from "../events";
 import { activityView } from "../inspect";
 import { getKnownPlaceIds, type WorldMap } from "../map";
 import type { WorldState } from "../state";
+import { createIdleActivity } from "./anywhere";
 import type { ActionContext, ActionDefinition } from "./definition";
 import { actionsById } from "./definitions";
 
@@ -73,7 +74,7 @@ export function startAction(
   };
 }
 
-/** 结算副本中的当前活动并清除它，返回完成事实；小插曲只补充文字，不单独提交。 */
+/** 结算副本中的当前活动并进入空闲发呆，返回完成事实；小插曲只补充文字，不单独提交。 */
 export function settleActivity(
   draftState: WorldState,
   definition: WorldCharacterDefinition,
@@ -86,13 +87,13 @@ export function settleActivity(
   const activity = character.currentActivity!;
   const action = actionsById.get(activity.actionId)!;
   const completed = action.complete(
-    createActionContext(draftState, definition, map, activity.endsAt, timezone, "execute"),
+    createActionContext(draftState, definition, map, activity.endsAt!, timezone, "execute"),
     activity,
   );
-  character.currentActivity = null;
+  character.currentActivity = createIdleActivity(activity.endsAt!);
   return createWorldFact(
     {
-      occurredAt: activity.endsAt,
+      occurredAt: activity.endsAt!,
       type: "activity_completed",
       characterId: character.characterId,
       placeId: character.placeId,

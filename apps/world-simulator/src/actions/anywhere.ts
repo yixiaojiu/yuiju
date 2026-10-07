@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { itemsById } from "../content/items";
-import { changeBody } from "../state";
+import { changeBody, type RunningActivity } from "../state";
 import { defineAction } from "./definition";
 import { checkInventory, consumeItems, itemSelectionSchema } from "./inventory";
 
@@ -12,6 +13,18 @@ export const durationSchema = z.union([
 ]);
 export const emptyPayloadSchema = z.strictObject({});
 const restRecovery = { 10: 2, 30: 5, 60: 8, 120: 12 };
+
+/** 世界自动进入的空闲行动，不注册为可选工具行动，也不产生结算或完成事件。 */
+export function createIdleActivity(now: number): RunningActivity {
+  return {
+    activityId: randomUUID(),
+    actionId: "空闲发呆",
+    payload: {},
+    startedAt: now,
+    endsAt: null,
+    settlement: {},
+  };
+}
 
 export const idle = defineAction({
   id: "发呆",

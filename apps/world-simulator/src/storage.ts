@@ -2,7 +2,7 @@ import { mongoCollectionName, redisKeyPrefix } from "@yuiju/shared/database/envi
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
-import type { ExecuteActionResult } from "@yuiju/shared/world/protocol";
+import type { ExecuteActionResult, WorldEvent } from "@yuiju/shared/world/protocol";
 import { createIORedisClient, type IRedisTransaction, Job } from "bullmq";
 import type { ChainableCommander } from "ioredis";
 import type { WorldFact } from "./events";
@@ -72,13 +72,14 @@ export async function commitWorldState(
   state: WorldState,
   facts: readonly WorldFact[],
   receipt?: RequestReceipt,
+  notifications: readonly WorldEvent[] = [],
 ): Promise<void> {
   const redis = await getRedis();
   const before = previous === null ? {} : stateFields(previous);
   const updates = Object.fromEntries(
     Object.entries(stateFields(state)).filter(([key, value]) => before[key] !== value),
   );
-  if (!Object.keys(updates).length && !facts.length && !receipt) {
+  if (!Object.keys(updates).length && !facts.length && !notifications.length && !receipt) {
     return;
   }
   // BullMQ 的公开 adapter 为 ioredis MULTI 补充 runCommand，原生 SET 等方法仍可使用。
@@ -102,10 +103,14 @@ export async function commitWorldState(
     await new Job(queues.archive, "archive", fact, queues.archive.defaultJobOptions).addJob(
       transaction,
     );
-    for (const notification of fact.notifications) {
-      const queue = queues.notifications.get(notification.characterId)!;
-      await new Job(queue, "notify", notification, queue.defaultJobOptions).addJob(transaction);
+  }
+  // 空闲提醒只通知角色；与下一次提醒所依据的状态一起提交，不创建归档任务。
+  for (const notification of [...facts.flatMap((fact) => fact.notifications), ...notifications]) {
+    if (notification.occurredAt <= Date.now() - worldRetentionMs) {
+      continue;
     }
+    const queue = queues.notifications.get(notification.characterId)!;
+    await new Job(queue, "notify", notification, queue.defaultJobOptions).addJob(transaction);
   }
   const results = await transaction.exec();
   // Redis MULTI 不回滚运行时错误；不能把命令错误或 BullMQ 的负数错误码当成提交成功。
@@ -117,7 +122,7 @@ export async function commitWorldState(
       throw new Error(`世界任务入队失败：BullMQ 错误码 ${result}`);
     }
   }
-  logger.silly("e2e.world.state.committed", { updates, facts, receipt });
+  logger.silly("e2e.world.state.committed", { updates, facts, notifications, receipt });
 }
 
 export async function readRequestReceipt(

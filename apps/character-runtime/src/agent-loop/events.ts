@@ -93,7 +93,7 @@ export async function trackWorldActivity(
 ): Promise<void> {
   const redis = await getRedis();
   const key = `${characterKey(characterId)}:agent:activity`;
-  if (activity === null) {
+  if (activity === null || activity.endsAt === null) {
     await redis.del(key);
     logger.silly("e2e.activity.wait.cleared", { characterId });
     return;

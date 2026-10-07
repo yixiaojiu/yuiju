@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { formatLlmDateTime } from "@yuiju/shared/date/format";
+import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
 import {
   type ActivityView,
@@ -13,7 +14,6 @@ import {
 import { tool } from "ai";
 import { z } from "zod";
 import { describeEmotion, type Emotion } from "../emotion/emotion";
-import { recordExperience } from "../memory/experiences";
 import { formatPeople, readPeople } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
 import { readSelfCognition } from "../memory/self-cognition";
@@ -74,7 +74,7 @@ export const agentTools = {
   }),
   recall: tool({
     description:
-      "你可以回忆已经整理的生活经历。search 按语义搜索片段，read 按日期读取完整记忆；日期为 YYYY-MM-DD，查询遵守遗忘范围。",
+      "你可以回忆已经整理的生活经历。search 按语义搜索片段，read 按日期读取记忆正文；日期为 YYYY-MM-DD，查询遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。",
     inputSchema: recallSchema,
   }),
   read_person: tool({
@@ -87,7 +87,7 @@ export const agentTools = {
   }),
   inspect_world: tool({
     description:
-      "你可以查询当前状态、熟悉地点、方位关系或行动说明。action 查询返回执行条件、耗时、payload 的参数 schema 与可选内容；条件反映实际状态，指定查询地点不会使你到达那里。地点支持准确 ID、完整名称和名称关键词，多个匹配会返回候选；places 可用于检索地点及其准确 ID。",
+      "你可以查询当前状态、熟悉地点、方位关系或行动说明。action 查询返回执行条件、耗时、payload 的参数 schema 与可选内容；条件反映实际状态，指定查询地点不会使你到达那里。地点支持准确 ID、完整名称和名称关键词，多个匹配会返回候选；places 可用于检索地点及其准确 ID。除行动说明外，长结果会省略中间内容；地点列表可用关键词缩小范围，再查询具体地点。",
     // 模型接收根对象参数；pipe 保留各查询类型的必填字段与严格字段约束。
     inputSchema: z
       .strictObject({
@@ -250,6 +250,7 @@ export function createAgentTools(
           `你对近期生活的主观看法，不等同于客观事实：\n${cognition.text}`,
         ].join("\n");
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     share: tool({
       ...agentTools.share,
@@ -285,15 +286,18 @@ export function createAgentTools(
           return `回忆未成功：${error instanceof Error ? error.message : String(error)}`;
         }
       },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     read_person: tool({
       ...agentTools.read_person,
       execute: async ({ userId }) =>
-        await formatPeople(await readPeople(context.characterId, { platform: "onebot", userId })),
+        formatPeople(await readPeople(context.characterId, { platform: "onebot", userId })),
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     read_plans: tool({
       ...agentTools.read_plans,
       execute: async () => await formatPlans(await readPlans(context.characterId)),
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     inspect_world: tool({
       ...agentTools.inspect_world,
@@ -313,6 +317,11 @@ export function createAgentTools(
         }
         return await formatWorldView(result.value);
       },
+      // 行动参数 schema 和可选值须保持完整，避免模型依据残缺契约构造 payload。
+      toModelOutput: ({ input, output }) => ({
+        type: "text",
+        value: input.type === "action" ? output : truncateToolOutput(output),
+      }),
     }),
   };
 }
@@ -359,18 +368,15 @@ export async function executeAgentAction(
     const activity = result.value.status === "started" ? result.value.activity : null;
     // 恢复时返回的是旧回执；由主 loop 恢复完操作后统一同步当前活动。
     if (!recovering) {
-      await context.observeActivity(activity);
+      if (activity) {
+        await context.observeActivity(activity);
+      } else {
+        // 即时行动也由世界进入空闲发呆，通过查询同步，不能在角色侧构造世界状态。
+        await context.syncWorldActivity();
+      }
     }
     const timezone = (await load_config()).app!.timezone!;
-    const text = `${result.value.description}\n活动 ID：${result.value.activity.activityId}\n${activity ? `预计结束：${formatLlmDateTime(activity.endsAt, timezone)}` : "已完成"}`;
-    await recordExperience(characterId, {
-      id: requestId,
-      occurredAt: result.value.activity.startedAt,
-      source: "action",
-      content: text,
-      people: [],
-    });
-    return text;
+    return `${result.value.description}\n活动 ID：${result.value.activity.activityId}\n${activity ? `预计结束：${formatLlmDateTime(activity.endsAt!, timezone)}` : "已完成"}`;
   }
   let id = requestId;
   let input: z.infer<typeof planToolSchema>;

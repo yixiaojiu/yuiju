@@ -64,7 +64,7 @@
 - `data/config/config.json` 是新系统的配置来源，应用启动时读取，修改后重启生效。
 - 经历记忆及周、月、年概括保存到数据库，具体数据模型按实现方案确定。
 - 自我认知保存到 `data/characters/<characterId>/memory/self-cognition.json`。
-- 人物画像保存到该角色记忆目录的 `people/<platform>/<platformUserId>.json`，跨平台身份关联保存到 `people/links.json`。
+- 人物画像保存到该角色记忆目录的 `people/<platform>/<platformUserId>.json`，程序活跃统计保存到 `people/activity.json`，跨平台身份关联保存到 `people/links.json`。
 - 经历事实、模型整理的记忆和当前解读需要区分；遗忘后的细节不能通过事实记录查询绕过回忆限制。
 - 未确定的运行状态存储和数据库模型不能直接套用旧系统 Redis、MongoDB 或 `MemoryEpisode` 的实现。
 

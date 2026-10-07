@@ -1,21 +1,9 @@
 module.exports = {
   apps: [
     {
-      name: "yuiju-message",
+      name: "yuiju-world-simulator",
       script: "pnpm",
-      args: "run start:message",
-      cwd: __dirname,
-      env: {
-        NODE_ENV: "production",
-      },
-      autorestart: false,
-      watch: false,
-      max_memory_restart: "1024M",
-    },
-    {
-      name: "yuiju-world",
-      script: "pnpm",
-      args: "run start:world",
+      args: "run start:world-simulator",
       cwd: __dirname,
       env: {
         NODE_ENV: "production",
@@ -26,15 +14,29 @@ module.exports = {
       max_memory_restart: "1024M",
     },
     {
-      name: "yuiju-web",
-      script: "pnpm run start:web",
+      name: "yuiju-character-runtime",
+      script: "pnpm",
+      args: "run start:character-runtime",
       cwd: __dirname,
       env: {
         NODE_ENV: "production",
+        NODE_USE_ENV_PROXY: "1",
       },
       autorestart: false,
       watch: false,
       max_memory_restart: "1024M",
     },
+    // {
+    //   name: "yuiju-dashboard",
+    //   script: "pnpm",
+    //   args: "run start:dashboard",
+    //   cwd: __dirname,
+    //   env: {
+    //     NODE_ENV: "production",
+    //   },
+    //   autorestart: false,
+    //   watch: false,
+    //   max_memory_restart: "1024M",
+    // },
   ],
 };

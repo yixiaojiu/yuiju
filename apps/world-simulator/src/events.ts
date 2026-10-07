@@ -8,7 +8,7 @@ import type { WorldState } from "./state";
 export type WorldFact = {
   eventId: string;
   occurredAt: number;
-  type: WorldEvent["type"];
+  type: Exclude<WorldEvent["type"], "idle_reminder">;
   characterId: string | null;
   placeId: string | null;
   activity: ActivityView | null;

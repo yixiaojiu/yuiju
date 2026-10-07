@@ -20,6 +20,7 @@ const allEventTypes: WorldEvent["type"][] = [
   "activity_started",
   "activity_completed",
   "weather_changed",
+  "idle_reminder",
 ];
 
 /** 与角色实例绑定的世界连接；事件先保存到 Redis 输入队列，再向世界确认。 */

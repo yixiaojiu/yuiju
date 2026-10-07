@@ -1,5 +1,4 @@
 import { isDeepStrictEqual } from "node:util";
-import { load_config } from "@yuiju/shared/config/load";
 import { mongoCollectionName, redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
@@ -8,12 +7,9 @@ import { modelMessageSchema } from "ai";
 import type { mongo } from "mongoose";
 import { z } from "zod";
 import { type ConversationAgentEvent, conversationAgentEventSchema } from "../communication";
-import type { ExperienceMaterial } from "../memory/experiences";
-import { characterKey } from "../storage";
 import type { ContextSummary, ContextUnit } from "./context";
 import type { ConversationWait } from "./loop";
 import type { ConversationMessage, ConversationScope } from "./message";
-import { renderMessage } from "./message";
 
 /** 实际交流按发生时间保留 30 天，延迟归档不延长保留时间。 */
 export const MESSAGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -145,24 +141,6 @@ export async function saveConversationState(
       ),
     );
   if (events.length) {
-    const timezone = (await load_config()).app!.timezone!;
-    for (const message of events) {
-      const material: ExperienceMaterial = {
-        id: `conversation:${scope.platform}:${scope.channelId}:${message.sequence}`,
-        occurredAt: message.timestamp,
-        source: "conversation",
-        content: renderMessage(message, timezone),
-        conversation: { platform: scope.platform, channelId: scope.channelId },
-        people: message.isSelf
-          ? []
-          : [{ platform: scope.platform, userId: message.senderId, name: message.senderName }],
-      };
-      transaction.hsetnx(
-        `${characterKey(scope.characterId)}:memory:pending`,
-        material.id,
-        JSON.stringify(material),
-      );
-    }
     transaction.hset(
       `${key}:archive`,
       Object.fromEntries(
@@ -237,7 +215,12 @@ export async function removePendingArchive(
   await redis.hdel(`${conversationKey(scope)}:archive`, ...sequences.map(String));
 }
 
-type MessageDocument = ConversationScope & ConversationMessage & { expireAt: Date };
+/** 每日整理只冻结原始消息的定位信息，不复制正文。 */
+export type MemoryMessageReference = Pick<ConversationScope, "platform" | "channelId"> & {
+  sequence: number;
+};
+export type ArchivedConversationMessage = ConversationScope & ConversationMessage;
+type MessageDocument = ArchivedConversationMessage & { expireAt: Date; organized: boolean };
 let collectionTask: Promise<mongo.Collection<MessageDocument>> | undefined;
 
 /** 索引只由聊天存储定义；MongoDB 故障时由后台归档下一轮重新尝试初始化。 */
@@ -264,6 +247,7 @@ async function initializeMessageCollection() {
       partialFilterExpression: { kind: "message" },
     },
     { key: { characterId: 1, platform: 1, channelId: 1, timestamp: 1, sequence: 1 } },
+    { key: { characterId: 1, organized: 1, timestamp: 1 } },
     { key: { expireAt: 1 }, expireAfterSeconds: 0 },
   ]);
   return collection;
@@ -289,7 +273,7 @@ export async function archiveConversationMessages(
       documents.map((document) => ({
         updateOne: {
           filter: { ...scope, sequence: document.sequence },
-          update: { $setOnInsert: document },
+          update: { $setOnInsert: { ...document, organized: false } },
           upsert: true,
         },
       })),
@@ -301,7 +285,9 @@ export async function archiveConversationMessages(
   const stored = await collection
     .find({ ...scope, sequence: { $in: messages.map((message) => message.sequence) } })
     .toArray();
-  const bySequence = new Map(stored.map(({ _id, ...document }) => [document.sequence, document]));
+  const bySequence = new Map(
+    stored.map(({ _id, organized, ...document }) => [document.sequence, document]),
+  );
   const confirmed: number[] = [];
   for (const document of documents) {
     const existing = bySequence.get(document.sequence);
@@ -340,6 +326,46 @@ export async function queryConversationMessages(
     .limit("messageId" in range ? 1 : range.limit)
     .toArray();
   return documents.map(
-    ({ _id, characterId, platform, channelId, expireAt, ...message }) => message,
+    ({ _id, characterId, platform, channelId, expireAt, organized, ...message }) => message,
+  );
+}
+
+/** 按发生日期选择尚未整理的消息；迟到归档仍会在下一轮被读到。 */
+export async function queryUnorganizedMessages(
+  characterId: string,
+  before: number,
+): Promise<ArchivedConversationMessage[]> {
+  const documents = await (await messageCollection())
+    .find({ characterId, organized: false, timestamp: { $lt: before } })
+    .sort({ timestamp: 1, platform: 1, channelId: 1, sequence: 1 })
+    .toArray();
+  return documents.map(({ _id, expireAt, organized, ...message }) => message);
+}
+
+/** 恢复整理时读取已冻结的来源，包括已被 release 阶段标记过的消息。 */
+export async function readMemoryMessages(
+  characterId: string,
+  references: MemoryMessageReference[],
+): Promise<ArchivedConversationMessage[]> {
+  if (!references.length) {
+    return [];
+  }
+  const documents = await (await messageCollection())
+    .find({ characterId, $or: references })
+    .toArray();
+  return documents.map(({ _id, expireAt, organized, ...message }) => message);
+}
+
+/** 三种记忆均整理成功后确认来源；重复执行不会修改事实或延长 30 天 TTL。 */
+export async function markMessagesOrganized(
+  characterId: string,
+  references: MemoryMessageReference[],
+): Promise<void> {
+  if (!references.length) {
+    return;
+  }
+  await (await messageCollection()).updateMany(
+    { characterId, $or: references },
+    { $set: { organized: true } },
   );
 }

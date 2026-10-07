@@ -8,7 +8,7 @@ import { type ContextSummary, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
 import type { ReplyInput } from "./tools";
 
-/** 每群独立的回复上下文；长期历史只保留真实交流，本轮回复意图作为末尾临时任务。 */
+/** 每群独立的回复上下文；长期历史只保留真实交流，本轮补充上下文作为末尾临时输入。 */
 export class Replyer {
   private context!: ConversationContext;
   /** 初始化时从合并默认值后的项目配置读取，与消息发生时间使用同一展示时区。 */
@@ -93,9 +93,11 @@ export class Replyer {
       ? history.find((message) => message.senderId === input.senderId)
       : undefined;
 
-    // 当前任务始终放在历史之后，避免每次不同的回复意图破坏稳定前缀。
-    const taskLines = [`本次交流意图：${input.replyContext}`];
-    taskLines.push(`当前角色状态：\n${characterContext}`);
+    // 当前任务始终放在历史之后，避免每次不同的补充上下文破坏稳定前缀。
+    const taskLines = [`当前角色状态：\n${characterContext}`];
+    if (input.replyContext !== undefined) {
+      taskLines.push(`补充上下文：\n${input.replyContext}`);
+    }
     if (quote) {
       taskLines.push(`本次引用：${renderMessage(quote, this.timezone)}`);
     }
