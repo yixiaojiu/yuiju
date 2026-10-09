@@ -141,6 +141,7 @@ export async function archiveWorldFact(fact: WorldFact): Promise<void> {
   const collection = (await getMongoDatabase()).collection(mongoCollectionName("world_events"));
   if (!archiveIndexesCreated) {
     await collection.createIndex({ eventId: 1 }, { unique: true });
+    await collection.createIndex({ characterId: 1, occurredAt: -1 });
     await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     archiveIndexesCreated = true;
   }

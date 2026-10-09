@@ -7,13 +7,16 @@ import DailyRotateFile from "winston-daily-rotate-file";
 // 应用入口先初始化，业务模块再开始记录日志；导入时不创建输出或文件。
 export const logger = winston.createLogger({ transports: [] });
 
+/** 不传 log_dir 时仅输出到控制台，不创建日志目录或文件。 */
 export async function init_logger(options: {
   app: string;
-  log_dir: string | URL;
+  log_dir?: string | URL;
   level: "error" | "warn" | "info" | "http" | "verbose" | "debug" | "silly";
 }) {
-  const log_dir = options.log_dir instanceof URL ? fileURLToPath(options.log_dir) : options.log_dir;
-  await mkdir(log_dir, { recursive: true });
+  const logDir = options.log_dir instanceof URL ? fileURLToPath(options.log_dir) : options.log_dir;
+  if (logDir !== undefined) {
+    await mkdir(logDir, { recursive: true });
+  }
 
   logger.configure({
     level: options.level,
@@ -51,8 +54,12 @@ export async function init_logger(options: {
           return `[${timestamp}] [${level}] [${app}] ${message}${metadata}${stack ? `\n${stack}` : ""}`;
         }),
       }),
+    ],
+  });
+  if (logDir !== undefined) {
+    logger.add(
       new DailyRotateFile({
-        dirname: log_dir,
+        dirname: logDir,
         filename: "app-%DATE%.log",
         datePattern: "YYYY-MM-DD",
         maxSize: "20m",
@@ -60,6 +67,6 @@ export async function init_logger(options: {
         zippedArchive: false,
         format: winston.format.json(),
       }),
-    ],
-  });
+    );
+  }
 }

@@ -21,13 +21,11 @@ jobs:
           node-version: lts/*
           cache: pnpm
 
-      - name: Prepare Config
-        run: cp yuiju.config.json.example yuiju.config.json
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Lint
         run: pnpm run lint
       - name: Type check
         run: pnpm run type-check
-      - name: Build (web)
-        run: pnpm run build:web
+      - name: Build (dashboard)
+        run: pnpm run build:dashboard

@@ -9,6 +9,10 @@ export function isDirectedMessage(message: ConversationMessage, selfId: string, 
   if (message.kind === "poke") {
     return message.targetSenderId === selfId;
   }
+  // 撤回是普通事件，不视为直接呼叫；沿用积压、等待时间等触发评分。
+  if (message.kind === "recall") {
+    return false;
+  }
   if (message.quote?.senderId === selfId) {
     return true;
   }

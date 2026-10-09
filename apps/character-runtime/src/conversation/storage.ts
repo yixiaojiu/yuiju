@@ -67,6 +67,12 @@ const messageSchema: z.ZodType<ConversationMessage> = z.discriminatedUnion("kind
     mentionedSenderId: z.string().optional(),
   }),
   z.strictObject({ ...eventFields, kind: z.literal("poke"), targetSenderId: z.string() }),
+  z.strictObject({
+    ...eventFields,
+    kind: z.literal("recall"),
+    recalledMessageId: z.string(),
+    operatorId: z.string(),
+  }),
 ]);
 const stateSchema: z.ZodType<ConversationState> = z.strictObject({
   runtime: z.strictObject({

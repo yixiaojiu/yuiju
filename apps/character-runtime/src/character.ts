@@ -11,6 +11,7 @@ import type { ConversationScope } from "./conversation/message";
 import { describeEmotion, Emotion } from "./emotion/emotion";
 import { DailyMemory } from "./memory/daily";
 import { characterKey } from "./storage";
+import { startCharacterSync } from "./sync";
 import { WorldClient } from "./world/client";
 
 export type CharacterConfig = NonNullable<Config["characters"]>[string];
@@ -25,6 +26,7 @@ export class Character {
   private readonly agent: MainAgentLoop | undefined;
   readonly emotion: Emotion;
   private readonly memory: DailyMemory;
+  private stopSync: (() => Promise<void>) | undefined;
 
   constructor(
     readonly id: string,
@@ -115,6 +117,7 @@ export class Character {
   async start() {
     await this.memory.initialize();
     await this.emotion.initialize();
+    this.stopSync = await startCharacterSync(this.id, this.emotion);
     await this.agent?.initialize();
     // 聊天独立运行时，先确认活动和睡眠权限，再恢复群会话。
     if (this.mode === "conversation") {
@@ -234,6 +237,7 @@ export class Character {
       this.world.stop(),
       this.emotion.stop(),
       this.memory.stop(),
+      this.stopSync?.(),
     ]);
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length) {

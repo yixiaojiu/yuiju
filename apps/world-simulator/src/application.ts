@@ -6,6 +6,7 @@ import { places, routes } from "./content/locations";
 import { createWorldMap } from "./map";
 import { WorldEventQueues } from "./queue";
 import { serveWorld } from "./server/server";
+import { startWorldSync } from "./sync";
 import { World } from "./world";
 
 /** 组装并恢复世界，再启动服务；返回按依赖顺序释放资源的 stop 方法。 */
@@ -43,11 +44,13 @@ export async function startWorldSimulator(config: Config) {
   let server: Awaited<ReturnType<typeof serveWorld>> | undefined;
   /** 同时收到多个退出请求时，共用同一次关闭任务。 */
   let shutdown: Promise<void> | undefined;
+  let stopSync: (() => Promise<void>) | undefined;
 
   // 世界恢复完成后再监听请求。
   try {
     await queues.start();
     await world.start();
+    stopSync = startWorldSync(world, config);
     server = await serveWorld(world, queues);
   } catch (error) {
     try {
@@ -73,6 +76,12 @@ export async function startWorldSimulator(config: Config) {
     // 先停止请求入口，等待已经进入世界的行动请求结束。
     try {
       await server?.stop();
+    } catch (error) {
+      failures.push(error);
+    }
+
+    try {
+      await stopSync?.();
     } catch (error) {
       failures.push(error);
     }

@@ -1,10 +1,13 @@
+import { load_config } from "@yuiju/shared/config/load";
 import { redisKeyPrefix } from "@yuiju/shared/database/environment";
+import { getEnvironment } from "@yuiju/shared/env/environment";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
 import { Queue, Worker } from "bullmq";
 import Redis from "ioredis";
 import type { WorldFact } from "./events";
 import { archiveWorldFact, worldRetentionMs } from "./storage";
+import { syncWorldFact } from "./sync";
 
 /** 世界提交只入队；归档和通知分别消费，失败每 5 秒重试，最长保留 30 天。 */
 export class WorldEventQueues {
@@ -46,6 +49,9 @@ export class WorldEventQueues {
       async (job) => {
         if (job.data.occurredAt > Date.now() - worldRetentionMs) {
           await archiveWorldFact(job.data);
+          if (getEnvironment() === "production" && (await load_config()).database?.sync_mongo_uri) {
+            await syncWorldFact(job.data);
+          }
           logger.silly("e2e.archive.completed", { jobId: job.id, eventId: job.data.eventId });
         }
       },

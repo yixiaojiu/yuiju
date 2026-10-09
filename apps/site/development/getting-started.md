@@ -1,6 +1,6 @@
 # 本地开发
 
-完成本页后，你会在本机启动 World、Web，并可按需启动消息服务。
+本页保留旧版 World、Message 的开发说明。旧 Web 已删除，页面入口改为新版 Dashboard。
 
 ## 准备环境
 
@@ -9,7 +9,7 @@
 - MongoDB
 - Redis
 
-Node.js 和 pnpm 版本分别记录在根目录 `.node-version` 和 `package.json`。如果本机没有 MongoDB 或 Redis，可以直接使用[本地基础依赖](./local-infrastructure)。
+Node.js 和 pnpm 版本分别记录在根目录 `.node-version` 和 `package.json`。请自行安装并启动 MongoDB 和 Redis。
 
 ## 安装依赖
 
@@ -27,7 +27,7 @@ pnpm install
 cp yuiju.config.json.example yuiju.config.json
 ```
 
-示例文件默认供完整 Docker 部署使用。源码启动时需要修改以下地址：
+示例使用本机服务地址。将 `app.memoryDir` 改为当前机器上的绝对路径，并确认连接地址：
 
 ```jsonc
 {
@@ -46,7 +46,7 @@ cp yuiju.config.json.example yuiju.config.json
 }
 ```
 
-然后填写 `llm.models`。如果需要连接 QQ 或飞书，再填写对应平台的账号、密钥和白名单。各字段用途见[项目配置](/deployment/configuration)。
+然后填写 `llm.models`。如果需要连接 QQ 或飞书，再填写对应平台的账号、密钥和白名单。
 
 `yuiju.config.json` 会包含 API Key 和平台密钥，不要提交到 Git。
 
@@ -60,13 +60,13 @@ cp yuiju.config.json.example yuiju.config.json
 pnpm run dev:world
 ```
 
-启动 Web：
+启动 Dashboard：
 
 ```bash
-pnpm run dev:web
+pnpm run dev:dashboard
 ```
 
-启动后访问 `http://localhost:3010`。
+启动后访问 `http://localhost:5179`。Dashboard 使用 `data/config/config.json`，读取新版 `world-simulator` 和 `character-runtime` 产生的数据；上面的旧版配置和世界服务不能为它提供数据。
 
 配置好 OneBot 或飞书后，再启动消息服务：
 
@@ -98,12 +98,12 @@ pnpm run test:world
 
 ### MongoDB 或 Redis 连接失败
 
-先检查服务是否正在运行，再确认 `database.mongoUri` 和 `database.redisUrl` 使用的是 `localhost`，而不是 Docker 服务名。
+先检查服务是否正在运行，再确认 `database.mongoUri` 和 `database.redisUrl` 与实际服务地址一致。
 
 ### 消息服务启动失败
 
 确认 OneBot 或飞书服务本身可访问，并检查平台连接信息和白名单。暂时不开发消息能力时，不需要启动 `dev:message`。
 
-### Web 中部分内容加载失败
+### Dashboard 中部分内容加载失败
 
-行为、日记等页面需要读取 MongoDB。先解决终端中的数据库连接错误，再刷新页面。
+检查 `data/config/config.json` 中的数据库连接与部署模式，并确认新版世界、角色服务已产生相应数据。

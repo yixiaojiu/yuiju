@@ -1,8 +1,0 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-node:24-bookworm-slim}
-    image: yuiju:local

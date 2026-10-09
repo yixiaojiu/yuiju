@@ -1,7 +1,0 @@
-export const CHARACTER_MOVE_SPEED = 30;
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_DEFAULT = 1;
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_MIN = 0.5;
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_MAX = 10;
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_STEP = 0.25;
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_STORAGE_KEY = "yuiju:character-move-speed-multiplier";
-export const CHARACTER_MOVE_SPEED_MULTIPLIER_REGISTRY_KEY = "character-move-speed-multiplier";

@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "next dev --port 5179",
     "build": "next build",
+    "build:vercel": "mkdir -p ../../data/config && cp ../../yuiju.config.vercel.json ../../data/config/config.json && pnpm run build",
     "start": "next start --port 6100",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@monaco-editor/react": "4.7.0",
     "@yuiju/shared": "workspace:*",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "1.48.0",
+    "monaco-editor": "0.55.1",
     "next": "16.1.6",
     "radix-ui": "1.6.7",
     "react": "19.2.4",

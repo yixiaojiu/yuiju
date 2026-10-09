@@ -133,12 +133,17 @@ function renderConversation(result: EvaluationResult): string {
   const messages = (items: IncomingEvent[]) =>
     items
       .map((message) => {
-        const content =
-          message.kind === "message"
-            ? message.isSelf
-              ? message.content
-              : chatText(message.content)
-            : `戳了戳 ${message.targetSenderId}`;
+        let content: string;
+        if (message.kind === "message") {
+          content = message.isSelf ? message.content : chatText(message.content);
+        } else if (message.kind === "poke") {
+          content = `戳了戳 ${message.targetSenderId}`;
+        } else {
+          content =
+            message.operatorId === message.senderId
+              ? `撤回了消息 ${message.recalledMessageId}`
+              : `消息 ${message.recalledMessageId} 被管理员撤回`;
+        }
         const quote =
           message.kind === "message" && message.quote
             ? `引用 ${message.quote.senderName ?? "消息"} / ${message.quote.id}：${chatText(message.quote.content ?? "（见前文）")}`

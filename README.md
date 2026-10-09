@@ -25,14 +25,12 @@
 
 ---
 
-> **以下为旧版文档，尚未同步到新应用。** 功能介绍、部署步骤、架构图及链接内容仅供旧版参考。
+> **以下为旧版文档，尚未同步到新应用。** 功能介绍、架构图及链接内容仅供旧版参考。
 
 <p align="center">
   <a href="https://yuiju-site.yixiaojiu.top/">项目文档</a>
   ·
   <a href="https://yuiju-web.yixiaojiu.top">在线体验</a>
-  ·
-  <a href="https://yuiju-site.yixiaojiu.top/deployment/docker">开始部署</a>
   ·
   <a href="https://www.bilibili.com/video/BV1fRR2BYEb1">演示视频</a>
 </p>
@@ -58,26 +56,6 @@ Yuiju 不是一个以问答和任务执行为中心的 AI 助手。它尝试构�
 - **自然的外部交流：** 支持 QQ、飞书和 Web，覆盖私聊、群聊以及合适时机的主动分享。
 - **可观察的运行状态：** Web 界面用于查看角色状态、行为轨迹、记忆和日记。
 
-## 快速开始
-
-推荐使用 Docker Compose 部署完整服务：
-
-```bash
-git clone https://github.com/yixiaojiu/yuiju.git
-cd yuiju
-cp yuiju.config.json.example yuiju.config.json
-```
-
-打开 `yuiju.config.json`，填写 LLM、OneBot 或飞书等实际配置，然后启动：
-
-```bash
-docker compose up -d
-```
-
-启动完成后访问 `http://localhost:3010`。
-
-完整步骤、配置说明和更新方式请阅读 [Docker 一键部署](https://yuiju-site.yixiaojiu.top/deployment/docker)。如果更习惯源码服务器部署，也可以使用 [PM2 部署](https://yuiju-site.yixiaojiu.top/deployment/pm2)。
-
 ## 运行架构
 
 World 持续推进环境与角色行为，Redis 保存实时状态，MongoDB 保存行为、消息、记忆和日记等可追溯记录。Message 接收外部消息并组织角色已有的状态与经历，最终通过 QQ、飞书等平台表达出来；Web 则提供观察世界运行情况的界面。
@@ -90,9 +68,6 @@ World 持续推进环境与角色行为，Redis 保存实时状态，MongoDB 保
 
 | 我想要……                      | 从这里开始                                                            |
 | ----------------------------- | --------------------------------------------------------------------- |
-| 快速运行自己的 Yuiju          | [Docker 一键部署](https://yuiju-site.yixiaojiu.top/deployment/docker) |
-| 在服务器上通过源码运行        | [PM2 部署](https://yuiju-site.yixiaojiu.top/deployment/pm2)           |
-| 了解全部配置项                | [项目配置](https://yuiju-site.yixiaojiu.top/deployment/configuration) |
 | 阅读代码或参与开发            | [开发指南](https://yuiju-site.yixiaojiu.top/development/)             |
 | 理解 World、Message 和 Memory | [技术架构](https://yuiju-site.yixiaojiu.top/development/architecture) |
 

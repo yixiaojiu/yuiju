@@ -2,6 +2,7 @@
   "version": 1,
   "app": {
     "timezone": "Asia/Shanghai",
+    "public_deployment": false,
     "world_simulator": {
       "base_url": "http://127.0.0.1:48100"
     }

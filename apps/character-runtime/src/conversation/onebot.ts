@@ -99,15 +99,36 @@ export class OneBotConnection {
       }
 
       try {
-        const message =
-          session.type === "message-created" ? readOneBotMessage(session) : readOneBotPoke(session);
+        let message: IncomingEvent;
+        if (session.type === "message-created") {
+          message = readOneBotMessage(session);
+        } else if (session.type === "message-deleted") {
+          // 撤回通知只有用户 ID；在平台入口补齐昵称，不依赖原消息仍在会话历史中。
+          const member = await this.bot.getGuildMember(session.guildId, session.userId!);
+          message = {
+            kind: "recall",
+            recalledMessageId: session.messageId!,
+            operatorId: session.operatorId!,
+            senderId: session.userId!,
+            senderName: member.user!.name!,
+            timestamp: session.timestamp,
+            isSelf: false,
+          };
+        } else {
+          message = readOneBotPoke(session);
+        }
         if (message.kind === "poke" && message.targetSenderId !== this.config.self_id) {
           return;
         }
         logger.info("QQ 群事件已接收", {
           sender: message.senderName,
           kind: message.kind,
-          content: message.kind === "message" ? message.content : "戳了戳角色",
+          content:
+            message.kind === "message"
+              ? message.content
+              : message.kind === "poke"
+                ? "戳了戳角色"
+                : "消息被撤回",
         });
         await onMessage(session.channelId!, message);
       } catch (error) {
@@ -117,6 +138,7 @@ export class OneBotConnection {
 
     // Satori 将 message 别名规范化为 message-created；notice 入口只放行戳一戳。
     context.on("message-created", receive);
+    context.on("message-deleted", receive);
     context.on("internal/session", async (session) => {
       if (session.type === "notice" && session.subtype === "poke") {
         await receive(session);

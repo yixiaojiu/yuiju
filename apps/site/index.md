@@ -9,9 +9,6 @@ hero:
     - theme: brand
       text: 了解项目
       link: /project/introduction
-    - theme: alt
-      text: 部署 yuiju
-      link: /deployment/
 
 features:
   - title: 持续生活

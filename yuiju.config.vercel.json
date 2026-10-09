@@ -1,25 +1,21 @@
 {
+  "version": 1,
   "app": {
-    "publicDeployment": true
+    "timezone": "Asia/Shanghai",
+    "public_deployment": true
   },
   "database": {
-    "redisUrl": "",
-    "syncMongoUri": {
+    "sync_mongo_uri": {
       "$env": "YUIJU_SYNC_MONGO_URI"
     },
-    "syncRedisUrl": {
+    "sync_redis_url": {
       "$env": "YUIJU_SYNC_REDIS_URL"
     }
   },
-  "llm": {
-    "models": {
-      "flash": [
-        {
-          "baseUrl": "",
-          "apiKey": "",
-          "model": ""
-        }
-      ]
+  "characters": {
+    "yuuno": {
+      "name": "雨泽悠乃",
+      "nicknames": ["悠乃", "悠酱"]
     }
   }
 }

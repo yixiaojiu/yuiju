@@ -10,9 +10,11 @@ Yuiju 的核心不是收到消息后临时生成一段回复，而是让角色�
 | --- | --- |
 | `@yuiju/world` | 推进时间、环境和角色行为 |
 | `@yuiju/message` | 接收外部消息，组织上下文并发送回复 |
-| `@yuiju/web` | 展示世界状态、行为、记忆和日记 |
+| `@yuiju/dashboard` | 新版管理界面，展示角色、世界状态、活动、记忆和日志 |
 | `@yuiju/utils` | 提供配置、存储、模型、Prompt 和记忆能力 |
 | `@yuiju/satorijs-adapter-onebot` | 将 OneBot 消息转换为统一消息格式 |
+
+旧 Web 已删除，Dashboard 位于 `apps/dashboard`，通过 Hono API 读取新系统数据。下文保留旧版 World、Message 与记忆架构的说明。
 
 ## World 如何运行
 

@@ -13,7 +13,7 @@
 | 飞书 | 飞书消息接入 | 使用飞书时 | `message.lark` |
 | Python / Graphiti / Neo4j | 长期记忆图谱 | 调试图谱记忆时 | Python 运行环境 |
 
-业务配置统一来自根目录 `yuiju.config.json`。字段填写方法见[项目配置](/deployment/configuration)。
+业务配置统一来自根目录 `yuiju.config.json`。
 
 `NODE_ENV` 和日志参数属于运行时环境变量。Python 服务使用的 Graphiti 密钥也由它自己的运行环境提供，不要把这些内容另建为 TypeScript 业务配置。
 
@@ -25,8 +25,6 @@
 - MongoDB 保存行为历史、`MemoryEpisode`、Diary、消息等可追溯记录。
 
 不要把实时状态复制到 MongoDB 后让两边互相兜底。公开只读部署使用的 `database.syncRedisUrl` 和 `database.syncMongoUri` 也不能替代主连接。
-
-本地开发可以通过 [Docker 启动基础依赖](./local-infrastructure)。
 
 ## LLM Provider
 
@@ -59,11 +57,3 @@ Message 还会启动内部 HTTP 服务，供 World 主动发送消息、读取�
 - 提供语义检索接口。
 
 它不决定业务事件是否真实发生，也不保存角色实时状态。只修改 World、Web 或普通消息流程时，不需要启动该服务。
-
-## Docker 与 PM2
-
-- `docker-compose.infra.yml` 只启动 MongoDB 和 Redis，适合本地开发。
-- `docker-compose.yml` 启动应用、MongoDB 和 Redis，适合直接部署。
-- `ecosystem.config.js` 使用 PM2 管理 Message、World 和 Web，适合源码服务器部署。
-
-部署步骤统一放在[项目部署](/deployment/)中，开发文档不再重复维护另一套部署命令。

@@ -22,6 +22,7 @@ export const config_schema = z.strictObject({
   app: z
     .strictObject({
       timezone: z.string().min(1).optional(),
+      public_deployment: z.boolean().optional(),
       world_simulator: z
         .strictObject({
           base_url: z.url({ protocol: /^https?$/ }).optional(),
