@@ -190,10 +190,7 @@ return 1
       nextAt = state.updatedAt + 30_000;
     } catch (error) {
       if (this.active) {
-        logger.error("情绪处理失败，保留感受等待下一次处理", {
-          characterId: this.characterId,
-          error,
-        });
+        logger.error("情绪处理失败，保留感受等待下一次处理", { error });
         nextAt = Date.now() + 30_000;
       }
     } finally {

@@ -23,7 +23,7 @@ const allEventTypes: WorldEvent["type"][] = [
   "idle_reminder",
 ];
 
-/** 与角色实例绑定的世界连接；事件先保存到 Redis 输入队列，再向世界确认。 */
+/** 世界通知确认前，主 agent 模式持久入队，聊天调试模式直接同步状态。 */
 export class WorldClient {
   readonly characterId: string;
   private readonly stopping = new AbortController();
@@ -33,8 +33,11 @@ export class WorldClient {
 
   constructor(
     characterId: string,
-    private readonly onReady: () => Promise<void>,
-    private readonly onEvent: () => void,
+    private readonly onReady: (
+      current: Extract<InspectWorldResult, { type: "current" }>,
+    ) => Promise<void>,
+    private readonly onEvent: () => Promise<void>,
+    private readonly options: { queueAgentEvents: boolean },
   ) {
     this.characterId = characterId;
   }
@@ -61,7 +64,7 @@ export class WorldClient {
 
   async inspect(query: InspectWorldInput): Promise<WorldResult<InspectWorldResult>> {
     const config = await load_config();
-    logger.silly("e2e.world.inspect.request", { characterId: this.characterId, query });
+
     const response = await fetch(new URL("/inspect", config.app!.world_simulator!.base_url!), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -69,7 +72,7 @@ export class WorldClient {
       signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
     });
     const result = (await response.json()) as WorldResult<InspectWorldResult>;
-    logger.silly("e2e.world.inspect.response", { characterId: this.characterId, result });
+
     return result;
   }
 
@@ -78,9 +81,7 @@ export class WorldClient {
     requestId: string,
   ): Promise<WorldResult<ExecuteActionResult>> {
     const config = await load_config();
-    const startedAt = Date.now();
-    logger.info("向世界请求行动", { characterId: this.characterId, requestId, ...input });
-    logger.silly("e2e.world.action.request", { characterId: this.characterId, requestId, input });
+
     const response = await fetch(new URL("/actions", config.app!.world_simulator!.base_url!), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -88,13 +89,7 @@ export class WorldClient {
       signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
     });
     const result = (await response.json()) as WorldResult<ExecuteActionResult>;
-    logger.info("世界行动请求返回", {
-      characterId: this.characterId,
-      requestId,
-      durationMs: Date.now() - startedAt,
-      result,
-    });
-    logger.silly("e2e.world.action.response", { characterId: this.characterId, requestId, result });
+
     return result;
   }
 
@@ -121,54 +116,38 @@ export class WorldClient {
       const socket = new WebSocket(endpoint);
       this.socket = socket;
       socket.once("close", () => disconnected.abort());
-      socket.on("error", (error) =>
-        logger.warn("角色世界连接异常", { characterId: this.characterId, error }),
-      );
+      socket.on("error", (error) => logger.warn("角色世界连接异常", { error }));
       try {
         await once(socket, "open", { signal });
         this.subscribe(socket);
         for await (const [data] of on(socket, "message", { signal })) {
           const message = JSON.parse(data.toString()) as WorldServerMessage;
-          logger.silly("e2e.world.ws.received", {
-            characterId: this.characterId,
-            payload: message,
-          });
+
           if (message.type === "error") {
             throw new Error(message.error.message);
           }
           if (message.type === "ready") {
-            logger.info("角色已连接世界", { characterId: this.characterId });
-            await this.onReady();
+            await this.onReady(message.current);
             continue;
           }
-          if (message.event.type === "activity_completed" && message.event.activity) {
-            // 接收时撤销对应等待与未处理的超时输入，不等主 loop 完成当前思考。
-            await finishWorldActivityWait(this.characterId, message.event.activity.activityId);
-          }
-          await this.storeEvent(message.deliveryId, message.event);
           logger.info("角色已接收世界通知", {
-            characterId: this.characterId,
-            deliveryId: message.deliveryId,
-            eventId: message.event.eventId,
             type: message.event.type,
             description: message.event.description,
-            activity: message.event.activity,
           });
-          logger.silly("e2e.world.event.saved", {
-            characterId: this.characterId,
-            deliveryId: message.deliveryId,
-            event: message.event,
-          });
+          if (this.options.queueAgentEvents) {
+            if (message.event.type === "activity_completed" && message.event.activity) {
+              // 接收时撤销对应等待与未处理的超时输入，不等主 loop 完成当前思考。
+              await finishWorldActivityWait(this.characterId, message.event.activity.activityId);
+            }
+            await this.storeEvent(message.deliveryId, message.event);
+          }
+          // 聊天模式同步成功后才确认；主 agent 这里只唤醒，不等待模型执行。
+          await this.onEvent();
           socket.send(JSON.stringify({ type: "ack", deliveryId: message.deliveryId }));
-          logger.silly("e2e.world.event.ack.sent", {
-            characterId: this.characterId,
-            deliveryId: message.deliveryId,
-          });
-          this.onEvent();
         }
       } catch (error) {
         if (!this.stopping.signal.aborted) {
-          logger.warn("角色世界连接中断，等待重新连接", { characterId: this.characterId, error });
+          logger.warn("角色世界连接中断，等待重新连接", { error });
         }
       } finally {
         socket.terminate();

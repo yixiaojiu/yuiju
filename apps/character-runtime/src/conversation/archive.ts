@@ -53,7 +53,7 @@ async function runArchive(signal: AbortSignal): Promise<void> {
             }
           } while (cursor !== "0" && !signal.aborted);
         } catch (error) {
-          logger.error("会话后台归档失败，未确认记录保留到下一轮", { ...scope, error });
+          logger.error("会话后台归档失败，未确认记录保留到下一轮", { error });
         }
       }
     } catch (error) {

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { APICallError, type LanguageModelMiddleware, type wrapLanguageModel } from "ai";
 import { load_config } from "../config/load";
 import { logger } from "../logger/logger";
@@ -59,7 +58,6 @@ function createModel(
       return createModel(name, getCandidates, nextFallback);
     },
     async doGenerate(params) {
-      const requestId = randomUUID();
       const available = sortProvidersByCooldown(
         selectCandidates(await getCandidates(), params).filter(
           (candidate) =>
@@ -86,14 +84,13 @@ function createModel(
         const requestParams = { ...params, abortSignal };
         const startedAt = Date.now();
         const logContext = {
-          requestId,
           group: name,
           provider: candidate.model.provider,
           host: candidate.host,
           model: candidate.model.modelId,
           attempt: index + 1,
         };
-        logger.info("模型请求开始", logContext);
+
         try {
           let result: Awaited<ReturnType<Model["doGenerate"]>>;
           if (
@@ -112,12 +109,11 @@ function createModel(
             result = await candidate.model.doGenerate(requestParams);
           }
           abortSignal.throwIfAborted();
-          logger.info("模型请求完成", { ...logContext, durationMs: Date.now() - startedAt });
+
           return result;
         } catch (error) {
           // 用户/业务主动取消不能触发供应商切换。
           if (params.abortSignal?.aborted) {
-            logger.info("模型请求已取消", { ...logContext, durationMs: Date.now() - startedAt });
             throw params.abortSignal.reason;
           }
           const timedOut = providerTimeout?.aborted === true;

@@ -4,8 +4,10 @@
 
 <h1 align="center">Yuiju</h1>
 
-> [!WARNING]
-> 项目计划进行大规模重构，当前版本暂不建议使用。
+> [!IMPORTANT]
+> 项目已启用重构后的新应用：`apps/character-runtime` 负责角色运行与聊天，`apps/world-simulator` 负责虚拟世界。
+> 新应用使用 `data/config/config.json` 配置，覆盖 `packages/shared/src/config/defaults.json` 中的默认值，修改后重启生效。
+> 旧应用代码暂时保留作参考，不再作为当前运行入口。
 
 <p align="center">
   <strong>让角色拥有自己的生活</strong>
@@ -16,6 +18,16 @@
 </p>
 
 <p align="center">
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg?style=flat-square" alt="AGPL-3.0-or-later License" />
+  </a>
+</p>
+
+---
+
+> **以下为旧版文档，尚未同步到新应用。** 功能介绍、部署步骤、架构图及链接内容仅供旧版参考。
+
+<p align="center">
   <a href="https://yuiju-site.yixiaojiu.top/">项目文档</a>
   ·
   <a href="https://yuiju-web.yixiaojiu.top">在线体验</a>
@@ -23,12 +35,6 @@
   <a href="https://yuiju-site.yixiaojiu.top/deployment/docker">开始部署</a>
   ·
   <a href="https://www.bilibili.com/video/BV1fRR2BYEb1">演示视频</a>
-</p>
-
-<p align="center">
-  <a href="./LICENSE">
-    <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg?style=flat-square" alt="AGPL-3.0-or-later License" />
-  </a>
 </p>
 
 ## Yuiju 是什么

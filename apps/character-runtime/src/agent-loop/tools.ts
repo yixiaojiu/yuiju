@@ -198,22 +198,11 @@ export function createAgentTools(
       signal.throwIfAborted();
       const action: AgentAction = { id: randomUUID(), name, input, createdAt: Date.now() };
       const index = await appendAgentAction(context.characterId, roundId, action);
-      logger.silly("e2e.tool.action.recorded", {
-        characterId: context.characterId,
-        roundId,
-        requestId: action.id,
-        name,
-        input,
-      });
+
       signal.throwIfAborted();
       action.result = await executeAgentAction(context, action, false);
       await saveAgentAction(context.characterId, roundId, index, action);
-      logger.silly("e2e.tool.action.committed", {
-        characterId: context.characterId,
-        roundId,
-        requestId: action.id,
-        result: action.result,
-      });
+
       return action.result;
     } catch (error) {
       // SDK 会把 execute 异常转为 tool-error；持久化未确认时必须同时中止整轮。
@@ -282,7 +271,7 @@ export function createAgentTools(
         try {
           return await recallExperiences(context.characterId, input);
         } catch (error) {
-          logger.error("角色回忆失败", { characterId: context.characterId, error });
+          logger.error("角色回忆失败", { error });
           return `回忆未成功：${error instanceof Error ? error.message : String(error)}`;
         }
       },
@@ -306,7 +295,7 @@ export function createAgentTools(
         try {
           result = await context.world.inspect(input);
         } catch (error) {
-          logger.warn("角色查询世界失败", { characterId: context.characterId, error });
+          logger.warn("角色查询世界失败", { error });
           return `世界查询未成功：${error instanceof Error ? error.message : String(error)}`;
         }
         if (!result.ok) {
@@ -354,7 +343,7 @@ export async function executeAgentAction(
     try {
       result = await world.execute(executeActionSchema.parse(call.input), requestId);
     } catch (error) {
-      logger.warn("角色行动请求结果未确认", { characterId, requestId, error });
+      logger.warn("角色行动请求结果未确认", { error });
       return "行动请求未取得结果，执行状态不确定。请查询现状，不要把未知结果当成未执行而重复行动。";
     }
     if (!result.ok) {

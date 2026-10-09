@@ -1,5 +1,4 @@
 import { strongModel } from "@yuiju/shared/llm/models";
-import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, type ModelMessage, type ToolSet } from "ai";
 
@@ -17,7 +16,6 @@ export async function prepareAgentContext(
   toolDescription: string,
   windowTokens: number,
   signal: AbortSignal,
-  characterId: string,
 ): Promise<AgentContextState> {
   // 与聊天一致，用 UTF-8 字节作保守估算；不是精确 tokenizer，也不扣输出预留。
   const estimate = (context: AgentContextState) =>
@@ -48,12 +46,7 @@ export async function prepareAgentContext(
     if (!prefix.length) {
       throw new Error("主 loop 没有能够放入压缩请求的完整旧交互");
     }
-    const startedAt = Date.now();
-    logger.info("主 agent 上下文开始压缩", {
-      characterId,
-      unitCount: prefix.length,
-      retainedUnits: context.units.length - prefix.length,
-    });
+
     const result = await generateText({
       model: strongModel,
       messages: [
@@ -75,12 +68,6 @@ export async function prepareAgentContext(
     }
     context.summary = compressed.summary;
     context.units = compressed.units;
-    logger.info("主 agent 上下文压缩完成", {
-      characterId,
-      durationMs: Date.now() - startedAt,
-      retainedUnits: context.units.length,
-      summaryCharacters: context.summary.length,
-    });
   }
   return context;
 }

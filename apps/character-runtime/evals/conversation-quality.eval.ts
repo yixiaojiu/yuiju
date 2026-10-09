@@ -39,7 +39,7 @@ for (const scenario of [
       }));
       const planner = new Planner(scope);
       const replyer = new Replyer(scope);
-      const connection = new OneBotConnection("yuuno", "悠乃", {
+      const connection = new OneBotConnection("悠乃", {
         self_id: "90001",
         endpoint: "ws://eval.invalid",
       });

@@ -153,40 +153,17 @@ export class MainAgentLoop {
           state.round = { id: randomUUID(), ...batch };
           await saveAgentState(characterId, state);
         }
-        const startedAt = Date.now();
-        logger.info("主 agent 开始处理事件", {
-          characterId,
-          roundId: state.round.id,
-          recovering,
-          events: state.round.events.map((event) => ({
-            id: event.id,
-            type: event.type === "world" ? event.event.type : event.type,
-          })),
-        });
-        logger.silly("e2e.agent.round.start", {
-          characterId,
-          roundId: state.round.id,
-          recovering,
-          events: state.round.events,
-        });
+
         await this.runRound(state, recovering);
         await finishAgentRound(characterId, state);
-        logger.info("主 agent 本轮完成并保存", {
-          characterId,
-          roundId: state.round.id,
-          durationMs: Date.now() - startedAt,
-        });
-        logger.silly("e2e.agent.round.committed", { characterId, roundId: state.round.id });
+
         // 再读一次，接住本轮执行期间保存的新事件。
         this.wakeRequested = true;
       }
     } catch (error) {
       failed = true;
       if (this.active) {
-        logger.error("角色主 loop 中断，保留当前进度等待接续", {
-          characterId: this.execution.characterId,
-          error,
-        });
+        logger.error("角色主 loop 中断，保留当前进度等待接续", { error });
       }
     } finally {
       this.task = undefined;
@@ -211,20 +188,8 @@ export class MainAgentLoop {
       for (const [index, action] of actions.entries()) {
         this.stopping.signal.throwIfAborted();
         if (action.result === undefined) {
-          logger.info("主 agent 恢复未确认操作", {
-            characterId,
-            roundId: round.id,
-            requestId: action.id,
-            tool: action.name,
-          });
           action.result = await executeAgentAction(this.execution, action, true);
           await saveAgentAction(characterId, round.id, index, action);
-          logger.info("主 agent 恢复操作已保存", {
-            characterId,
-            roundId: round.id,
-            requestId: action.id,
-            result: action.result.slice(0, 500),
-          });
         }
       }
       // 不恢复丢失的思考过程；先提供实际操作记录，模型按需查询现状再继续决策。
@@ -267,65 +232,29 @@ export class MainAgentLoop {
           agentToolDescription,
           this.windowTokens,
           signal,
-          characterId,
         );
         return { messages: agentMessages(state.context, this.instructions) };
       },
-      onStepStart: ({ callId, stepNumber, modelId }) => {
-        logger.info("主 agent 请求模型", {
-          characterId,
-          roundId: round.id,
-          callId,
-          step: stepNumber + 1,
-          modelId,
-        });
-      },
       onToolExecutionStart: ({ toolCall }) => {
-        const input = JSON.stringify(toolCall.input);
         logger.info("主 agent 调用工具", {
-          characterId,
-          roundId: round.id,
-          toolCallId: toolCall.toolCallId,
           tool: toolCall.toolName,
-          input: input.length > 500 ? `${input.slice(0, 500)}…（已省略）` : input,
+          input: Object.fromEntries(
+            Object.entries(toolCall.input as Record<string, unknown>)
+              .filter(([key]) => key === "actionId" || !/(?:^id$|Id$|Ids$|_id$|-id$)/.test(key))
+              .map(([key, value]) => [key === "actionId" ? "action" : key, value]),
+          ),
         });
-        logger.debug("主 agent 工具完整入参", { characterId, roundId: round.id, toolCall });
       },
       onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
         if (toolOutput.type === "tool-error") {
           logger.error("主 agent 工具执行异常", {
-            characterId,
-            roundId: round.id,
-            toolCallId: toolCall.toolCallId,
             tool: toolCall.toolName,
             durationMs: toolExecutionMs,
             error: toolOutput.error,
           });
-          return;
         }
-        // 返回字符串也可能描述业务失败；只记录返回事实，不将其标成执行成功。
-        const output =
-          typeof toolOutput.output === "string"
-            ? toolOutput.output
-            : JSON.stringify(toolOutput.output);
-        logger.info("主 agent 工具返回", {
-          characterId,
-          roundId: round.id,
-          toolCallId: toolCall.toolCallId,
-          tool: toolCall.toolName,
-          durationMs: toolExecutionMs,
-          result: output.length > 500 ? `${output.slice(0, 500)}…（已省略）` : output,
-        });
-        logger.debug("主 agent 工具完整结果", { characterId, roundId: round.id, toolOutput });
       },
       onStepEnd: ({ response, finishReason }) => {
-        logger.info("主 agent 模型步骤结束", { characterId, roundId: round.id, finishReason });
-        logger.silly("e2e.agent.step", {
-          characterId,
-          roundId: round.id,
-          finishReason,
-          messages: response.messages,
-        });
         if (finishReason !== "stop" && finishReason !== "tool-calls") {
           // 生命周期通知会吞掉回调异常，通过 abort 阻止下一步并在返回后再次检查。
           failed.abort(new Error(`主 loop 模型步骤未完整结束：${finishReason}`));
@@ -404,7 +333,7 @@ export class MainAgentLoop {
         );
       }
     } catch (error) {
-      logger.error("恢复角色关注时间失败", { characterId: this.execution.characterId, error });
+      logger.error("恢复角色关注时间失败", { error });
       if (this.active) {
         this.timer = setTimeout(() => this.wake(), 10_000);
       }

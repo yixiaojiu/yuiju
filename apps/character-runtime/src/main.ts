@@ -1,28 +1,36 @@
+import { parseArgs } from "node:util";
 import { load_config } from "@yuiju/shared/config/load";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { closeRedis } from "@yuiju/shared/database/redis";
-import { getEnvironment } from "@yuiju/shared/env/environment";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
 import { Character } from "./character";
 import { startConversationArchive } from "./conversation/archive";
 
 async function main() {
+  const { values } = parseArgs({
+    options: { mode: { type: "string", default: "all" } },
+  });
+  const mode = values.mode;
+  if (mode !== "all" && mode !== "conversation" && mode !== "agent") {
+    throw new Error("mode 必须是 all、conversation 或 agent");
+  }
   await init_logger({
     app: "character-runtime",
     log_dir: new URL("../logs/", import.meta.url),
-    level: getEnvironment() === "production" ? "info" : "debug",
+    level: "info",
   });
   const config = await load_config();
-  const archive = startConversationArchive();
+  const archive = mode !== "agent" ? startConversationArchive() : undefined;
   const characters = Object.entries(config.characters ?? {}).map(
-    ([id, character]) => new Character(id, character),
+    ([id, character]) => new Character(id, character, mode),
   );
   let stopRequested = false;
   async function startCharacters() {
     for (const character of characters) {
-      if (stopRequested) break;
+      if (stopRequested) {
+        break;
+      }
       await character.start();
-      logger.info("角色已启动", { characterId: character.id });
     }
   }
   const startup = startCharacters();
@@ -32,16 +40,16 @@ async function main() {
     await Promise.allSettled([startup]);
     const results = await Promise.allSettled(characters.map((character) => character.stop()));
     // 会话停止后再停止归档；只等待在途批次，Redis 中的剩余积压留到下次启动。
-    results.push(...(await Promise.allSettled([archive.stop()])));
+    results.push(...(await Promise.allSettled([archive?.stop()])));
     results.push(...(await Promise.allSettled([closeMongo()])));
     closeRedis();
     const failures = results.filter((result) => result.status === "rejected");
-    if (failures.length)
+    if (failures.length) {
       throw new AggregateError(
         failures.map((result) => result.reason),
         "角色停止失败",
       );
-    logger.info("所有角色已停止");
+    }
   }
 
   let shutdown: Promise<void> | undefined;

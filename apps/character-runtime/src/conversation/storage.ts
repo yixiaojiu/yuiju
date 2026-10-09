@@ -295,8 +295,6 @@ export async function archiveConversationMessages(
       confirmed.push(document.sequence);
     } else {
       logger.error(existing ? "聊天归档事实冲突" : "聊天归档未确认", {
-        ...scope,
-        sequence: document.sequence,
         error: writeError,
       });
     }

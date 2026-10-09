@@ -28,7 +28,7 @@ export async function receiveCharacterEvent(
   event: CharacterEvent,
 ): Promise<void> {
   const key = characterKey(characterId);
-  const inserted = await (await getRedis()).eval(
+  await (await getRedis()).eval(
     `
 if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
 redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
@@ -41,10 +41,6 @@ return 1
     event.id,
     JSON.stringify(event),
   );
-  if (inserted === 1) {
-    logger.info("主 agent 事件已入队", { characterId, event });
-  }
-  logger.silly("e2e.event.received", { characterId, event });
 }
 
 /** 只读当前快照，不在取出时消费；后续抵达的事件留在 inbox 中。 */
@@ -98,7 +94,7 @@ export async function trackWorldActivity(
   const key = `${characterKey(characterId)}:agent:activity`;
   if (activity === null || activity.endsAt === null) {
     await redis.del(key);
-    logger.silly("e2e.activity.wait.cleared", { characterId });
+
     return;
   }
   const waiting: ActivityWait = {
@@ -122,7 +118,6 @@ return 1
     activity.endsAt,
     JSON.stringify(waiting),
   );
-  logger.silly("e2e.activity.wait.tracked", { characterId, waiting });
 }
 
 /** 迟到的旧完成事件只能撤销它自己的计时，不能清掉新活动的等待。 */
@@ -144,7 +139,6 @@ return redis.call('HDEL', KEYS[2], ARGV[2])
     activityId,
     `activity:${activityId}`,
   );
-  logger.silly("e2e.activity.wait.completed", { characterId, activityId });
 }
 
 export async function readActivityWait(characterId: string): Promise<ActivityWait | null> {
@@ -182,14 +176,9 @@ return redis.call('HSETNX', KEYS[2], ARGV[3], ARGV[4])
     event.id,
     JSON.stringify(event),
   );
-  logger.silly("e2e.activity.due.checked", { characterId, event, inserted: result === 1 });
+
   if (result === 1) {
-    logger.warn("活动超时检查已触发", {
-      characterId,
-      eventId: event.id,
-      activityId: waiting.activityId,
-      endsAt: waiting.endsAt,
-    });
+    logger.warn("活动超时检查已触发", { endsAt: waiting.endsAt });
   }
   return result === 1;
 }

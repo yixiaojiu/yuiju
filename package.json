@@ -40,6 +40,8 @@
     "dev:site": "pnpm --filter @yuiju/site run dev",
     "dev:dashboard": "pnpm --filter @yuiju/dashboard run dev",
     "dev:character-runtime": "pnpm --filter @yuiju/character-runtime run dev",
+    "dev:character-runtime:conversation": "pnpm --filter @yuiju/character-runtime run dev:conversation",
+    "dev:character-runtime:agent": "pnpm --filter @yuiju/character-runtime run dev:agent",
     "dev:world-simulator": "pnpm --filter @yuiju/world-simulator run dev",
     "test:world": "pnpm --filter @yuiju/world run test",
     "type-check:world": "pnpm --filter @yuiju/world run type-check",

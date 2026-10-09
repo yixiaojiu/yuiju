@@ -193,7 +193,7 @@ export function createPlannerTools(
           }
           return await context.notifyCharacter(description, messageIds, relatedEventId);
         } catch (error) {
-          logger.error("告知角色失败", { ...scope, error });
+          logger.error("告知角色失败", { error });
           return `告知角色失败：${error instanceof Error ? error.message : String(error)}`;
         }
       },
@@ -204,7 +204,7 @@ export function createPlannerTools(
         try {
           return await recallExperiences(scope.characterId, input);
         } catch (error) {
-          logger.error("聊天回忆失败", { ...scope, error });
+          logger.error("聊天回忆失败", { error });
           return `回忆暂未成功：${error instanceof Error ? error.message : String(error)}`;
         }
       },
@@ -218,7 +218,7 @@ export function createPlannerTools(
             await readPeople(scope.characterId, { platform: scope.platform, userId }),
           );
         } catch (error) {
-          logger.error("人物认识读取失败", { ...scope, error });
+          logger.error("人物认识读取失败", { error });
           return `人物认识读取失败：${error instanceof Error ? error.message : String(error)}`;
         }
       },
@@ -230,7 +230,7 @@ export function createPlannerTools(
         try {
           return await formatPlans(await readPlans(scope.characterId));
         } catch (error) {
-          logger.error("角色计划读取失败", { ...scope, error });
+          logger.error("角色计划读取失败", { error });
           return `角色计划读取失败：${error instanceof Error ? error.message : String(error)}`;
         }
       },
@@ -278,24 +278,13 @@ export function createPlannerTools(
           )) {
             // 先保存本次工具确认的结果，落库失败也不能抹去发送事实。
             sent.push(...events);
-            for (const event of events) {
-              if (event.kind === "message") {
-                logger.info("QQ 群回复已发送", {
-                  ...scope,
-                  messageId: event.id,
-                  content: event.content,
-                  quoteMessageId: event.quote?.id,
-                  mentionedSenderId: event.mentionedSenderId,
-                });
-              }
-            }
             stage = "storage";
             await context.recordSent(events);
             stage = "send";
           }
         } catch (error) {
           context.failed = true;
-          logger.error("回复工具执行失败", { ...scope, stage, sentCount: sent.length, error });
+          logger.error("回复工具执行失败", { stage, sentCount: sent.length, error });
           switch (stage) {
             case "replyer":
               failure = `回复生成失败，未发送：${error instanceof Error ? error.message : String(error)}`;
@@ -330,16 +319,12 @@ export function createPlannerTools(
           context.sendAttempted = true;
           const event = await context.connection.poke(scope.channelId, senderId);
           sent.push(event);
-          logger.info("QQ 群戳一戳已发送", {
-            characterId: scope.characterId,
-            channelId: scope.channelId,
-            senderId,
-          });
+
           stage = "storage";
           await context.recordSent([event]);
         } catch (error) {
           context.failed = true;
-          logger.error("戳一戳工具执行失败", { ...scope, stage, sentCount: sent.length, error });
+          logger.error("戳一戳工具执行失败", { stage, sentCount: sent.length, error });
           failure =
             stage === "prepare-send"
               ? "发送前状态保存失败，未执行戳一戳。"
@@ -406,18 +391,10 @@ async function understandMedia(
     if (result.finishReason !== "stop" || !result.text.trim()) {
       throw new Error(`未正常生成理解结果：${result.finishReason}`);
     }
-    logger.debug("聊天媒体理解完成", {
-      characterId: scope.characterId,
-      channelId: scope.channelId,
-      mediaCount: media.length,
-      durationMs: Date.now() - startedAt,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-    });
+
     return result.text.trim();
   } catch (error) {
     logger.error("聊天媒体理解失败", {
-      ...scope,
       stage: "planner.multimodal",
       failedAt: stage,
       mediaCount: media.length,

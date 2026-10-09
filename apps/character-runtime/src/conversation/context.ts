@@ -1,6 +1,5 @@
 import { logger } from "@yuiju/shared/logger/logger";
 import { generateText, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
-import type { ConversationScope } from "./message";
 
 /** coveredThrough 对应 Planner 的交互序号或 Replyer 的群消息序号。 */
 export type ContextSummary = { text: string; coveredThrough: number };
@@ -8,7 +7,6 @@ export type ContextSummary = { text: string; coveredThrough: number };
 export type ContextUnit = { sequence: number; messages: ModelMessage[] };
 
 type ContextOptions = {
-  scope: ConversationScope;
   stage: "planner" | "replyer";
   system: string;
   compressionPrompt: string;
@@ -68,11 +66,7 @@ export class ConversationContext {
           `${this.options.stage} 上下文达到 ${blockingRatio * 100}%，没有可压缩的旧交互`,
         );
       }
-      logger.info("上下文达到阈值，等待压缩", {
-        ...this.options.scope,
-        stage: this.options.stage,
-        blockingRatio,
-      });
+
       await this.task;
       if (!this.completed) {
         throw new Error(
@@ -133,8 +127,7 @@ export class ConversationContext {
   }
 
   private async compress(prefix: ModelMessage[], units: ContextUnit[]) {
-    const { scope, stage, model, tools, toolDescription, windowTokens, compressionPrompt } =
-      this.options;
+    const { stage, model, tools, toolDescription, windowTokens, compressionPrompt } = this.options;
     const startedAt = Date.now();
     try {
       const suffix: ModelMessage = { role: "user", content: compressionPrompt };
@@ -154,12 +147,7 @@ export class ConversationContext {
       }
 
       // 保留原工具定义以复用请求前缀，但压缩请求不能执行工具。
-      logger.info("聊天上下文开始压缩", {
-        ...scope,
-        stage,
-        unitCount: units.length,
-        coveredThrough: units.at(-1)!.sequence,
-      });
+
       const result = await generateText({
         model,
         tools,
@@ -181,18 +169,9 @@ export class ConversationContext {
         throw new Error("摘要未缩短上下文，保留原历史");
       }
       this.completed = { text, coveredThrough: units.at(-1)!.sequence };
-      logger.info("聊天上下文压缩完成", {
-        characterId: scope.characterId,
-        channelId: scope.channelId,
-        stage,
-        durationMs: Date.now() - startedAt,
-        coveredThrough: this.completed.coveredThrough,
-        summaryCharacters: text.length,
-      });
     } catch (error) {
       // 原上下文保留，后续有输入时再尝试，不启动后台重试循环。
       logger.error("聊天上下文压缩失败", {
-        ...scope,
         stage: `${stage}.compression`,
         durationMs: Date.now() - startedAt,
         error,

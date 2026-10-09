@@ -213,7 +213,7 @@ async function reviewPersonProfile(
     }
     issues = review.output.issues;
   }
-  logger.warn("人物画像三轮审查未通过，保留旧画像", { characterId, person, issues });
+  logger.warn("人物画像三轮审查未通过，保留旧画像", { issues });
   return { approved: false, content: null };
 }
 

@@ -43,7 +43,6 @@ export class Planner {
     this.sequence = Math.max(state.summary.coveredThrough, state.history.at(-1)?.sequence ?? 0);
     this.context = new ConversationContext(
       {
-        scope: this.scope,
         stage: "planner",
         system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
         compressionPrompt,
@@ -86,7 +85,6 @@ export class Planner {
   }
 
   async run(execution: ConversationToolContext, saveContext: () => Promise<void>): Promise<void> {
-    const startedAt = Date.now();
     this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
     await saveContext();
     // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
@@ -117,43 +115,24 @@ export class Planner {
           }
         }
       },
-      onStepStart: ({ callId, stepNumber, modelId }) => {
-        logger.info("Planner 请求模型", { ...this.scope, callId, step: stepNumber + 1, modelId });
-      },
       onToolExecutionStart: ({ toolCall }) => {
-        const input = JSON.stringify(toolCall.input);
         logger.info("Planner 调用工具", {
-          ...this.scope,
-          toolCallId: toolCall.toolCallId,
           tool: toolCall.toolName,
-          input: input.length > 500 ? `${input.slice(0, 500)}…（已省略）` : input,
+          input: Object.fromEntries(
+            Object.entries(toolCall.input as Record<string, unknown>).filter(
+              ([key]) => !/(?:^id$|Id$|Ids$|_id$|-id$)/.test(key),
+            ),
+          ),
         });
-        logger.debug("Planner 工具完整入参", { ...this.scope, toolCall });
       },
       onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
         if (toolOutput.type === "tool-error") {
           logger.error("Planner 工具执行异常", {
-            ...this.scope,
-            toolCallId: toolCall.toolCallId,
             tool: toolCall.toolName,
             durationMs: toolExecutionMs,
             error: toolOutput.error,
           });
-          return;
         }
-        // 返回字符串也可能描述业务失败；只记录返回事实，不将其标成执行成功。
-        const output =
-          typeof toolOutput.output === "string"
-            ? toolOutput.output
-            : JSON.stringify(toolOutput.output);
-        logger.info("Planner 工具返回", {
-          ...this.scope,
-          toolCallId: toolCall.toolCallId,
-          tool: toolCall.toolName,
-          durationMs: toolExecutionMs,
-          result: output.length > 500 ? `${output.slice(0, 500)}…（已省略）` : output,
-        });
-        logger.debug("Planner 工具完整结果", { ...this.scope, toolOutput });
       },
       onStepEnd: async ({ response, content }) => {
         // SDK 在本步工具全部结束后提供该步消息；多工具调用与结果作为一个单位记录。
@@ -166,11 +145,6 @@ export class Planner {
         for (const output of content) {
           if (output.type === "tool-error") {
             execution.failed = true;
-            logger.error("聊天工具调用失败", {
-              ...this.scope,
-              tool: output.toolName,
-              error: output.error,
-            });
           }
         }
       },
@@ -183,14 +157,6 @@ export class Planner {
     if (execution.waitSeconds === undefined && result.finishReason !== "stop") {
       throw new Error("Planner 达到调用上限，尚未结束本轮");
     }
-    logger.info("聊天工具循环结束", {
-      characterId: this.scope.characterId,
-      channelId: this.scope.channelId,
-      durationMs: Date.now() - startedAt,
-      sendAttempted: execution.sendAttempted,
-      failed: execution.failed,
-      waitSeconds: execution.waitSeconds,
-    });
   }
 
   async stop() {

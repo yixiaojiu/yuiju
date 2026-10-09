@@ -13,10 +13,11 @@ export class Conversation {
     private readonly character: Character,
     private readonly onebot: OneBotConfig,
   ) {
-    this.connection = new OneBotConnection(character.id, character.name, onebot);
+    this.connection = new OneBotConnection(character.name, onebot);
   }
 
-  async start() {
+  /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */
+  async start(participationAllowed?: boolean) {
     // 主动恢复白名单中的会话；不能等第一条新消息才重建 wait。
     for (const channelId of new Set(this.onebot.group_white_list ?? [])) {
       const session = new ConversationLoop(
@@ -27,6 +28,9 @@ export class Conversation {
         this.character,
       );
       await session.initialize();
+      if (participationAllowed !== undefined) {
+        await session.setParticipationAllowed(participationAllowed);
+      }
       this.sessions.set(channelId, session);
     }
     await this.connection.start(async (channelId, message) => {
@@ -74,12 +78,7 @@ export class Conversation {
         if (result.status === "fulfilled") {
           return `QQ 群 ${channelId}：${result.value}`;
         }
-        logger.error("广播分享意图提交失败", {
-          characterId: this.character.id,
-          channelId,
-          requestId: event.id,
-          error: result.reason,
-        });
+        logger.error("广播分享意图提交失败", { error: result.reason });
         return `QQ 群 ${channelId}：分享意图提交失败，接收结果未确认。`;
       })
       .join("\n");

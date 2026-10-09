@@ -28,7 +28,8 @@ for (const scenario of mainAgentCases) {
         const world = new WorldClient(
           "yuuno",
           async () => {},
-          () => {},
+          async () => {},
+          { queueAgentEvents: true },
         );
         const emotion = new Emotion("yuuno");
         vi.spyOn(world, "inspect").mockImplementation(async (query) => {

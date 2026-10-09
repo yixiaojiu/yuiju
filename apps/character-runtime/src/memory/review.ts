@@ -50,11 +50,7 @@ export async function prepareReviewedSelfCognition(
       return cognition;
     }
     if (attempt === 2) {
-      logger.warn("自我认知三轮审查仍有意见，按约定保存当前内容", {
-        characterId,
-        batchId,
-        issues,
-      });
+      logger.warn("自我认知三轮审查仍有意见，按约定保存当前内容", { issues });
       break;
     }
     cognition = await prepareSelfCognition(characterId, batchId, previous, experience, signal, {

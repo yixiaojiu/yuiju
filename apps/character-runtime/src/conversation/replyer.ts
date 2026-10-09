@@ -31,7 +31,6 @@ export class Replyer {
     ]);
     this.context = new ConversationContext(
       {
-        scope: this.scope,
         stage: "replyer",
         system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
         compressionPrompt,
@@ -77,7 +76,7 @@ export class Replyer {
     characterContext: string,
   ) {
     const startedAt = Date.now();
-    logger.info("Replyer 开始生成", { ...this.scope, ...input, historyCount: history.length });
+
     const previousSummary = this.context.summary;
 
     // 引用只使用当前可见的事实；不为一次回复同步读取 MongoDB。
@@ -150,12 +149,10 @@ export class Replyer {
       throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
     }
     logger.info("Replyer 生成完成", {
-      characterId: this.scope.characterId,
-      channelId: this.scope.channelId,
+      content: result.text.trim(),
       durationMs: Date.now() - startedAt,
-      characters: result.text.trim().length,
     });
-    logger.debug("Replyer 生成详情", { ...this.scope, text: result.text, usage: result.usage });
+
     return result.text.trim();
   }
 

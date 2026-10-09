@@ -68,7 +68,6 @@ export class OneBotConnection {
   private accepting = false;
 
   constructor(
-    private readonly characterId: string,
     private readonly characterName: string,
     private readonly config: OneBotConfig,
   ) {}
@@ -106,19 +105,13 @@ export class OneBotConnection {
           return;
         }
         logger.info("QQ 群事件已接收", {
-          characterId: this.characterId,
-          channelId: session.channelId,
-          senderId: message.senderId,
+          sender: message.senderName,
           kind: message.kind,
-          ...(message.kind === "message" && { messageId: message.id, content: message.content }),
+          content: message.kind === "message" ? message.content : "戳了戳角色",
         });
         await onMessage(session.channelId!, message);
       } catch (error) {
-        logger.error("角色群聊接入失败", {
-          characterId: this.characterId,
-          channelId: session.channelId,
-          error,
-        });
+        logger.error("角色群聊接入失败", { error });
       }
     };
 

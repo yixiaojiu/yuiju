@@ -21,6 +21,26 @@ export async function init_logger(options: {
     format: winston.format.combine(
       winston.format.errors({ stack: true }),
       winston.format.timestamp(),
+      // 两种输出共用字段限制；大对象转为可读文本，小对象仍保留结构。
+      winston.format((entry) => {
+        for (const [key, value] of Object.entries(entry)) {
+          const text =
+            typeof value === "string"
+              ? value
+              : value !== null && typeof value === "object"
+                ? inspect(value, { depth: null, breakLength: Infinity })
+                : undefined;
+          if (value instanceof Error) {
+            entry[key] = text;
+          }
+          if (text === undefined || text.length <= 1000) {
+            continue;
+          }
+          const marker = `…（省略 ${text.length - 900} 字符）…`;
+          entry[key] = `${text.slice(0, 450)}${marker}${text.slice(-450)}`;
+        }
+        return entry;
+      })(),
     ),
     transports: [
       new winston.transports.Console({

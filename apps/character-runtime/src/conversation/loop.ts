@@ -150,12 +150,7 @@ export class ConversationLoop {
         { ...event, consumed: false },
       ];
       await this.commit({ runtime: this.runtime });
-      logger.info("群聊已接收主 agent 事件", {
-        ...this.scope,
-        eventId: event.id,
-        type: event.type,
-        content: event.content,
-      });
+
       this.requestRun();
       return `已投递给本群 Planner，事件 ID：${event.id}。是否、何时发送群消息由它决定。`;
     } finally {
@@ -177,7 +172,6 @@ export class ConversationLoop {
           };
           this.runtime.waiting = undefined;
           await this.commit({ runtime: this.runtime });
-          logger.info("群聊已暂停", { ...this.scope });
         }
       } finally {
         release();
@@ -192,7 +186,7 @@ export class ConversationLoop {
       await this.summarizePausedMessages();
     }
     this.participationAllowed = true;
-    logger.info("群聊已开放参与", { ...this.scope, pendingCount: this.pending.length });
+
     this.requestRun();
   }
 
@@ -284,14 +278,6 @@ export class ConversationLoop {
         },
         [message],
       );
-      if (!this.participationAllowed || this.runningTask) {
-        logger.info("群聊消息已暂存", {
-          ...this.scope,
-          sequence: message.sequence,
-          reason: !this.participationAllowed ? "角色暂停聊天" : "当前轮次仍在执行",
-          pendingCount: this.pending.length,
-        });
-      }
       this.requestRun();
     } finally {
       release();
@@ -366,7 +352,7 @@ export class ConversationLoop {
       this.acceptingMessages = false;
       this.scheduling = false;
       clearTimeout(this.wakeTimer);
-      logger.error(this.persistenceError.message, { ...this.scope, error });
+      logger.error(this.persistenceError.message, { error });
       throw this.persistenceError;
     }
   }
@@ -395,7 +381,7 @@ export class ConversationLoop {
     try {
       await this.run();
     } catch (error) {
-      logger.error("群会话调度失败", { ...this.scope, error });
+      logger.error("群会话调度失败", { error });
     } finally {
       this.runningTask = undefined;
       if (this.wakeRequested) this.requestRun();
@@ -410,11 +396,6 @@ export class ConversationLoop {
     let waitedSeconds: number | undefined;
     if (waiting) {
       if (now < waiting.until && !directed && !agentEvents.length) {
-        logger.info("Planner 继续等待", {
-          ...this.scope,
-          until: waiting.until,
-          pendingCount: pending.length,
-        });
         return { nextCheckAt: waiting.until };
       }
       waitedSeconds = (now - waiting.startedAt) / 1000;
@@ -427,11 +408,6 @@ export class ConversationLoop {
       !agentEvents.length &&
       !pending.some((message) => message.sequence > failedThroughSequence)
     ) {
-      logger.info("Planner 暂不重跑失败批次", {
-        ...this.scope,
-        failedThroughSequence,
-        pendingCount: pending.length,
-      });
       return { waitedSeconds };
     }
     const trigger = evaluateTrigger({
@@ -441,22 +417,7 @@ export class ConversationLoop {
       nextEligibleAt: this.runtime.silenceCooldownUntil,
       now,
     });
-    logger.info("聊天触发判定", {
-      ...this.scope,
-      pendingCount: pending.length,
-      shouldRun: Boolean(
-        currentRound || agentEvents.length || waitedSeconds !== undefined || trigger.shouldRun,
-      ),
-      reason: currentRound
-        ? "恢复中断轮次"
-        : agentEvents.length
-          ? "主 agent 事件到达"
-          : waitedSeconds !== undefined
-            ? "结束主动等待"
-            : trigger.reason,
-      score: trigger.score,
-      cooldownUntil: this.runtime.silenceCooldownUntil,
-    });
+
     if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
       return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
     }
@@ -563,14 +524,7 @@ export class ConversationLoop {
           history: this.history,
           replyerSummary: this.replyer.summary,
         });
-        logger.info("群聊本轮状态已保存", {
-          ...this.scope,
-          processedThrough: this.runtime.processedThrough,
-          waitUntil: this.runtime.waiting?.until,
-          silentRounds: this.runtime.silentRounds,
-          cooldownUntil: this.runtime.silenceCooldownUntil,
-          pendingCount: this.pending.length,
-        });
+
         this.wakeRequested =
           this.pending.length > 0 ||
           this.runtime.waiting !== undefined ||
@@ -583,12 +537,6 @@ export class ConversationLoop {
 
   /** 工具通过具名回调提交副作用；模型失败不抹去已确认的发送结果。 */
   private async runRound(input: NonNullable<NextRound["input"]>): Promise<ConversationToolContext> {
-    logger.info("Planner 开始", {
-      ...this.scope,
-      throughSequence: input.throughSequence,
-      messageCount: input.messages.length,
-      eventIds: input.agentEvents.map((event) => event.id),
-    });
     const execution: ConversationToolContext = {
       connection: this.connection,
       replyer: this.replyer,
@@ -620,7 +568,7 @@ export class ConversationLoop {
       await this.planner.run(execution, async () => await this.savePlannerContext());
     } catch (error) {
       execution.failed = true;
-      logger.error("聊天工具循环失败", { ...this.scope, error });
+      logger.error("聊天工具循环失败", { error });
     }
     return execution;
   }
