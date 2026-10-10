@@ -5,6 +5,9 @@ import type { ModelMessage } from "ai";
 import type { mongo } from "mongoose";
 import type { ConversationScope } from "./message";
 
+/** 按请求拼装顺序保存各个 prompt key 当次渲染后的内容。 */
+export type ReplyerSystemPrompt = { key: string; content: string };
+
 /** 原始输入和回复只追加保存，后续审核只更新 status，不延长 expire_at。 */
 export type ReplyerGeneration = {
   character_id: string;
@@ -12,6 +15,8 @@ export type ReplyerGeneration = {
   channel_id: string;
   created_at: Date;
   expire_at: Date;
+  system_prompts: ReplyerSystemPrompt[];
+  /** 不含首条 system message；其内容由 system_prompts 按顺序用双换行拼接还原。 */
   messages: ModelMessage[];
   original_reply: string;
   /** 接口实际返回的思考正文；未返回时不保存，不直接作为训练目标。 */
@@ -28,6 +33,8 @@ export type ReplyerTrainingSample = {
   generation_id: mongo.ObjectId;
   generated_at: Date;
   confirmed_at: Date;
+  system_prompts: ReplyerSystemPrompt[];
+  /** 与原始采集一致，不重复保存已拆分的 system message。 */
   messages: ModelMessage[];
   original_reply: string;
   final_reply: string;
@@ -65,6 +72,7 @@ async function initializeCollections(): Promise<mongo.Collection<ReplyerGenerati
  */
 export async function collectReplyerGeneration(
   scope: ConversationScope,
+  systemPrompts: ReplyerSystemPrompt[],
   messages: ModelMessage[],
   originalReply: string,
   model: string,
@@ -78,6 +86,7 @@ export async function collectReplyerGeneration(
       channel_id: scope.channelId,
       created_at: createdAt,
       expire_at: new Date(createdAt.getTime() + 14 * 24 * 60 * 60 * 1000),
+      system_prompts: structuredClone(systemPrompts),
       messages: structuredClone(messages),
       original_reply: originalReply,
       ...(originalReasoning !== undefined ? { original_reasoning: originalReasoning } : {}),

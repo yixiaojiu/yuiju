@@ -9,11 +9,13 @@ import { generateText, type ModelMessage } from "ai";
 import { type ContextSummary, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
 import type { ReplyInput } from "./tools";
-import { collectReplyerGeneration } from "./training-data";
+import { collectReplyerGeneration, type ReplyerSystemPrompt } from "./training-data";
 
 /** 每群独立的回复上下文；长期历史只保留真实交流，本轮补充上下文作为末尾临时输入。 */
 export class Replyer {
   private context!: ConversationContext;
+  /** 请求与采集共用渲染结果，避免采集时重新读取已变化的提示词。 */
+  private systemPrompts!: ReplyerSystemPrompt[];
   /** 初始化时从合并默认值后的项目配置读取，与消息发生时间使用同一展示时区。 */
   private timezone!: string;
 
@@ -29,17 +31,22 @@ export class Replyer {
     if (!windowTokens) {
       throw new Error("群聊需要配置 chat.context_window_tokens");
     }
-    const [persona, rules, characterPrompt, compressionPrompt] = await Promise.all([
-      renderPrompt(`character.persona.${this.scope.characterId}`),
-      renderPrompt("conversation.replyer"),
-      renderPrompt(`conversation.replyer.${this.scope.characterId}`),
+    const [systemPrompts, compressionPrompt] = await Promise.all([
+      Promise.all(
+        [
+          `character.persona.${this.scope.characterId}`,
+          "conversation.replyer",
+          `conversation.replyer.${this.scope.characterId}`,
+        ].map(async (key) => ({ key, content: await renderPrompt(key) })),
+      ),
       renderPrompt("conversation.replyerCompression"),
     ]);
+    this.systemPrompts = systemPrompts;
     this.context = new ConversationContext(
       {
         stage: "replyer",
         scope: this.scope,
-        system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
+        system: this.systemPrompts.map((prompt) => prompt.content).join("\n\n"),
         compressionPrompt,
         model: chatModel,
         windowTokens,
@@ -165,7 +172,9 @@ export class Replyer {
         // 先保留原始生成，包含主动沉默和待纠正的格式错误，供后续标注；不代表已发送。
         collectReplyerGeneration(
           this.scope,
-          messages,
+          this.systemPrompts,
+          // Context 首条是由上述提示词合并的 system message，采集时只保存一份。
+          messages.slice(1),
           text,
           result.finalStep.response.modelId,
           result.finalStep.reasoningText,
