@@ -278,6 +278,16 @@ export class ConversationLoop {
         },
         [message],
       );
+      if (!this.scheduling || !this.participationAllowed || this.runningTask) {
+        logger.info("群聊消息已暂存", {
+          reason: !this.scheduling
+            ? "调度尚未启动或已停止"
+            : !this.participationAllowed
+              ? "角色当前暂停群聊"
+              : "当前轮次仍在执行",
+          pendingCount: this.pending.length,
+        });
+      }
       this.requestRun();
     } finally {
       release();
@@ -396,6 +406,10 @@ export class ConversationLoop {
     let waitedSeconds: number | undefined;
     if (waiting) {
       if (now < waiting.until && !directed && !agentEvents.length) {
+        logger.info("Planner 继续等待", {
+          pendingCount: pending.length,
+          recheckAfterSeconds: Math.ceil((waiting.until - now) / 1000),
+        });
         return { nextCheckAt: waiting.until };
       }
       waitedSeconds = (now - waiting.startedAt) / 1000;
@@ -408,6 +422,10 @@ export class ConversationLoop {
       !agentEvents.length &&
       !pending.some((message) => message.sequence > failedThroughSequence)
     ) {
+      logger.info("Planner 暂不运行", {
+        reason: "上轮失败，等待新输入后再处理",
+        pendingCount: pending.length,
+      });
       return { waitedSeconds };
     }
     const trigger = evaluateTrigger({
@@ -419,8 +437,36 @@ export class ConversationLoop {
     });
 
     if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
+      logger.info("Planner 触发判断", {
+        shouldRun: false,
+        reason: trigger.reason,
+        pendingCount: pending.length,
+        score: trigger.score,
+        threshold: 80,
+        ...trigger.scoreDetails,
+        cooldownSeconds: Math.max(0, Math.ceil((this.runtime.silenceCooldownUntil - now) / 1000)),
+        recheckAfterSeconds: trigger.shouldRecheck ? RECHECK_INTERVAL_MS / 1000 : null,
+      });
       return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
     }
+    // 恢复轮次、主 loop 事件和等待结束可以绕过评分，日志记录实际放行原因。
+    logger.info("Planner 触发判断", {
+      shouldRun: true,
+      reason: currentRound
+        ? "恢复未完成轮次"
+        : agentEvents.length
+          ? "收到主 loop 事件"
+          : waitedSeconds !== undefined
+            ? "结束主动等待，继续处理"
+            : trigger.reason,
+      pendingCount: pending.length,
+      ...(!currentRound &&
+      !agentEvents.length &&
+      waitedSeconds === undefined &&
+      trigger.scoreDetails
+        ? { score: trigger.score, threshold: 80, ...trigger.scoreDetails }
+        : {}),
+    });
     const throughSequence = pending.at(-1)?.sequence ?? this.runtime.processedThrough;
     return {
       input: {
@@ -525,6 +571,18 @@ export class ConversationLoop {
           replyerSummary: this.replyer.summary,
         });
 
+        logger.info("Planner 轮次结束", {
+          sendAttempted: execution.sendAttempted,
+          failed: execution.failed,
+          waitSeconds: execution.waitSeconds ?? null,
+          silentRounds: this.runtime.silentRounds,
+          cooldownSeconds: Math.max(
+            0,
+            Math.ceil((this.runtime.silenceCooldownUntil - Date.now()) / 1000),
+          ),
+          pendingCount: this.pending.length,
+        });
+
         this.wakeRequested =
           this.pending.length > 0 ||
           this.runtime.waiting !== undefined ||
@@ -565,6 +623,10 @@ export class ConversationLoop {
       },
     };
     try {
+      logger.info("Planner 开始运行", {
+        messageCount: input.messages.length,
+        agentEventCount: input.agentEvents.length,
+      });
       await this.planner.run(execution, async () => await this.savePlannerContext());
     } catch (error) {
       execution.failed = true;

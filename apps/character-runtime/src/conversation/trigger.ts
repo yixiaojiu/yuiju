@@ -58,7 +58,7 @@ export function evaluateTrigger(input: {
   );
   const text = texts.join("\n").trim();
   let contentScore = 0;
-  if (/[？?]|(?:吗|呢|么|嘛|怎么|为什么|为啥|啥|谁|哪(?:个|里)?|多少)(?:[？?。！!]|$)/.test(text)) {
+  if (/[？?]|怎么|为什么|为啥|(?:吗|呢|么|嘛|啥|谁|哪(?:个|里)?|多少)(?:[？?。！!]|$)/.test(text)) {
     contentScore += 15;
   }
   if (/(?:帮我|麻烦|能不能|可以帮|请你|求你|来个|发一下|看看|说说|告诉我|教我)/.test(text)) {
@@ -117,6 +117,7 @@ export function evaluateTrigger(input: {
     shouldRun: eligible && score >= 80,
     shouldRecheck: pending.length > 0 && (ageBonus < 30 || !eligible),
     score,
+    scoreDetails: { contentScore, pressure, ageBonus, penalty },
     reason: !eligible ? "沉默冷却中" : score >= 80 ? "触发评分达标" : "触发评分不足",
   };
 }

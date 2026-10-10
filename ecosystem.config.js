@@ -26,17 +26,17 @@ module.exports = {
       watch: false,
       max_memory_restart: "1024M",
     },
-    // {
-    //   name: "yuiju-web",
-    //   script: "pnpm",
-    //   args: "run start:dashboard",
-    //   cwd: __dirname,
-    //   env: {
-    //     NODE_ENV: "production",
-    //   },
-    //   autorestart: false,
-    //   watch: false,
-    //   max_memory_restart: "1024M",
-    // },
+    {
+      name: "yuiju-web",
+      script: "pnpm",
+      args: "run start:dashboard",
+      cwd: __dirname,
+      env: {
+        NODE_ENV: "production",
+      },
+      autorestart: false,
+      watch: false,
+      max_memory_restart: "1024M",
+    },
   ],
 };

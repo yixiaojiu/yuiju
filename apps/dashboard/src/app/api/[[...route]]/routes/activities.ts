@@ -32,13 +32,17 @@ const dateSchema = z
   .refine((date) => dayjs(date).format("YYYY-MM-DD") === date);
 const querySchema = z
   .object({
-    startDate: dateSchema,
-    endDate: dateSchema,
+    startDate: dateSchema.optional(),
+    endDate: dateSchema.optional(),
     action: z.string().optional(),
     keyword: z.string().optional(),
     page: z.coerce.number().int().positive(),
   })
-  .refine((query) => query.startDate <= query.endDate);
+  .refine(({ startDate, endDate }) =>
+    startDate === undefined || endDate === undefined
+      ? startDate === undefined && endDate === undefined
+      : startDate <= endDate,
+  );
 
 export const activitiesApi = new Hono().get("/", async (c) => {
   const parsed = querySchema.safeParse(c.req.query());
@@ -47,10 +51,12 @@ export const activitiesApi = new Hono().get("/", async (c) => {
   }
   const { startDate, endDate, page, action, keyword } = parsed.data;
   const deployment = await getDeployment();
-  const start = dayjs.tz(startDate, deployment.timezone).valueOf();
-  const end = dayjs
-    .tz(dayjs(endDate).add(1, "day").format("YYYY-MM-DD"), deployment.timezone)
-    .valueOf();
+  const start =
+    startDate === undefined ? undefined : dayjs.tz(startDate, deployment.timezone).valueOf();
+  const end =
+    endDate === undefined
+      ? undefined
+      : dayjs.tz(dayjs(endDate).add(1, "day").format("YYYY-MM-DD"), deployment.timezone).valueOf();
   const collection = (await getMongoDatabase(deployment.source)).collection<ActivityRecord>(
     mongoCollectionName("world_events"),
   );
@@ -79,7 +85,7 @@ export const activitiesApi = new Hono().get("/", async (c) => {
         $match: {
           characterId: deployment.characterId,
           type: { $in: ["activity_started", "activity_completed"] },
-          "activity.startedAt": { $lt: end },
+          ...(end !== undefined ? { "activity.startedAt": { $lt: end } } : {}),
           activity: { $ne: null },
         },
       },
@@ -97,13 +103,16 @@ export const activitiesApi = new Hono().get("/", async (c) => {
         },
       },
       {
-        $match: {
-          $or: [
-            { startedAt: { $gte: start } },
-            { completedAt: { $gte: start } },
-            { completedAt: null, endsAt: { $gte: start } },
-          ],
-        },
+        $match:
+          start === undefined
+            ? {}
+            : {
+                $or: [
+                  { startedAt: { $gte: start } },
+                  { completedAt: { $gte: start } },
+                  { completedAt: null, endsAt: { $gte: start } },
+                ],
+              },
       },
       {
         $facet: {

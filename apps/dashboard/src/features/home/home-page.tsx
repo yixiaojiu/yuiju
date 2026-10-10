@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ActivitiesResponse } from "@/api/activities";
-import type { CharacterStatus } from "@/api/characters";
+import type { ActivitiesResponse } from "@/app/api/[[...route]]/routes/activities";
+import type { CharacterStatus } from "@/app/api/[[...route]]/routes/characters";
 import { QueryState } from "@/components/query-state";
 import { today } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
@@ -39,7 +39,7 @@ function HomeContent({ data, now }: { data: CharacterStatus; now: number }) {
           </p>
         )}
       </div>
-      <HomeWorldState timezone={data.timezone} now={now} publicDeployment={data.publicDeployment} />
+      <HomeWorldState now={now} publicDeployment={data.publicDeployment} />
     </div>
   );
 }

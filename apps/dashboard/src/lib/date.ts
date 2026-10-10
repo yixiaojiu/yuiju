@@ -1,19 +1,16 @@
-/** UI 的时区由服务端配置传入，不使用浏览器所在时区。 */
-export function formatTime(value: number | string, timezone: string, date = false) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    timeZone: timezone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-    ...(date ? ({ year: "numeric", month: "2-digit", day: "2-digit" } as const) : {}),
-  }).format(new Date(value));
+import dayjs from "dayjs";
+import timezone from "dayjs/plugin/timezone";
+import utc from "dayjs/plugin/utc";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+/** 在浏览器中按本地时区展示时间。 */
+export function formatTime(value: number | string, date = false) {
+  return dayjs(value).format(date ? "YYYY-MM-DD HH:mm" : "HH:mm");
 }
 
+/** 查询日期沿用项目时区，与服务端自然日范围保持一致。 */
 export function today(timezone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  return dayjs().tz(timezone).format("YYYY-MM-DD");
 }

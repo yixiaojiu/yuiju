@@ -1,11 +1,12 @@
 import { logger } from "@yuiju/shared/logger/logger";
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
-import { activitiesApi } from "@/api/activities";
-import { charactersApi } from "@/api/characters";
-import { logsApi } from "@/api/logs";
-import { memoriesApi } from "@/api/memories";
-import { worldApi } from "@/api/world";
+import { activitiesApi } from "./routes/activities";
+import { analyticsApi } from "./routes/analytics";
+import { charactersApi } from "./routes/characters";
+import { logsApi } from "./routes/logs";
+import { memoriesApi } from "./routes/memories";
+import { worldApi } from "./routes/world";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ app.onError((error, c) => {
 });
 app.route("/character", charactersApi);
 app.route("/activities", activitiesApi);
+app.route("/analytics", analyticsApi);
 app.route("/memories", memoriesApi);
 app.route("/logs", logsApi);
 app.route("/world", worldApi);

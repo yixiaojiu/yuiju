@@ -1,6 +1,6 @@
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
 import { useState } from "react";
-import type { NotificationState, WorldInteraction } from "@/api/world";
+import type { NotificationState, WorldInteraction } from "@/app/api/[[...route]]/routes/world";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatTime } from "@/lib/date";
@@ -20,20 +20,16 @@ const eventLabels: Record<WorldEvent["type"], string> = {
 
 function EventContent({
   event,
-  timezone,
   now,
 }: {
   event: Pick<WorldEvent, "type" | "occurredAt" | "description">;
-  timezone: string;
   now: number;
 }) {
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         <span className="font-medium">{eventLabels[event.type]}</span>
-        <time className="text-muted-foreground">
-          {formatTime(event.occurredAt, timezone, true)}
-        </time>
+        <time className="text-muted-foreground">{formatTime(event.occurredAt, true)}</time>
       </div>
       <p className="whitespace-pre-wrap break-words text-xs leading-6">{event.description}</p>
       <p className="text-xs text-muted-foreground">
@@ -44,15 +40,7 @@ function EventContent({
 }
 
 /** 只展示未完成链路；已接收与已完成决策是两个独立阶段。 */
-export function HomeWorldInteraction({
-  data,
-  timezone,
-  now,
-}: {
-  data: WorldInteraction;
-  timezone: string;
-  now: number;
-}) {
+export function HomeWorldInteraction({ data, now }: { data: WorldInteraction; now: number }) {
   const [notificationState, setNotificationState] = useState<NotificationState>("waiting");
   const group = data.notifications.find((item) => item.state === notificationState)!;
   const receivedCount = data.received.pendingCount + data.received.roundCount;
@@ -90,7 +78,7 @@ export function HomeWorldInteraction({
                 key={event.eventId}
                 className="space-y-2 rounded-xl border bg-secondary/30 p-3"
               >
-                <EventContent event={event} timezone={timezone} now={now} />
+                <EventContent event={event} now={now} />
                 {event.failures > 0 && (
                   <p className="text-xs text-muted-foreground">失败 {event.failures} 次</p>
                 )}
@@ -101,7 +89,7 @@ export function HomeWorldInteraction({
                 )}
                 {event.retryAt !== null && (
                   <p className="text-xs text-muted-foreground">
-                    计划重试 {formatTime(event.retryAt, timezone, true)}
+                    计划重试 {formatTime(event.retryAt, true)}
                   </p>
                 )}
               </article>
@@ -137,7 +125,7 @@ export function HomeWorldInteraction({
                 <span className="inline-block rounded-full border bg-card px-2 py-1 text-xs text-muted-foreground">
                   {event.inRound ? "已纳入当前轮次" : "待下一轮处理"}
                 </span>
-                <EventContent event={event} timezone={timezone} now={now} />
+                <EventContent event={event} now={now} />
               </article>
             ))
           )}
@@ -154,12 +142,10 @@ export function HomeWorldInteraction({
         <div className="grid grid-cols-2 gap-2.5">
           {[
             ["当前活动", activity === null ? "暂无活动" : activity.actionId],
-            ["开始时间", activity === null ? "—" : formatTime(activity.startedAt, timezone, true)],
+            ["开始时间", activity === null ? "—" : formatTime(activity.startedAt, true)],
             [
               "预计结束",
-              activity?.endsAt == null
-                ? "无固定结束时间"
-                : formatTime(activity.endsAt, timezone, true),
+              activity?.endsAt == null ? "无固定结束时间" : formatTime(activity.endsAt, true),
             ],
             [
               "活动计时",
@@ -173,10 +159,7 @@ export function HomeWorldInteraction({
               "兜底状态",
               wait === null ? "无需检查" : wait.checkAt === null ? "已触发" : "等待检查",
             ],
-            [
-              "兜底检查时间",
-              wait?.checkAt == null ? "—" : formatTime(wait.checkAt, timezone, true),
-            ],
+            ["兜底检查时间", wait?.checkAt == null ? "—" : formatTime(wait.checkAt, true)],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl border bg-secondary/50 p-2.5">
               <p className="text-xs text-muted-foreground">{label}</p>
@@ -186,7 +169,7 @@ export function HomeWorldInteraction({
         </div>
         {wait !== null && wait.endsAt !== activity?.endsAt && (
           <p className="text-xs text-muted-foreground">
-            角色仍在等待预计 {formatTime(wait.endsAt, timezone, true)} 结束的活动
+            角色仍在等待预计 {formatTime(wait.endsAt, true)} 结束的活动
           </p>
         )}
       </Card>

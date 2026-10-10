@@ -1,6 +1,5 @@
 import { readFile, rm } from "node:fs/promises";
 import { load_config } from "@yuiju/shared/config/load";
-import { getRedis } from "@yuiju/shared/database/redis";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { strongModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
@@ -11,8 +10,6 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { formatLlmPlatform, stringifyLlmMemory } from "../conversation/platform";
-import { characterKey } from "../storage";
-import type { ExperienceMaterial } from "./experiences";
 import { memoryPath, writeMemoryFile } from "./files";
 import {
   initializePeopleActivity,
@@ -24,6 +21,8 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 export type PersonIdentity = { platform: string; userId: string };
+/** 群聊整理提取的临时依据；日期由程序绑定，正文保留原话及语境，不直接当作画像。 */
+export type PersonMemoryMaterial = PersonIdentity & { date: string; text: string };
 const identitySchema = z.strictObject({ platform: z.string().min(1), userId: z.string().min(1) });
 const linksSchema = z.array(z.array(identitySchema).min(2));
 /** 模型只生成两段认识正文；身份和昵称由程序维护。 */
@@ -132,60 +131,116 @@ export function formatPeople(profiles: PersonProfile[]): string {
 }
 
 type ProfileDecision = { approved: boolean; content: ProfileContent | null };
-/** 已通过审查的两个字段先保存在每日任务中；文件写入中断后重放同一份内容。 */
-type PeopleUpdateProgress = {
-  taskId: string;
-  people: (PersonIdentity & { name: string })[];
-  index: number;
-  decision: ProfileDecision | null;
+type ProfileContext = {
+  person: PersonIdentity & { name: string };
+  currentDate: string;
+  previous: ProfileContent | null;
+  linked: PersonProfile[];
+  materials: { date: string; text: string }[];
 };
 
-/** 程序控制三轮修改与审查，审查 agent 只能给结论，不能修改待写入的文本。 */
+/** 汇集整日材料；超出输入预算时按材料分批，全部通过后才提交这一人的画像。 */
 async function reviewPersonProfile(
   characterId: string,
   person: PersonIdentity & { name: string },
-  materials: ExperienceMaterial[],
+  materials: PersonMemoryMaterial[],
   signal: AbortSignal,
 ): Promise<ProfileDecision> {
   const profiles = await readPeople(characterId, person);
   const own = profiles.find(
     (profile) => profile.platform === person.platform && profile.userId === person.userId,
   );
-  const currentDate = dayjs()
-    .tz((await load_config()).app!.timezone!)
-    .format("YYYY-MM-DD");
-  const context = {
+  const config = await load_config();
+  const inputBudget = config.llm!.models!.strong!.context_window_tokens! * 0.8;
+  const context: ProfileContext = {
     person,
-    currentDate,
+    currentDate: dayjs().tz(config.app!.timezone!).format("YYYY-MM-DD"),
     previous: own ? { facts: own.facts, impressions: own.impressions } : null,
     linked: profiles.filter((profile) => profile !== own),
-    conversations: materials.map((material) => ({
-      ...material.conversation,
-      content: material.content,
-    })),
+    materials: [],
   };
   const persona = await renderPrompt(`character.persona.${characterId}`);
-  const instructions = `${persona}\n\n${await renderPrompt("memory.people")}`;
-  const reviewInstructions = `${persona}\n\n${await renderPrompt("memory.peopleReview")}`;
+  const instructions = {
+    update: `${persona}\n\n${await renderPrompt("memory.people")}`,
+    review: `${persona}\n\n${await renderPrompt("memory.peopleReview")}`,
+  };
+  const profileSchemaText = JSON.stringify(z.toJSONSchema(profileContentSchema));
+  const reviewSchemaText = JSON.stringify(z.toJSONSchema(reviewSchema));
+  let offset = 0;
+  do {
+    signal.throwIfAborted();
+    const start = offset;
+    context.materials = [];
+    while (offset < materials.length) {
+      const { date, text } = materials[offset];
+      context.materials.push({ date, text });
+      const updatePrompt = stringifyLlmMemory({ ...context, candidate: null, issues: [] });
+      const reviewPrompt = stringifyLlmMemory({ ...context, candidate: context.previous });
+      if (
+        Buffer.byteLength(instructions.update + updatePrompt + profileSchemaText, "utf8") >=
+          inputBudget ||
+        Buffer.byteLength(instructions.review + reviewPrompt + reviewSchemaText, "utf8") >=
+          inputBudget
+      ) {
+        context.materials.pop();
+        break;
+      }
+      offset += 1;
+    }
+    if (offset === start && offset < materials.length) {
+      throw new Error("人物画像与单条人物材料超过整理输入预算");
+    }
+    // 无材料的定期清理也执行一次；分批结果先留在内存，失败不写入半份画像。
+    const decision = await reviewProfileBatch(context, instructions, inputBudget, signal);
+    if (!decision.approved) {
+      return decision;
+    }
+    context.previous = decision.content;
+  } while (offset < materials.length);
+  return { approved: true, content: context.previous };
+}
+
+/** 更新和审查使用同一份依据，每批最多三轮；每次调用前检查完整输入。 */
+async function reviewProfileBatch(
+  context: ProfileContext,
+  instructions: { update: string; review: string },
+  inputBudget: number,
+  signal: AbortSignal,
+): Promise<ProfileDecision> {
   let candidate: ProfileContent | null = null;
   let issues: string[] = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const prompt: string = stringifyLlmMemory({ ...context, candidate, issues });
+    // 沿用记忆整理的字节预算估算，同时计入人设、旧画像、候选、意见和输出 schema。
+    if (
+      Buffer.byteLength(
+        instructions.update + prompt + JSON.stringify(z.toJSONSchema(profileContentSchema)),
+        "utf8",
+      ) >= inputBudget
+    ) {
+      throw new Error("人物画像更新请求超过整理输入预算");
+    }
     const result = await generateStructuredOutput({
       model: strongModel,
-      instructions,
+      instructions: instructions.update,
       prompt,
       output: Output.object({ schema: profileContentSchema }),
       abortSignal: signal,
     });
     if (result.finishReason !== "stop") {
-      throw new Error("人物画像未完整生成，保留旧画像及任务进度");
+      throw new Error("人物画像未完整生成", {
+        cause: {
+          finishReason: result.finishReason,
+          rawFinishReason: result.rawFinishReason,
+          model: result.finalStep.response.modelId,
+        },
+      });
     }
     candidate = {
       facts: result.output.facts.trim(),
       impressions: result.output.impressions.trim(),
     };
-    if (!own && !candidate.facts && !candidate.impressions) {
+    if (!context.previous && !candidate.facts && !candidate.impressions) {
       return { approved: true, content: null };
     }
     // 格式问题与审查意见一样交回更新 agent 修正，不由程序猜测或补齐正文。
@@ -194,69 +249,72 @@ async function reviewPersonProfile(
         ...profileEntries(candidate.facts),
         ...profileEntries(candidate.impressions),
       ];
-      if (entries.some((entry) => entry.date > currentDate)) {
+      if (entries.some((entry) => entry.date > context.currentDate)) {
         throw new Error("认识日期不能晚于当前日期");
       }
     } catch (error) {
       issues = [error instanceof Error ? error.message : String(error)];
       continue;
     }
+    const reviewPrompt = stringifyLlmMemory({ ...context, candidate });
+    if (
+      Buffer.byteLength(
+        instructions.review + reviewPrompt + JSON.stringify(z.toJSONSchema(reviewSchema)),
+        "utf8",
+      ) >= inputBudget
+    ) {
+      throw new Error("人物画像审查请求超过整理输入预算");
+    }
     const review = await generateStructuredOutput({
       model: strongModel,
-      instructions: reviewInstructions,
-      prompt: stringifyLlmMemory({ ...context, candidate }),
+      instructions: instructions.review,
+      prompt: reviewPrompt,
       output: Output.object({ schema: reviewSchema }),
       abortSignal: signal,
     });
+    if (review.finishReason !== "stop") {
+      throw new Error("人物画像审查未完整生成", {
+        cause: {
+          finishReason: review.finishReason,
+          rawFinishReason: review.rawFinishReason,
+          model: review.finalStep.response.modelId,
+        },
+      });
+    }
     if (review.output.approved) {
       return { approved: true, content: candidate };
     }
     issues = review.output.issues;
   }
-  logger.warn("人物画像三轮审查未通过，保留旧画像", { issues });
+  logger.warn("人物画像三轮审查未通过，保留旧画像", { person: context.person.name, issues });
   return { approved: false, content: null };
 }
 
-/** 更新与无新交流时的内容清理共用同一套审查、写入及恢复流程。 */
+/** 更新与定期清理共用审查和写入流程；调用失败跳过，不保存任务或恢复进度。 */
 async function updateProfiles(
   characterId: string,
-  taskId: string,
-  people: PeopleUpdateProgress["people"],
-  materials: ExperienceMaterial[],
+  people: (PersonIdentity & { name: string })[],
+  materials: PersonMemoryMaterial[],
   signal: AbortSignal,
 ): Promise<void> {
-  const redis = await getRedis();
-  const key = `${characterKey(characterId)}:memory:daily:people`;
-  const stored = await redis.get(key);
-  let progress: PeopleUpdateProgress | null = stored === null ? null : JSON.parse(stored);
-  if (progress?.taskId !== taskId) {
-    progress = { taskId, people, index: 0, decision: null };
-    await redis.set(key, JSON.stringify(progress));
-  }
-  while (progress.index < progress.people.length) {
+  for (const person of people) {
     signal.throwIfAborted();
-    const person = progress.people[progress.index];
-    if (progress.decision === null) {
-      // 带上这个人出现过的群在本批的完整交流，保留悠乃回复与其他人的上下文。
-      const channels = new Set(
-        materials
-          .filter((material) =>
-            material.people.some(
-              (item) => item.platform === person.platform && item.userId === person.userId,
-            ),
-          )
-          .map((material) => JSON.stringify(material.conversation)),
-      );
-      const related = materials.filter(
-        (material) => material.conversation && channels.has(JSON.stringify(material.conversation)),
-      );
-      progress.decision = await reviewPersonProfile(characterId, person, related, signal);
-      await redis.set(key, JSON.stringify(progress));
+    // 各群、各批的提取结果按平台身份汇集，不再重复读取整个群的原文。
+    const related = materials.filter(
+      (material) => material.platform === person.platform && material.userId === person.userId,
+    );
+    let decision: ProfileDecision;
+    try {
+      decision = await reviewPersonProfile(characterId, person, related, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      logger.warn("人物画像更新失败，本次跳过并保留旧画像", { person: person.name, error });
+      continue;
     }
-    if (progress.decision.approved && progress.decision.content !== null) {
+    if (decision.approved && decision.content !== null) {
       await writeMemoryFile(await profilePath(characterId, person), {
         ...person,
-        ...progress.decision.content,
+        ...decision.content,
       } satisfies PersonProfile);
     } else {
       // 昵称是平台事实，即使本轮内容未更新或被驳回，也不由模型决定是否同步。
@@ -268,7 +326,7 @@ async function updateProfiles(
         });
       }
     }
-    if (progress.decision.approved) {
+    if (decision.approved) {
       const activity = await readPeopleActivity(characterId);
       const entry = activity.people.find(
         (item) => item.platform === person.platform && item.userId === person.userId,
@@ -276,29 +334,23 @@ async function updateProfiles(
       entry.lastReviewedAt = Date.now();
       await writePeopleActivity(characterId, activity);
     }
-    progress.index += 1;
-    progress.decision = null;
-    await redis.set(key, JSON.stringify(progress));
   }
 }
 
 export async function organizePeople(
   characterId: string,
-  batchId: string,
-  materials: ExperienceMaterial[],
+  materials: PersonMemoryMaterial[],
   signal: AbortSignal,
 ): Promise<void> {
   const activity = await readPeopleActivity(characterId);
-  const identities = new Map(
-    materials
-      .flatMap((material) => material.people)
-      .map((person) => [JSON.stringify([person.platform, person.userId]), person]),
+  const identities = new Set(
+    materials.map((person) => JSON.stringify([person.platform, person.userId])),
   );
   // 使用活跃统计按真实消息时间维护的最新昵称，旧批次不能将其覆盖回旧昵称。
   const people = activity.people
     .filter((person) => identities.has(JSON.stringify([person.platform, person.userId])))
     .map(({ platform, userId, name }) => ({ platform, userId, name }));
-  await updateProfiles(characterId, batchId, people, materials, signal);
+  await updateProfiles(characterId, people, materials, signal);
 }
 
 /** 每日进入模型整理前执行；无新消息也清理，热度和真实最后发言时间由程序决定。 */
@@ -317,15 +369,11 @@ export async function pruneInactivePeople(characterId: string): Promise<void> {
 }
 
 /** 仅让新达到两个月的条目进入内容清理；稳定认识经审查保留后不必每天重写。 */
-export async function forgetPeople(
-  characterId: string,
-  date: string,
-  signal: AbortSignal,
-): Promise<void> {
+export async function forgetPeople(characterId: string, signal: AbortSignal): Promise<void> {
   const activity = await readPeopleActivity(characterId);
   const timezone = (await load_config()).app!.timezone!;
   const cutoff = dayjs().tz(timezone).subtract(2, "month").format("YYYY-MM-DD");
-  const people: PeopleUpdateProgress["people"] = [];
+  const people: (PersonIdentity & { name: string })[] = [];
   for (const person of activity.people) {
     const profile = await readProfile(characterId, person);
     if (!profile) {
@@ -343,5 +391,5 @@ export async function forgetPeople(
       people.push({ platform: person.platform, userId: person.userId, name: person.name });
     }
   }
-  await updateProfiles(characterId, `cleanup:${date}`, people, [], signal);
+  await updateProfiles(characterId, people, [], signal);
 }

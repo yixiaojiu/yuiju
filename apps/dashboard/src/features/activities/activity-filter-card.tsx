@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DateRangePicker } from "@/components/ui/date-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type ActivityFilters = {
   startDate: string;
@@ -8,19 +16,18 @@ export type ActivityFilters = {
   action: string;
   keyword: string;
 };
-const inputStyle = "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm";
+const inputStyle =
+  "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm text-foreground";
 
 /** 草稿只在提交时生效，编辑筛选条件不会连续发出查询。 */
 export function ActivityFilterCard({
-  initialDate,
   actions,
   onSubmit,
 }: {
-  initialDate: string;
   actions: string[];
   onSubmit: (filters: ActivityFilters) => void;
 }) {
-  const initial = { startDate: initialDate, endDate: initialDate, action: "", keyword: "" };
+  const initial = { startDate: "", endDate: "", action: "", keyword: "" };
   const [draft, setDraft] = useState<ActivityFilters>(initial);
   return (
     <Card className="rounded-2xl p-3.5">
@@ -32,42 +39,37 @@ export function ActivityFilterCard({
         }}
       >
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            开始日期
-            <input
-              className={inputStyle}
-              type="date"
-              required
-              max={draft.endDate}
-              value={draft.startDate}
-              onChange={(event) => setDraft({ ...draft, startDate: event.target.value })}
+          <label
+            htmlFor="activity-dateRange"
+            className="grid gap-1.5 text-xs text-muted-foreground sm:col-span-2"
+          >
+            日期范围
+            <DateRangePicker
+              id="activity-dateRange"
+              value={draft}
+              onChange={(range) => setDraft({ ...draft, ...range })}
             />
           </label>
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            结束日期
-            <input
-              className={inputStyle}
-              type="date"
-              required
-              min={draft.startDate}
-              value={draft.endDate}
-              onChange={(event) => setDraft({ ...draft, endDate: event.target.value })}
-            />
-          </label>
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
+          <label htmlFor="activity-action" className="grid gap-1.5 text-xs text-muted-foreground">
             活动
-            <select
-              className={inputStyle}
-              value={draft.action}
-              onChange={(event) => setDraft({ ...draft, action: event.target.value })}
+            <Select
+              value={draft.action || "__all__"}
+              onValueChange={(value) =>
+                setDraft({ ...draft, action: value === "__all__" ? "" : value })
+              }
             >
-              <option value="">全部</option>
-              {actions.map((action) => (
-                <option key={action} value={action}>
-                  {action}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="activity-action" className={inputStyle} aria-label="活动">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value="__all__">全部</SelectItem>
+                {actions.map((action) => (
+                  <SelectItem key={action} value={action}>
+                    {action}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <label className="grid gap-1.5 text-xs text-muted-foreground">
             关键词

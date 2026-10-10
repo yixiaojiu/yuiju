@@ -3,6 +3,7 @@
 import {
   BookOpen,
   CalendarDays,
+  ChartNoAxesCombined,
   ChevronDown,
   House,
   type LucideIcon,
@@ -28,6 +29,7 @@ const menuItems: MenuItem[] = [
   { label: "活动", href: "/activities", icon: CalendarDays },
   { label: "记忆", href: "/memories", icon: BookOpen },
   { label: "日志", href: "/logs", icon: ScrollText },
+  { label: "埋点", href: "/analytics", icon: ChartNoAxesCombined },
 ];
 
 function MenuLinks({
@@ -46,7 +48,7 @@ function MenuLinks({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   return menuItems
-    .filter((item) => !publicDeployment || item.href !== "/logs")
+    .filter((item) => !publicDeployment || (item.href !== "/logs" && item.href !== "/analytics"))
     .map((item) => {
       const Icon = item.icon;
       const active = item.children

@@ -2,17 +2,38 @@
 
 import type { ExperienceDocument } from "@yuiju/shared/dashboard/types";
 import { useState } from "react";
-import type { ExperienceSummary, ExperiencesResponse } from "@/api/memories";
+import type {
+  ExperienceSummary,
+  ExperiencesResponse,
+} from "@/app/api/[[...route]]/routes/memories";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
+import { TablePagination } from "@/components/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DateRangePicker } from "@/components/ui/date-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useQuery } from "@/lib/use-query";
 
 const grains = { day: "日", week: "周", month: "月", year: "年" };
 const initialFilters = { startDate: "", endDate: "", grain: "day", keyword: "" };
-const inputStyle = "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm";
+const inputStyle =
+  "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm text-foreground";
 
 /** 全文只在打开抽屉时查询，不随分页列表一起加载。 */
 function ExperienceContent({ id }: { id: string }) {
@@ -51,40 +72,37 @@ export function ExperiencesPanel() {
           }}
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              开始日期
-              <input
-                className={inputStyle}
-                type="date"
-                max={draft.endDate}
-                value={draft.startDate}
-                onChange={(event) => setDraft({ ...draft, startDate: event.target.value })}
+            <label
+              htmlFor="memory-dateRange"
+              className="grid gap-1.5 text-xs text-muted-foreground sm:col-span-2"
+            >
+              日期范围
+              <DateRangePicker
+                id="memory-dateRange"
+                value={draft}
+                onChange={(range) => setDraft({ ...draft, ...range })}
               />
             </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              结束日期
-              <input
-                className={inputStyle}
-                type="date"
-                min={draft.startDate}
-                value={draft.endDate}
-                onChange={(event) => setDraft({ ...draft, endDate: event.target.value })}
-              />
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
+            <label htmlFor="memory-grain" className="grid gap-1.5 text-xs text-muted-foreground">
               记忆周期
-              <select
-                className={inputStyle}
-                value={draft.grain}
-                onChange={(event) => setDraft({ ...draft, grain: event.target.value })}
+              <Select
+                value={draft.grain || "__all__"}
+                onValueChange={(value) =>
+                  setDraft({ ...draft, grain: value === "__all__" ? "" : value })
+                }
               >
-                <option value="">全部</option>
-                {Object.entries(grains).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="memory-grain" className={inputStyle} aria-label="记忆周期">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="__all__">全部</SelectItem>
+                  {Object.entries(grains).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="grid gap-1.5 text-xs text-muted-foreground">
               关键词
@@ -113,81 +131,66 @@ export function ExperiencesPanel() {
       </Card>
 
       <Card className="gap-0 overflow-hidden rounded-2xl py-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b bg-secondary/50 text-xs text-muted-foreground">
-              <tr>
-                {["日期", "周期", "内容摘要", "操作"].map((title) => (
-                  <th key={title} className="whitespace-nowrap px-4 py-3 font-medium">
-                    {title}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {!data ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className={`p-10 text-center ${error ? "text-destructive" : "text-muted-foreground"}`}
-                    role={error ? "alert" : "status"}
-                  >
-                    {error || "加载中…"}
-                  </td>
-                </tr>
-              ) : data.memories.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="p-10 text-center text-muted-foreground">
-                    暂无记录
-                  </td>
-                </tr>
-              ) : (
-                data.memories.map((memory) => (
-                  <tr key={memory.id} className="border-b last:border-0 hover:bg-secondary/30">
-                    <td className="whitespace-nowrap px-4 py-4 align-top text-xs tabular-nums">
-                      {memory.startDate}
-                      {memory.startDate !== memory.endDate && ` — ${memory.endDate}`}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 align-top">
-                      {grains[memory.grain]}
-                    </td>
-                    <td className="min-w-64 px-4 py-4 align-top text-xs leading-6 text-muted-foreground">
-                      <p className="line-clamp-2 break-words">{memory.excerpt}</p>
-                    </td>
-                    <td className="px-4 py-3 align-top">
-                      <Button variant="ghost" size="sm" onClick={() => setSelected(memory)}>
-                        查看
-                      </Button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Table className="w-full text-left text-sm">
+          <TableHeader className="border-b bg-secondary/50 text-xs text-muted-foreground">
+            <TableRow className="hover:bg-transparent">
+              {["日期", "周期", "内容摘要", "操作"].map((title) => (
+                <TableHead
+                  key={title}
+                  className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground"
+                >
+                  {title}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!data ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell
+                  colSpan={4}
+                  className={`whitespace-normal p-10 text-center ${error ? "text-destructive" : "text-muted-foreground"}`}
+                  role={error ? "alert" : "status"}
+                >
+                  {error || "加载中…"}
+                </TableCell>
+              </TableRow>
+            ) : data.memories.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={4} className="p-10 text-center text-muted-foreground">
+                  暂无记录
+                </TableCell>
+              </TableRow>
+            ) : (
+              data.memories.map((memory) => (
+                <TableRow key={memory.id} className="border-b last:border-0 hover:bg-secondary/30">
+                  <TableCell className="whitespace-nowrap px-4 py-4 align-top text-xs tabular-nums">
+                    {memory.startDate}
+                    {memory.startDate !== memory.endDate && ` — ${memory.endDate}`}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap px-4 py-4 align-top">
+                    {grains[memory.grain]}
+                  </TableCell>
+                  <TableCell className="min-w-64 whitespace-normal px-4 py-4 align-top text-xs leading-6 text-muted-foreground">
+                    <p className="line-clamp-2 break-words">{memory.excerpt}</p>
+                  </TableCell>
+                  <TableCell className="px-4 py-3 align-top">
+                    <Button variant="ghost" size="sm" onClick={() => setSelected(memory)}>
+                      查看
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
         {data && (
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t p-3.5">
-            <span className="text-xs text-muted-foreground">
-              共 {data.total} 条 · 第 {data.page} /{" "}
-              {Math.max(1, Math.ceil(data.total / data.pageSize))} 页
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                disabled={data.page === 1}
-                onClick={() => setPage(data.page - 1)}
-              >
-                上一页
-              </Button>
-              <Button
-                variant="outline"
-                disabled={data.page * data.pageSize >= data.total}
-                onClick={() => setPage(data.page + 1)}
-              >
-                下一页
-              </Button>
-            </div>
-          </footer>
+          <TablePagination
+            page={data.page}
+            pageSize={data.pageSize}
+            total={data.total}
+            onPageChange={setPage}
+          />
         )}
       </Card>
 

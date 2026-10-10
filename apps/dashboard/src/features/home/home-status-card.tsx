@@ -1,4 +1,4 @@
-import type { CharacterStatus } from "@/api/characters";
+import type { CharacterStatus } from "@/app/api/[[...route]]/routes/characters";
 import { Card } from "@/components/ui/card";
 import { formatTime } from "@/lib/date";
 
@@ -11,7 +11,7 @@ export function HomeStatusCard({
   now: number;
   todayActions: string[];
 }) {
-  const { world, emotion, timezone } = data;
+  const { world, emotion } = data;
   const activity = world?.activity;
   const remaining =
     activity?.endsAt == null ? null : Math.max(0, Math.ceil((activity.endsAt - now) / 60000));
@@ -112,7 +112,7 @@ export function HomeStatusCard({
                   </div>
                   {plan.plannedAt !== null && (
                     <time className="text-muted-foreground">
-                      {formatTime(plan.plannedAt, timezone, true)}
+                      {formatTime(plan.plannedAt, true)}
                     </time>
                   )}
                   <p className="whitespace-pre-wrap text-muted-foreground">

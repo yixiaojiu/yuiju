@@ -1,3 +1,4 @@
+import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
 import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { flashModel } from "@yuiju/shared/llm/models";
@@ -85,77 +86,88 @@ export class Planner {
   }
 
   async run(execution: ConversationToolContext, saveContext: () => Promise<void>): Promise<void> {
-    this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
-    await saveContext();
-    // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
-    let stepSaveError: Error | undefined;
-    const result = await generateText({
-      model: flashModel,
-      messages: this.history.flatMap((unit) => unit.messages),
-      allowSystemInMessages: true,
-      tools: createPlannerTools(this.scope, this.timezone, execution),
-      maxRetries: 0,
-      stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
-      prepareStep: async () => {
-        if (!execution.canParticipate()) {
-          throw new Error("角色已暂停群聊，结束当前聊天思考");
-        }
-        if (stepSaveError) throw stepSaveError;
-        // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
-        const previousSummary = this.context.summary;
-        try {
-          return { messages: await this.context.prepare(this.history, []) };
-        } finally {
-          // prepare 可能已应用一份摘要，再因窗口仍不足而失败；已应用的状态也要成对保存。
-          if (previousSummary !== this.context.summary) {
-            this.history = this.history.filter(
-              (unit) => unit.sequence > this.context.summary.coveredThrough,
-            );
-            await saveContext();
+    const startedAt = performance.now();
+    try {
+      this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
+      await saveContext();
+      // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
+      let stepSaveError: Error | undefined;
+      const result = await generateText({
+        model: flashModel,
+        messages: this.history.flatMap((unit) => unit.messages),
+        allowSystemInMessages: true,
+        tools: createPlannerTools(this.scope, this.timezone, execution),
+        maxRetries: 0,
+        stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
+        prepareStep: async () => {
+          if (!execution.canParticipate()) {
+            throw new Error("角色已暂停群聊，结束当前聊天思考");
           }
-        }
-      },
-      onToolExecutionStart: ({ toolCall }) => {
-        logger.info("Planner 调用工具", {
-          tool: toolCall.toolName,
-          input: Object.fromEntries(
-            Object.entries(toolCall.input as Record<string, unknown>).filter(
-              ([key]) => !/(?:^id$|Id$|Ids$|_id$|-id$)/.test(key),
-            ),
-          ),
-        });
-      },
-      onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
-        if (toolOutput.type === "tool-error") {
-          logger.error("Planner 工具执行异常", {
+          if (stepSaveError) throw stepSaveError;
+          // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
+          const previousSummary = this.context.summary;
+          try {
+            return { messages: await this.context.prepare(this.history, []) };
+          } finally {
+            // prepare 可能已应用一份摘要，再因窗口仍不足而失败；已应用的状态也要成对保存。
+            if (previousSummary !== this.context.summary) {
+              this.history = this.history.filter(
+                (unit) => unit.sequence > this.context.summary.coveredThrough,
+              );
+              await saveContext();
+            }
+          }
+        },
+        onToolExecutionStart: ({ toolCall }) => {
+          logger.info("Planner 调用工具", {
             tool: toolCall.toolName,
-            durationMs: toolExecutionMs,
-            error: toolOutput.error,
+            input: Object.fromEntries(
+              Object.entries(toolCall.input as Record<string, unknown>).filter(
+                ([key]) => !/(?:^id$|Id$|Ids$|_id$|-id$)/.test(key),
+              ),
+            ),
           });
-        }
-      },
-      onStepEnd: async ({ response, content }) => {
-        // SDK 在本步工具全部结束后提供该步消息；多工具调用与结果作为一个单位记录。
-        this.history.push({ sequence: ++this.sequence, messages: response.messages });
-        try {
-          await saveContext();
-        } catch (error) {
-          stepSaveError = new Error("Planner 完整步骤保存失败", { cause: error });
-        }
-        for (const output of content) {
-          if (output.type === "tool-error") {
-            execution.failed = true;
+        },
+        onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
+          if (toolOutput.type === "tool-error") {
+            logger.error("Planner 工具执行异常", {
+              tool: toolCall.toolName,
+              durationMs: toolExecutionMs,
+              error: toolOutput.error,
+            });
           }
-        }
-      },
-    });
+        },
+        onStepEnd: async ({ response, content }) => {
+          // SDK 在本步工具全部结束后提供该步消息；多工具调用与结果作为一个单位记录。
+          this.history.push({ sequence: ++this.sequence, messages: response.messages });
+          try {
+            await saveContext();
+          } catch (error) {
+            stepSaveError = new Error("Planner 完整步骤保存失败", { cause: error });
+          }
+          for (const output of content) {
+            if (output.type === "tool-error") {
+              execution.failed = true;
+            }
+          }
+        },
+      });
 
-    if (stepSaveError) throw stepSaveError;
-    if (result.finishReason !== "stop" && result.finishReason !== "tool-calls") {
-      throw new Error(`Planner 未完成：${result.finishReason}`);
-    }
-    if (execution.waitSeconds === undefined && result.finishReason !== "stop") {
-      throw new Error("Planner 达到调用上限，尚未结束本轮");
+      if (stepSaveError) throw stepSaveError;
+      if (result.finishReason !== "stop" && result.finishReason !== "tool-calls") {
+        throw new Error(`Planner 未完成：${result.finishReason}`);
+      }
+      if (execution.waitSeconds === undefined && result.finishReason !== "stop") {
+        throw new Error("Planner 达到调用上限，尚未结束本轮");
+      }
+    } finally {
+      reportAnalyticsEvent({
+        eventName: "conversation.planner",
+        eventData: {
+          ...this.scope,
+          durationMs: Math.round(performance.now() - startedAt),
+        },
+      });
     }
   }
 

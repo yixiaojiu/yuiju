@@ -2,7 +2,7 @@
 
 import { Pause, Play, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { LogEntry } from "@/api/logs";
+import type { LogEntry } from "@/app/api/[[...route]]/routes/logs";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,17 +10,7 @@ import { type LogFileSelection, LogFileTree } from "@/features/logs/log-file-tre
 import { formatTime } from "@/lib/date";
 
 /** 文件切换时通过 key 重建读取会话；游标与内容只属于当前选中的文件。 */
-function LogContent({
-  app,
-  file,
-  timezone,
-  onReload,
-}: {
-  app: string;
-  file: string;
-  timezone: string;
-  onReload: () => void;
-}) {
+function LogContent({ app, file, onReload }: { app: string; file: string; onReload: () => void }) {
   const [following, setFollowing] = useState(true);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string>();
@@ -64,7 +54,7 @@ function LogContent({
   const text = entries
     .map(
       (entry) =>
-        `[${formatTime(entry.timestamp, timezone, true)}] [${entry.level}] ${entry.message}${entry.details ? `\n${entry.details}` : ""}`,
+        `[${formatTime(entry.timestamp, true)}] [${entry.level}] ${entry.message}${entry.details ? `\n${entry.details}` : ""}`,
     )
     .join("\n");
   return (
@@ -91,7 +81,7 @@ function LogContent({
   );
 }
 
-export function LogsPage({ timezone }: { timezone: string }) {
+export function LogsPage() {
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<LogFileSelection | null>(null);
   return (
@@ -105,7 +95,6 @@ export function LogsPage({ timezone }: { timezone: string }) {
             onReload={() => setRevision(revision + 1)}
             app={selected.app}
             file={selected.file}
-            timezone={timezone}
           />
         ) : (
           <Card className="py-20 text-center text-sm text-muted-foreground">选择日志文件</Card>

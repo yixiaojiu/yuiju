@@ -17,6 +17,7 @@ import {
   cognitionReviewPrompt,
   conversationMemoryPrompt,
   experiencePrompt,
+  memoryChunksPrompt,
   peoplePrompt,
   peopleReviewPrompt,
 } from "./memory/organize";
@@ -29,6 +30,7 @@ export const promptDefinitions: readonly PromptTemplate[] = [
   yuunoPlannerPrompt,
   yuunoReplyerPrompt,
   experiencePrompt,
+  memoryChunksPrompt,
   cognitionReviewPrompt,
   coarseMemoryPrompt,
   cognitionPrompt,

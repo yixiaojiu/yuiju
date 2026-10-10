@@ -107,11 +107,9 @@ export async function recallExperiences(
   return (
     points
       .map((point) => {
-        const payload = z
-          .object({ version: z.string(), start: z.number().int(), end: z.number().int() })
-          .parse(point.payload);
+        const payload = z.object({ version: z.string(), text: z.string() }).parse(point.payload);
         const memory = byVersion.get(payload.version)!;
-        return `${memory.startDate} 至 ${memory.endDate}（${grainNames[memory.grain]}，相关片段）\n${memory.text.slice(payload.start, payload.end)}`;
+        return `${memory.startDate} 至 ${memory.endDate}（${grainNames[memory.grain]}，相关片段）\n${payload.text}`;
       })
       .join("\n\n") || "没有检索到相关记忆片段。"
   );

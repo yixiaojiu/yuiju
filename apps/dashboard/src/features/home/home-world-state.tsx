@@ -1,6 +1,6 @@
 "use client";
 
-import type { WorldDashboardStatus } from "@/api/world";
+import type { WorldDashboardStatus } from "@/app/api/[[...route]]/routes/world";
 import { QueryState } from "@/components/query-state";
 import { Card } from "@/components/ui/card";
 import { HomeWorldInteraction } from "@/features/home/home-world-interaction";
@@ -8,11 +8,9 @@ import { formatTime } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
 
 export function HomeWorldState({
-  timezone,
   now,
   publicDeployment,
 }: {
-  timezone: string;
   now: number;
   publicDeployment: boolean;
 }) {
@@ -26,7 +24,7 @@ export function HomeWorldState({
       ) : (
         <>
           {!publicDeployment && data.interaction && (
-            <HomeWorldInteraction data={data.interaction} timezone={timezone} now={now} />
+            <HomeWorldInteraction data={data.interaction} now={now} />
           )}
           {environment ? (
             <>
@@ -34,12 +32,12 @@ export function HomeWorldState({
                 <h2 className="text-sm font-bold">世界环境</h2>
                 <div className="grid grid-cols-2 gap-2.5">
                   {[
-                    ["当前时间", formatTime(now, timezone, true)],
+                    ["当前时间", formatTime(now, true)],
                     ["天气", environment.weather.type],
                     ["体感温度", environment.weather.temperatureLevel],
-                    ["天气时段起始", formatTime(environment.weatherPeriod, timezone, true)],
+                    ["天气时段起始", formatTime(environment.weatherPeriod, true)],
                     ["资源刷新日期", environment.resourceDate],
-                    ["环境同步时间", formatTime(environment.updatedAt, timezone, true)],
+                    ["环境同步时间", formatTime(environment.updatedAt, true)],
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-xl border bg-secondary/50 p-2.5">
                       <p className="text-xs text-muted-foreground">{label}</p>

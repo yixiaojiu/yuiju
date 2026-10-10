@@ -1,4 +1,5 @@
 import { h } from "@satorijs/core";
+import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
 import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
@@ -75,85 +76,94 @@ export class Replyer {
     saveSummary: () => Promise<void>,
     characterContext: string,
   ) {
-    const startedAt = Date.now();
+    const startedAt = performance.now();
+    try {
+      const previousSummary = this.context.summary;
 
-    const previousSummary = this.context.summary;
-
-    // 引用只使用当前可见的事实；不为一次回复同步读取 MongoDB。
-    const quote = history.find(
-      (message) => message.kind === "message" && message.id === input.quoteMessageId,
-    );
-    const embeddedQuote = history
-      .flatMap((message) => (message.kind === "message" && message.quote ? [message.quote] : []))
-      .find((item) => item.id === input.quoteMessageId && item.content !== undefined);
-    if (input.quoteMessageId && !quote && !embeddedQuote) {
-      throw new Error(`当前上下文没有引用原文：${input.quoteMessageId}`);
-    }
-
-    const mentioned = input.senderId
-      ? history.find((message) => message.senderId === input.senderId)
-      : undefined;
-
-    // 当前任务始终放在历史之后，避免每次不同的补充上下文破坏稳定前缀。
-    const taskLines = [`当前角色状态：\n${characterContext}`];
-    if (input.replyContext !== undefined) {
-      taskLines.push(`补充上下文：\n${input.replyContext}`);
-    }
-    if (quote) {
-      taskLines.push(`本次引用：${renderMessage(quote, this.timezone)}`);
-    }
-    if (!quote && embeddedQuote) {
-      taskLines.push(
-        `本次引用：${h(
-          "quote",
-          {
-            id: embeddedQuote.id,
-            senderId: embeddedQuote.senderId,
-            senderName: embeddedQuote.senderName,
-          },
-          h.parse(embeddedQuote.content!),
-        ).toString()}`,
+      // 引用只使用当前可见的事实；不为一次回复同步读取 MongoDB。
+      const quote = history.find(
+        (message) => message.kind === "message" && message.id === input.quoteMessageId,
       );
-    }
-    if (input.senderId) {
-      taskLines.push(
-        `本次 @ 对象：${h("at", { id: input.senderId, name: mentioned?.senderName })}`,
+      const embeddedQuote = history
+        .flatMap((message) => (message.kind === "message" && message.quote ? [message.quote] : []))
+        .find((item) => item.id === input.quoteMessageId && item.content !== undefined);
+      if (input.quoteMessageId && !quote && !embeddedQuote) {
+        throw new Error(`当前上下文没有引用原文：${input.quoteMessageId}`);
+      }
+
+      const mentioned = input.senderId
+        ? history.find((message) => message.senderId === input.senderId)
+        : undefined;
+
+      // 当前任务始终放在历史之后，避免每次不同的补充上下文破坏稳定前缀。
+      const taskLines = [`当前角色状态：\n${characterContext}`];
+      if (input.replyContext !== undefined) {
+        taskLines.push(`补充上下文：\n${input.replyContext}`);
+      }
+      if (quote) {
+        taskLines.push(`本次引用：${renderMessage(quote, this.timezone)}`);
+      }
+      if (!quote && embeddedQuote) {
+        taskLines.push(
+          `本次引用：${h(
+            "quote",
+            {
+              id: embeddedQuote.id,
+              senderId: embeddedQuote.senderId,
+              senderName: embeddedQuote.senderName,
+            },
+            h.parse(embeddedQuote.content!),
+          ).toString()}`,
+        );
+      }
+      if (input.senderId) {
+        taskLines.push(
+          `本次 @ 对象：${h("at", { id: input.senderId, name: mentioned?.senderName })}`,
+        );
+      }
+      const task: ModelMessage = { role: "user", content: taskLines.join("\n") };
+      // 自己的新发送可能排在尚未处理的群消息之后，不能提前推进摘要覆盖序号。
+      const messages = await this.context.prepare(
+        this.historyUnits(history.filter((message) => message.sequence <= historyThrough)),
+        [
+          ...history
+            .filter((message) => message.sequence > historyThrough)
+            .map(
+              (message): ModelMessage => ({
+                role: "user",
+                content: renderMessage(message, this.timezone),
+              }),
+            ),
+          task,
+        ],
       );
+
+      if (previousSummary !== this.context.summary) await saveSummary();
+
+      const result = await generateText({
+        model: chatModel,
+        messages,
+        allowSystemInMessages: true,
+        maxRetries: 0,
+      });
+      if (result.finishReason !== "stop" || !result.text.trim()) {
+        throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
+      }
+      logger.info("Replyer 生成完成", {
+        content: result.text.trim(),
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+
+      return result.text.trim();
+    } finally {
+      reportAnalyticsEvent({
+        eventName: "conversation.replyer",
+        eventData: {
+          ...this.scope,
+          durationMs: Math.round(performance.now() - startedAt),
+        },
+      });
     }
-    const task: ModelMessage = { role: "user", content: taskLines.join("\n") };
-    // 自己的新发送可能排在尚未处理的群消息之后，不能提前推进摘要覆盖序号。
-    const messages = await this.context.prepare(
-      this.historyUnits(history.filter((message) => message.sequence <= historyThrough)),
-      [
-        ...history
-          .filter((message) => message.sequence > historyThrough)
-          .map(
-            (message): ModelMessage => ({
-              role: "user",
-              content: renderMessage(message, this.timezone),
-            }),
-          ),
-        task,
-      ],
-    );
-
-    if (previousSummary !== this.context.summary) await saveSummary();
-
-    const result = await generateText({
-      model: chatModel,
-      messages,
-      allowSystemInMessages: true,
-      maxRetries: 0,
-    });
-    if (result.finishReason !== "stop" || !result.text.trim()) {
-      throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
-    }
-    logger.info("Replyer 生成完成", {
-      content: result.text.trim(),
-      durationMs: Date.now() - startedAt,
-    });
-
-    return result.text.trim();
   }
 
   async stop() {

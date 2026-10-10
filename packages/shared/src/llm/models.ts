@@ -1,6 +1,7 @@
-import { APICallError, type LanguageModelMiddleware, type wrapLanguageModel } from "ai";
+import { APICallError, type LanguageModelMiddleware, wrapLanguageModel } from "ai";
 import { load_config } from "../config/load";
 import { logger } from "../logger/logger";
+import { createLlmAnalytics } from "./analytics";
 import {
   canSwitchProvider,
   createProvider,
@@ -231,7 +232,10 @@ function createGroupModel(name: ModelName, inputModalities: readonly InputModali
         .map(({ source, index }) => ({
           providerKey: `${name}:${index}`,
           host: new URL(source.base_url).host,
-          model: createProvider(source, `${name}${index}`).chatModel(source.model),
+          model: wrapLanguageModel({
+            model: createProvider(source, `${name}${index}`).chatModel(source.model),
+            middleware: createLlmAnalytics(name, new URL(source.base_url).host),
+          }),
           supportsStructuredOutputs: source.supports_structured_outputs === true,
           inputModalities: source.input_modalities,
         }));

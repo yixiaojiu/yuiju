@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PersonProfile } from "@/api/memories";
+import type { PersonProfile } from "@/app/api/[[...route]]/routes/memories";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
 import { Button } from "@/components/ui/button";
@@ -68,7 +68,7 @@ function People() {
   );
 }
 
-function SelfCognition({ timezone }: { timezone: string }) {
+function SelfCognition() {
   const { data, error } = useQuery<{ text: string; updatedAt: number | null }>(
     "/api/memories/self-cognition",
   );
@@ -78,22 +78,14 @@ function SelfCognition({ timezone }: { timezone: string }) {
   return (
     <article className="space-y-3">
       {data.updatedAt !== null && (
-        <p className="mb-4 text-xs text-muted-foreground">
-          {formatTime(data.updatedAt, timezone, true)}
-        </p>
+        <p className="mb-4 text-xs text-muted-foreground">{formatTime(data.updatedAt, true)}</p>
       )}
       <MonacoEditorPanel language="markdown" value={data.text} />
     </article>
   );
 }
 
-export function MemoriesPage({
-  publicDeployment,
-  timezone,
-}: {
-  publicDeployment: boolean;
-  timezone: string;
-}) {
+export function MemoriesPage({ publicDeployment }: { publicDeployment: boolean }) {
   const [tab, setTab] = useState("experiences");
   const tabs = publicDeployment
     ? { experiences: "经历记忆" }
@@ -118,7 +110,7 @@ export function MemoriesPage({
       ) : tab === "people" ? (
         <People />
       ) : (
-        <SelfCognition timezone={timezone} />
+        <SelfCognition />
       )}
     </div>
   );

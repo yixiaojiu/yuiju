@@ -30,7 +30,13 @@ import {
   summarizeMemoryConversation,
 } from "./experiences";
 import { writeMemoryFile } from "./files";
-import { forgetPeople, initializePeople, organizePeople, pruneInactivePeople } from "./people";
+import {
+  forgetPeople,
+  initializePeople,
+  organizePeople,
+  type PersonMemoryMaterial,
+  pruneInactivePeople,
+} from "./people";
 import { updatePeopleActivity } from "./people-activity";
 import { prepareReviewedSelfCognition } from "./review";
 import {
@@ -39,7 +45,7 @@ import {
   type SelfCognition,
   selfCognitionPath,
 } from "./self-cognition";
-import { indexExperienceMemory } from "./vector-index";
+import { generateMemoryChunks, indexExperienceMemory } from "./vector-index";
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
@@ -72,10 +78,17 @@ export type DailyMemoryJob = {
   days: { date: string; batches: DailyMemorySource[][] }[];
   dayIndex: number;
   batchIndex: number;
-  stage: "activity" | "conversations" | "experiences" | "commit" | "people" | "release";
+  stage: "activity" | "conversations" | "experiences" | "commit" | "release";
   /** 当前批次已成功整理的群聊素材，顺序与该批群聊分组一致；正文合入后清空。 */
   conversationSummaries: ConversationMemorySummary[];
-  draft: { experience: ExperienceMemory; cognition: SelfCognition } | null;
+  /** 当前日期各群、各批已整理的人物材料；当天正文完成后按人物统一更新。 */
+  peopleMaterials: PersonMemoryMaterial[];
+  draft: {
+    experience: ExperienceMemory;
+    cognition: SelfCognition;
+    /** null 表示尚未提取，空数组表示无需索引；成功提取后随任务保存。 */
+    chunks: string[] | null;
+  } | null;
 };
 
 /** 角色记忆自己的后台生命周期；归档每五秒检查，三类长期记忆仅每日整理一次。 */
@@ -116,7 +129,7 @@ export class DailyMemory {
   private async runDaily(): Promise<void> {
     const config = await load_config();
     const timezone = config.app!.timezone!;
-    // 同一批原文用于群聊压缩与人物画像，必须同时适配 flash 和 strong。
+    // 原文供 flash 整理群聊，世界材料供 strong 整理经历；人物更新不再读取原文。
     const windowTokens = Math.min(
       config.llm!.models!.strong!.context_window_tokens!,
       config.llm!.models!.flash!.context_window_tokens!,
@@ -195,6 +208,7 @@ export class DailyMemory {
             batchIndex: 0,
             stage: "activity",
             conversationSummaries: [],
+            peopleMaterials: [],
             draft: null,
           };
           await redis.set(key, JSON.stringify(job));
@@ -211,8 +225,9 @@ export class DailyMemory {
         if (this.stopping.signal.aborted) {
           return;
         }
-        logger.error("每日记忆整理中断，保留分阶段进度", { error });
-        nextAt = Date.now() + 60_000;
+        const date = dayjs().tz(timezone).format("YYYY-MM-DD");
+        nextAt = dayjs.tz(dayjs.utc(date).add(1, "day").format("YYYY-MM-DD"), timezone).valueOf();
+        logger.error("每日记忆整理中断，保留进度，下一次凌晨再恢复", { error });
       }
       try {
         await setTimeout(Math.max(0, nextAt - Date.now()), undefined, {
@@ -256,12 +271,25 @@ export class DailyMemory {
 
       if (job.stage === "commit") {
         // 三处持久化不是同一事务；草稿已保存在 Redis，中断后重放写入，不重新生成。
-        await saveExperienceMemory(job.draft!.experience);
-        await indexExperienceMemory(job.draft!.experience, this.stopping.signal);
-        await writeMemoryFile(await selfCognitionPath(this.characterId), job.draft!.cognition);
-        job.batchIndex = 0;
-        job.stage = "people";
+        const draft = job.draft!;
+        await saveExperienceMemory(draft.experience);
+        if (draft.chunks === null) {
+          draft.chunks = await generateMemoryChunks(draft.experience, this.stopping.signal);
+          await redis.set(key, JSON.stringify(job));
+        }
+        await indexExperienceMemory(draft.experience, draft.chunks, this.stopping.signal);
+        await writeMemoryFile(await selfCognitionPath(this.characterId), draft.cognition);
+        const peopleMaterials = job.peopleMaterials;
+        job.peopleMaterials = [];
+        // 先推进每日任务；画像仅尝试本次，失败或重启都不恢复这次更新。
+        job.stage = "release";
         await redis.set(key, JSON.stringify(job));
+        try {
+          await organizePeople(this.characterId, peopleMaterials, this.stopping.signal);
+        } catch (error) {
+          this.stopping.signal.throwIfAborted();
+          logger.warn("人物画像整理未完成，本次跳过", { error });
+        }
 
         continue;
       }
@@ -366,27 +394,20 @@ export class DailyMemory {
           experience,
           this.stopping.signal,
         );
-        job.draft = { experience, cognition };
+        job.draft = { experience, cognition, chunks: null };
+        // 和草稿进度一起提交，恢复当前批次时不会重复累加人物材料。
+        job.peopleMaterials.push(...job.conversationSummaries.flatMap((summary) => summary.people));
         job.batchIndex += 1;
         job.conversationSummaries = [];
         job.stage = job.batchIndex === day.batches.length ? "commit" : "conversations";
-      } else {
-        await organizePeople(this.characterId, batchId, materials, this.stopping.signal);
-        job.batchIndex += 1;
-        job.stage = job.batchIndex === day.batches.length ? "release" : "people";
       }
       await redis.set(key, JSON.stringify(job));
     }
 
     await coarsenExperiences(this.characterId, job.date, this.stopping.signal);
-    await forgetPeople(this.characterId, job.date, this.stopping.signal);
     await forgetEndedPlans(this.characterId, Date.now() - 30 * 86_400_000);
     // 同事务保存完成日期并移除任务；故障恢复不能遗漏某天，也不重新整理已确认批次。
-    const results = await redis
-      .multi()
-      .set(`${key}:completed`, job.date)
-      .del(key, `${key}:people`)
-      .exec();
+    const results = await redis.multi().set(`${key}:completed`, job.date).del(key).exec();
     if (results === null) {
       throw new Error("每日记忆完成状态未提交");
     }
@@ -394,6 +415,13 @@ export class DailyMemory {
       if (error) {
         throw error;
       }
+    }
+    // 画像清理不属于可恢复任务，核心整理完成后只尝试一次。
+    try {
+      await forgetPeople(this.characterId, this.stopping.signal);
+    } catch (error) {
+      this.stopping.signal.throwIfAborted();
+      logger.warn("人物画像清理未完成，本次跳过", { error });
     }
   }
 
