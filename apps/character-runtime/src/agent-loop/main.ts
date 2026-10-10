@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { formatLlmDateTime } from "@yuiju/shared/date/format";
+import {
+  type InputTokenUsage,
+  measureInputBytes,
+  readInputTokenUsage,
+} from "@yuiju/shared/llm/context-usage";
 import { strongModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
@@ -37,6 +42,8 @@ export class MainAgentLoop {
   private readonly stopping = new AbortController();
   private instructions = "";
   private windowTokens = 0;
+  /** 正常模型步骤的输入用量，不跨重启保存，也不累计输出或压缩请求的消耗。 */
+  private inputUsage: InputTokenUsage | undefined;
   private timezone = "";
   private active = false;
   /** 只表示待检查 inbox；事件正文与轮次进度以 Redis 为准。 */
@@ -214,6 +221,7 @@ export class MainAgentLoop {
     // 工具持久化失败必须终止 SDK，不能被转换为 tool-error 后继续产生新的副作用。
     const failed = new AbortController();
     const signal = AbortSignal.any([this.stopping.signal, failed.signal]);
+    let requestBytes: number;
     const result = await generateText({
       model: strongModel,
       tools: createAgentTools(this.execution, round.id, signal, (error) => failed.abort(error)),
@@ -225,15 +233,23 @@ export class MainAgentLoop {
       stopWhen: () => signal.aborted,
       prepareStep: async () => {
         signal.throwIfAborted();
-        state.context = await prepareAgentContext(
+        const context = await prepareAgentContext(
           state.context,
           this.instructions,
           agentTools,
           agentToolDescription,
           this.windowTokens,
           signal,
+          this.execution.characterId,
+          this.inputUsage,
         );
-        return { messages: agentMessages(state.context, this.instructions) };
+        if (context !== state.context) {
+          this.inputUsage = undefined;
+        }
+        state.context = context;
+        const messages = agentMessages(context, this.instructions);
+        requestBytes = measureInputBytes(messages, agentToolDescription);
+        return { messages };
       },
       onToolExecutionStart: ({ toolCall }) => {
         logger.info("主 agent 调用工具", {
@@ -254,7 +270,8 @@ export class MainAgentLoop {
           });
         }
       },
-      onStepEnd: ({ response, finishReason }) => {
+      onStepEnd: ({ response, finishReason, usage }) => {
+        this.inputUsage = readInputTokenUsage(requestBytes, usage);
         if (finishReason !== "stop" && finishReason !== "tool-calls") {
           // 生命周期通知会吞掉回调异常，通过 abort 阻止下一步并在返回后再次检查。
           failed.abort(new Error(`主 loop 模型步骤未完整结束：${finishReason}`));

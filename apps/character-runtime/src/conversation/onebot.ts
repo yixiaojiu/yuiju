@@ -92,7 +92,7 @@ export class OneBotConnection {
       if (
         !this.accepting ||
         !session.guildId ||
-        !this.config.group_white_list?.includes(session.guildId) ||
+        !this.config.group_white_list?.some((group) => group.group_id === session.guildId) ||
         session.userId === this.config.self_id
       ) {
         return;

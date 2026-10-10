@@ -1,3 +1,5 @@
+import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
+import { estimateInputTokens, type InputTokenUsage } from "@yuiju/shared/llm/context-usage";
 import { strongModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, type ModelMessage, type ToolSet } from "ai";
@@ -16,12 +18,14 @@ export async function prepareAgentContext(
   toolDescription: string,
   windowTokens: number,
   signal: AbortSignal,
+  characterId: string,
+  inputUsage?: InputTokenUsage,
 ): Promise<AgentContextState> {
-  // 与聊天一致，用 UTF-8 字节作保守估算；不是精确 tokenizer，也不扣输出预留。
-  const estimate = (context: AgentContextState) =>
-    Buffer.byteLength(
-      JSON.stringify(agentMessages(context, instructions)) + toolDescription,
-      "utf8",
+  const estimate = (context: AgentContextState, current: ModelMessage[] = []) =>
+    estimateInputTokens(
+      [...agentMessages(context, instructions), ...current],
+      toolDescription,
+      inputUsage,
     );
   if (estimate(state) < windowTokens * 0.85) {
     return state;
@@ -37,9 +41,9 @@ export async function prepareAgentContext(
     const compressionPrompt = await renderPrompt("agentLoop.compression");
     while (
       prefix.length &&
-      estimate({ summary: context.summary, units: prefix }) +
-        Buffer.byteLength(compressionPrompt, "utf8") >=
-        windowTokens
+      estimate({ summary: context.summary, units: prefix }, [
+        { role: "user", content: compressionPrompt },
+      ]) >= windowTokens
     ) {
       prefix.pop();
     }
@@ -47,6 +51,18 @@ export async function prepareAgentContext(
       throw new Error("主 loop 没有能够放入压缩请求的完整旧交互");
     }
 
+    // 每次实际压缩请求记录一次；失败仍计入触发次数，统计的是压缩前完整上下文。
+    reportAnalyticsEvent({
+      eventName: "agent.context_compression",
+      eventData: {
+        scene: "main",
+        characterId,
+        trigger: "token_limit",
+        contextTokens: estimate(context),
+        windowTokens,
+        measurement: inputUsage ? "usage_calibrated" : "byte_fallback",
+      },
+    });
     const result = await generateText({
       model: strongModel,
       messages: [
@@ -68,6 +84,8 @@ export async function prepareAgentContext(
     }
     context.summary = compressed.summary;
     context.units = compressed.units;
+    // 历史已被摘要替换，压缩请求的 usage 不能作为新正常上下文的基准。
+    inputUsage = undefined;
   }
   return context;
 }

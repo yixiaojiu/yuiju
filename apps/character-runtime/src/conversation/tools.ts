@@ -101,7 +101,7 @@ export const plannerTools = {
   }),
   reply: tool({
     description:
-      "你决定参与文字交流，Replyer 根据聊天记录、人设与补充上下文自行决定具体说什么并发送，返回实际发送结果。没有额外上下文时可直接调用；引用和 @ 可选，分别使用消息 id 和 sender-id。",
+      "你尝试参与文字交流，Replyer 根据聊天记录、人设与补充上下文决定具体回复，也可以选择本次不回复；返回实际发送记录或未发送的结果。主动不回复不是执行失败。没有额外上下文时可直接调用；引用和 @ 可选，分别使用消息 id 和 sender-id。",
     inputSchema: replySchema,
   }),
   poke: tool({ description: "你戳一戳某个人，返回实际执行结果。", inputSchema: pokeSchema }),
@@ -264,6 +264,9 @@ export function createPlannerTools(
             context.saveReplyerSummary,
             await context.readCharacter(),
           );
+          if (text === null) {
+            return "本次未发送：Replyer 判断当前无需回复。";
+          }
           for await (const events of sendReply(
             context.connection,
             scope.channelId,

@@ -1,5 +1,35 @@
 import { z } from "zod";
 
+/** 配置允许简写群号；业务侧统一使用对象，只有显式开启才采集训练数据。 */
+const groupWhitelistSchema = z
+  .array(
+    z
+      .union([
+        z.string().min(1),
+        z.strictObject({
+          group_id: z.string().min(1),
+          collect_training_data: z.boolean().optional(),
+        }),
+      ])
+      .transform((group) => ({
+        group_id: typeof group === "string" ? group : group.group_id,
+        collect_training_data: typeof group !== "string" && group.collect_training_data === true,
+      })),
+  )
+  .superRefine((groups, context) => {
+    const groupIds = new Set<string>();
+    for (const [index, group] of groups.entries()) {
+      if (groupIds.has(group.group_id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: "群白名单不能重复配置同一个群",
+        });
+      }
+      groupIds.add(group.group_id);
+    }
+  });
+
 const provider_schema = z.strictObject({
   base_url: z.url(),
   api_key: z.string().optional(),
@@ -76,7 +106,7 @@ export const config_schema = z.strictObject({
             self_id: z.string().min(1),
             endpoint: z.url({ protocol: /^wss?$/ }),
             token: z.string().optional(),
-            group_white_list: z.array(z.string().min(1)).optional(),
+            group_white_list: groupWhitelistSchema.optional(),
           })
           .optional(),
       }),

@@ -10,9 +10,26 @@ import { getDeployment } from "@/lib/deployment";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-export type AnalyticsEventName = "conversation.planner" | "conversation.replyer" | "llm.request";
+export type AnalyticsEventName =
+  | "conversation.planner"
+  | "conversation.replyer"
+  | "llm.request"
+  | "agent.context_compression";
+export type CompressionScene = "main" | "planner" | "replyer";
 export type LlmRequestStatus = "success" | "failed" | "cancelled" | "timeout";
 export type AnalyticsEntry = { id: string; eventTime: number } & (
+  | {
+      eventName: "agent.context_compression";
+      eventData: {
+        scene: CompressionScene;
+        characterId: string;
+        channelId?: string;
+        trigger: "message_count" | "token_limit";
+        contextTokens: number;
+        windowTokens: number;
+        measurement: "usage_calibrated" | "byte_fallback";
+      };
+    }
   | {
       eventName: "conversation.planner" | "conversation.replyer";
       eventData: { characterId: string; platform: string; channelId: string; durationMs: number };
@@ -48,12 +65,22 @@ export type AnalyticsSummary = {
   outputUsageCount: number;
   cacheRequestCount: number;
   cacheHitRate: number | null;
+  averageContextRatio: number | null;
+  maxContextRatio: number | null;
+};
+export type CompressionDaily = {
+  date: string;
+  scene: CompressionScene;
+  total: number;
+  averageContextRatio: number;
+  maxContextRatio: number;
 };
 export type AnalyticsResponse = {
   entries: AnalyticsEntry[];
   summary: AnalyticsSummary;
   page: number;
   pageSize: number;
+  compressionDaily: CompressionDaily[];
 };
 
 const queryFields = {
@@ -63,6 +90,12 @@ const queryFields = {
 };
 const querySchema = z
   .discriminatedUnion("eventName", [
+    z.strictObject({
+      ...queryFields,
+      eventName: z.literal("agent.context_compression"),
+      scene: z.enum(["main", "planner", "replyer"]).optional(),
+      channelId: z.string().trim().optional(),
+    }),
     z.strictObject({
       ...queryFields,
       eventName: z.enum(["conversation.planner", "conversation.replyer"]),
@@ -107,6 +140,8 @@ export const analyticsApi = new Hono().get("/", async (c) => {
       : {
           "eventData.characterId": deployment.characterId,
           ...(query.channelId && { "eventData.channelId": query.channelId }),
+          ...(query.eventName === "agent.context_compression" &&
+            query.scene && { "eventData.scene": query.scene }),
         }),
   };
   const collection = (await getMongoDatabase()).collection(mongoCollectionName("analytics_events"));
@@ -119,8 +154,14 @@ export const analyticsApi = new Hono().get("/", async (c) => {
       { $isNumber: "$eventData.cacheReadTokens" },
     ],
   };
+  // 每条记录先计算自己的窗口占用率，再求平均；不同窗口容量不混用分母。
+  const contextRatio = { $divide: ["$eventData.contextTokens", "$eventData.windowTokens"] };
   const [result] = await collection
-    .aggregate<{ entries: AnalyticsEntry[]; summary: AnalyticsSummary[] }>([
+    .aggregate<{
+      entries: AnalyticsEntry[];
+      summary: AnalyticsSummary[];
+      compressionDaily: CompressionDaily[];
+    }>([
       { $match: filter },
       { $sort: { eventTime: -1, _id: -1 } },
       {
@@ -162,6 +203,8 @@ export const analyticsApi = new Hono().get("/", async (c) => {
                 cacheReadTokens: {
                   $sum: { $cond: [hasCacheUsage, "$eventData.cacheReadTokens", 0] },
                 },
+                averageContextRatio: { $avg: contextRatio },
+                maxContextRatio: { $max: contextRatio },
               },
             },
             {
@@ -175,6 +218,8 @@ export const analyticsApi = new Hono().get("/", async (c) => {
                 inputUsageCount: 1,
                 outputUsageCount: 1,
                 cacheRequestCount: 1,
+                averageContextRatio: 1,
+                maxContextRatio: 1,
                 inputTokens: { $cond: [{ $gt: ["$inputUsageCount", 0] }, "$inputTokens", null] },
                 outputTokens: { $cond: [{ $gt: ["$outputUsageCount", 0] }, "$outputTokens", null] },
                 cacheHitRate: {
@@ -184,6 +229,37 @@ export const analyticsApi = new Hono().get("/", async (c) => {
                     null,
                   ],
                 },
+              },
+            },
+          ],
+          compressionDaily: [
+            { $match: { eventName: "agent.context_compression" } },
+            {
+              $group: {
+                _id: {
+                  date: {
+                    $dateToString: {
+                      format: "%Y-%m-%d",
+                      date: "$eventTime",
+                      timezone: deployment.timezone,
+                    },
+                  },
+                  scene: "$eventData.scene",
+                },
+                total: { $sum: 1 },
+                averageContextRatio: { $avg: contextRatio },
+                maxContextRatio: { $max: contextRatio },
+              },
+            },
+            { $sort: { "_id.date": -1, "_id.scene": 1 } },
+            {
+              $project: {
+                _id: 0,
+                date: "$_id.date",
+                scene: "$_id.scene",
+                total: 1,
+                averageContextRatio: 1,
+                maxContextRatio: 1,
               },
             },
           ],
@@ -205,11 +281,14 @@ export const analyticsApi = new Hono().get("/", async (c) => {
         outputUsageCount: 0,
         cacheRequestCount: 0,
         cacheHitRate: null,
+        averageContextRatio: null,
+        maxContextRatio: null,
       };
   return c.json({
     entries: result.entries,
     summary,
     page: query.page,
     pageSize,
+    compressionDaily: result.compressionDaily,
   } satisfies AnalyticsResponse);
 });

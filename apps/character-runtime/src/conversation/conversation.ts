@@ -19,13 +19,15 @@ export class Conversation {
   /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */
   async start(participationAllowed?: boolean) {
     // 主动恢复白名单中的会话；不能等第一条新消息才重建 wait。
-    for (const channelId of new Set(this.onebot.group_white_list ?? [])) {
+    for (const group of this.onebot.group_white_list ?? []) {
+      const channelId = group.group_id;
       const session = new ConversationLoop(
         { characterId: this.character.id, platform: "onebot", channelId },
         this.onebot.self_id,
         [this.character.name, ...this.character.nicknames],
         this.connection,
         this.character,
+        group.collect_training_data,
       );
       await session.initialize();
       if (participationAllowed !== undefined) {

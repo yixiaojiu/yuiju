@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/[[...route]]/routes/analytics";
 import { AnalyticsFilterCard, type AnalyticsFilters } from "./analytics-filter-card";
-import { AnalyticsSummaryCards } from "./analytics-summary";
+import { AnalyticsSummaryCards, CompressionDailyTable } from "./analytics-summary";
 import { AnalyticsTableCard } from "./analytics-table-card";
 
 type AnalyticsQuery = { filters: AnalyticsFilters; page: number };
@@ -18,6 +18,7 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
     model: "",
     host: "",
     status: "",
+    scene: "",
   });
   const [query, setQuery] = useState<AnalyticsQuery>({ filters: initialFilters, page: 1 });
   const [result, setResult] = useState<{
@@ -44,7 +45,10 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
               host: filters.host,
               status: filters.status,
             }
-          : { channelId: filters.channelId };
+          : {
+              channelId: filters.channelId,
+              ...(filters.eventName === "agent.context_compression" && { scene: filters.scene }),
+            };
       for (const [key, value] of Object.entries(fields)) {
         if (value.trim()) {
           params.set(key, value.trim());
@@ -83,6 +87,9 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
       />
       {current?.data && (
         <AnalyticsSummaryCards eventName={query.filters.eventName} summary={current.data.summary} />
+      )}
+      {current?.data && query.filters.eventName === "agent.context_compression" && (
+        <CompressionDailyTable entries={current.data.compressionDaily} />
       )}
       <AnalyticsTableCard
         key={query.filters.eventName}

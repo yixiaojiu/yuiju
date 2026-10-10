@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { AnalyticsEventName, LlmRequestStatus } from "@/app/api/[[...route]]/routes/analytics";
+import type {
+  AnalyticsEventName,
+  CompressionScene,
+  LlmRequestStatus,
+} from "@/app/api/[[...route]]/routes/analytics";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DateRangePicker } from "@/components/ui/date-picker";
@@ -10,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { compressionSceneLabels } from "./format";
 
 export type AnalyticsFilters = {
   eventName: AnalyticsEventName;
@@ -20,6 +25,7 @@ export type AnalyticsFilters = {
   model: string;
   host: string;
   status: LlmRequestStatus | "";
+  scene: CompressionScene | "";
 };
 
 const inputStyle =
@@ -62,6 +68,7 @@ export function AnalyticsFilterCard({
                 <SelectItem value="conversation.planner">Planner 耗时</SelectItem>
                 <SelectItem value="conversation.replyer">Replyer 耗时</SelectItem>
                 <SelectItem value="llm.request">LLM 请求</SelectItem>
+                <SelectItem value="agent.context_compression">上下文压缩</SelectItem>
               </SelectContent>
             </Select>
           </label>
@@ -77,6 +84,32 @@ export function AnalyticsFilterCard({
               onChange={(range) => setDraft({ ...draft, ...range })}
             />
           </label>
+          {draft.eventName === "agent.context_compression" && (
+            <label htmlFor="analytics-scene" className="grid gap-1.5 text-xs text-muted-foreground">
+              场景
+              <Select
+                value={draft.scene || "__all__"}
+                onValueChange={(value) =>
+                  setDraft({
+                    ...draft,
+                    scene: (value === "__all__" ? "" : value) as AnalyticsFilters["scene"],
+                  })
+                }
+              >
+                <SelectTrigger id="analytics-scene" className={inputStyle} aria-label="场景">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="__all__">全部</SelectItem>
+                  {Object.entries(compressionSceneLabels).map(([scene, label]) => (
+                    <SelectItem key={scene} value={scene}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
           {draft.eventName === "llm.request" ? (
             <>
               <label

@@ -18,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatTime } from "@/lib/date";
-import { formatTokens } from "./format";
+import { compressionSceneLabels, formatContextRatio, formatTokens } from "./format";
 
 const statusLabels = { success: "成功", failed: "失败", cancelled: "取消", timeout: "超时" };
 const cellStyle = "whitespace-nowrap px-4 py-3 text-xs tabular-nums";
@@ -36,19 +36,30 @@ export function AnalyticsTableCard({
 }) {
   const [selected, setSelected] = useState<AnalyticsEntry | null>(null);
   const columns =
-    eventName === "llm.request"
+    eventName === "agent.context_compression"
       ? [
           "时间",
-          "模型组",
-          "模型",
-          "供应商",
-          "结果",
-          "耗时",
-          "输入 / 输出 token",
-          "缓存命中率",
+          "场景",
+          "群聊",
+          "触发原因",
+          "上下文 / 窗口 token",
+          "占用（估算）",
+          "估算方式",
           "操作",
         ]
-      : ["时间", "群聊", "耗时", "操作"];
+      : eventName === "llm.request"
+        ? [
+            "时间",
+            "模型组",
+            "模型",
+            "供应商",
+            "结果",
+            "耗时",
+            "输入 / 输出 token",
+            "缓存命中率",
+            "操作",
+          ]
+        : ["时间", "群聊", "耗时", "操作"];
   return (
     <>
       <Card className="gap-0 overflow-hidden rounded-2xl py-0">
@@ -89,7 +100,33 @@ export function AnalyticsTableCard({
               data.entries.map((entry) => (
                 <TableRow key={entry.id} className="border-b last:border-0 hover:bg-secondary/30">
                   <TableCell className={cellStyle}>{formatTime(entry.eventTime, true)}</TableCell>
-                  {entry.eventName === "llm.request" ? (
+                  {entry.eventName === "agent.context_compression" ? (
+                    <>
+                      <TableCell className={cellStyle}>
+                        {compressionSceneLabels[entry.eventData.scene]}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {entry.eventData.channelId ?? "—"}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {entry.eventData.trigger === "message_count" ? "消息条数" : "token 阈值"}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {formatTokens(entry.eventData.contextTokens)} /{" "}
+                        {formatTokens(entry.eventData.windowTokens)}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {formatContextRatio(
+                          entry.eventData.contextTokens / entry.eventData.windowTokens,
+                        )}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {entry.eventData.measurement === "usage_calibrated"
+                          ? "实际用量校准"
+                          : "字节兜底"}
+                      </TableCell>
+                    </>
+                  ) : entry.eventName === "llm.request" ? (
                     <>
                       <TableCell className={cellStyle}>{entry.eventData.group}</TableCell>
                       <TableCell className="max-w-72 whitespace-normal break-words px-4 py-3 text-xs">

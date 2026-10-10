@@ -19,7 +19,7 @@ for (const scenario of conversationCases) {
         const scope = { characterId: "yuuno", platform: "onebot" as const, channelId: "20001" };
         const history: ConversationMessage[] = [];
         const planner = new Planner(scope);
-        const replyer = new Replyer(scope);
+        const replyer = new Replyer(scope, false);
         const connection = new OneBotConnection("悠乃", {
           self_id: "90001",
           endpoint: "ws://eval.invalid",

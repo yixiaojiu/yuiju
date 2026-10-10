@@ -38,7 +38,7 @@ for (const scenario of [
         sequence: index + 1,
       }));
       const planner = new Planner(scope);
-      const replyer = new Replyer(scope);
+      const replyer = new Replyer(scope, false);
       const connection = new OneBotConnection("悠乃", {
         self_id: "90001",
         endpoint: "ws://eval.invalid",

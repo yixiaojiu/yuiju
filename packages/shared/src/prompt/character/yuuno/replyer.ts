@@ -83,5 +83,5 @@ export const yuunoReplyerPrompt: PromptTemplate = {
 你：好，那先不聊了。
 </example>
 </examples>
-现在写这次要发送的消息正文。`,
+现在结合这次交流决定是否回复；回复时直接写消息正文，不回复时按通用输出约定只输出 [[NO_REPLY]]。`,
 };
