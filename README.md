@@ -4,6 +4,10 @@
 
 <h1 align="center">Yuiju</h1>
 
+<p align="center">
+  <img src="https://count.getloli.com/@yixiaojiu-yuiju?theme=rule34" alt="项目访问计数" />
+</p>
+
 > [!IMPORTANT]
 > 项目已启用重构后的新应用：`apps/character-runtime` 负责角色运行与聊天，`apps/world-simulator` 负责虚拟世界。
 > 新应用使用 `data/config/config.json` 配置，覆盖 `packages/shared/src/config/defaults.json` 中的默认值，修改后重启生效。
@@ -21,6 +25,10 @@
   <a href="./LICENSE">
     <img src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg?style=flat-square" alt="AGPL-3.0-or-later License" />
   </a>
+</p>
+
+<p align="center">
+  <img src="packages/source/picture/无辜-这会是个好项目吗.webp" alt="ゆいじゅ（悠酱）" width="250" />
 </p>
 
 ---
@@ -42,10 +50,6 @@ Yuiju 不是一个以问答和任务执行为中心的 AI 助手。它尝试构�
 用户可以通过 QQ、飞书和 Web 观察或介入角色的生活。聊天只是彼此相遇的窗口；角色的近况、回复和主动分享，来自她在世界里真正经历过的事情。
 
 > 不做 AI 智能助手，做有自己生活的“人”。
-
-<p align="center">
-  <img src="packages/source/picture/无辜-这会是个好项目吗.webp" alt="ゆいじゅ（悠酱）" width="250" />
-</p>
 
 ## 核心能力
 

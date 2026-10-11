@@ -34,7 +34,7 @@ export class Character {
     private readonly mode: CharacterMode,
   ) {
     this.name = config.name;
-    this.emotion = new Emotion(id);
+    this.emotion = new Emotion(id, () => this.agent?.wake());
     this.memory = new DailyMemory(id);
     this.nicknames = config.nicknames ?? [];
     this.world = new WorldClient(

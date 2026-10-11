@@ -1,19 +1,29 @@
+import { randomUUID } from "node:crypto";
+import { load_config } from "@yuiju/shared/config/load";
 import { getRedis } from "@yuiju/shared/database/redis";
+import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { Output } from "ai";
 import { z } from "zod";
+import type { CharacterEvent } from "../agent-loop/events";
 import { characterKey, commitCharacterTransaction } from "../storage";
 
 type Feeling = { id: string; content: string; occurredAt: number };
+/** 一批感受只反馈一次；处理结果不是新的经历或感受。 */
+export type EmotionResult = {
+  requestIds: string[];
+  status: "updated" | "unchanged" | "rejected" | "failed";
+  description: string;
+};
 export type EmotionState = {
   pleasure: number;
   activation: number;
   control: number;
   updatedAt: number;
-  /** 可同时保留多件事的感受；由模型合并或解除，按实际感受时间记录。 */
+  /** 仍持续影响此刻的事项，不是经历清单；保留原发生时间，最多 12 条、每条 100 字符。 */
   feelings: Feeling[];
 };
 
@@ -31,10 +41,18 @@ const emotionUpdateSchema = z.strictObject({
     .array(
       z.strictObject({
         sourceId: z.string().describe("已有感受或新提交的实际来源 id"),
-        content: z.string().min(1).describe("你此刻对这件事的感受，不编造原因"),
+        content: z.string().min(1).describe("仍在影响你此刻的事项，简短直接，最多 100 字符"),
       }),
     )
     .max(12),
+  summary: z
+    .string()
+    .min(1)
+    .describe("简短说明本批的情绪变化及感受的保留、合并或移除；无需变化时说明原因"),
+});
+const emotionReviewSchema = z.strictObject({
+  approved: z.boolean(),
+  issues: z.array(z.string()).describe("未通过的具体问题；通过时为空数组"),
 });
 
 /** 数值只表达三种维度，不据组合推测生气、悲伤或具体原因。 */
@@ -74,8 +92,13 @@ export class Emotion {
   private readonly stopping = new AbortController();
   private active = false;
   private wakeRequested = false;
+  /** 未更新状态的批次也占用处理间隔，避免失败后新提交绕过合批限制。 */
+  private processedAt = 0;
 
-  constructor(private readonly characterId: string) {}
+  constructor(
+    private readonly characterId: string,
+    private readonly onResult: () => void,
+  ) {}
 
   async initialize(): Promise<void> {
     await (await getRedis()).set(
@@ -148,50 +171,35 @@ return 1
         return;
       }
       const previous = await this.read();
-      if (Date.now() < previous.updatedAt + 30_000) {
-        nextAt = previous.updatedAt + 30_000;
+      const allowedAt = Math.max(previous.updatedAt, this.processedAt) + 30_000;
+      if (Date.now() < allowedAt) {
+        nextAt = allowedAt;
         return;
       }
-      const result = await generateStructuredOutput({
-        model: flashModel,
-        output: Output.object({ schema: emotionUpdateSchema }),
-        instructions: await renderPrompt("emotion.update"),
-        prompt: JSON.stringify({ previous, pending }),
-        abortSignal: this.stopping.signal,
-      });
-      const sources = new Map(
-        [...previous.feelings, ...pending].map((feeling) => [feeling.id, feeling]),
-      );
-      const state: EmotionState = {
-        ...previous,
-        updatedAt: Date.now(),
-        feelings: result.output.feelings.map((feeling) => {
-          const source = sources.get(feeling.sourceId);
-          if (!source) {
-            throw new Error(`情绪引用了不存在的感受：${feeling.sourceId}`);
-          }
-          return { id: source.id, content: feeling.content, occurredAt: source.occurredAt };
-        }),
+      const { state, result } = await this.reviewUpdate(previous, pending);
+      this.stopping.signal.throwIfAborted();
+      const event: CharacterEvent = {
+        id: randomUUID(),
+        type: "emotion_result",
+        occurredAt: Date.now(),
+        result,
       };
-      const amounts = [0, 5, 15, 30];
-      for (const dimension of ["pleasure", "activation", "control"] as const) {
-        const direction = result.output[dimension];
-        state[dimension] = Math.max(
-          0,
-          Math.min(100, previous[dimension] + Math.sign(direction) * amounts[Math.abs(direction)]),
-        );
+      // 只有状态确认提交后才能通知主 loop；结果和消费同批完成，重启后从 inbox 接续。
+      const transaction = redis.multi();
+      if (result.status === "updated") {
+        transaction.set(`${key}:emotion:state`, JSON.stringify(state));
       }
-      await commitCharacterTransaction(
-        redis
-          .multi()
-          .set(`${key}:emotion:state`, JSON.stringify(state))
-          .hdel(`${key}:emotion:pending`, ...pending.map((feeling) => feeling.id)),
-      );
-      nextAt = state.updatedAt + 30_000;
+      transaction
+        .hdel(`${key}:emotion:pending`, ...result.requestIds)
+        .hset(`${key}:agent:inbox`, event.id, JSON.stringify(event));
+      await commitCharacterTransaction(transaction);
+      this.processedAt = event.occurredAt;
+      this.onResult();
+      nextAt = this.processedAt + 30_000;
     } catch (error) {
       if (this.active) {
-        logger.error("情绪处理失败，保留感受等待下一次处理", { error });
-        nextAt = Date.now() + 30_000;
+        // 模型失败已转为结果；此处是存储或生命周期异常，不发布未确认结果或定时重跑。
+        logger.error("情绪处理未能提交结果", { error });
       }
     } finally {
       this.running = undefined;
@@ -200,6 +208,139 @@ return 1
       } else if (this.active && this.wakeRequested) {
         this.wake();
       }
+    }
+  }
+
+  /** 更新和审查共用固定依据；意见最多修改三轮，异常或最终驳回都结束本批。 */
+  private async reviewUpdate(
+    previous: EmotionState,
+    pending: Feeling[],
+  ): Promise<{ state: EmotionState; result: EmotionResult }> {
+    const requestIds = pending.map((feeling) => feeling.id);
+    let candidate: z.infer<typeof emotionUpdateSchema> | undefined;
+    let issues: string[] = [];
+    try {
+      const timezone = (await load_config()).app!.timezone!;
+      // 只改变给模型看的日期格式，保存时仍沿用来源的实际时间。
+      const context = {
+        currentTime: formatLlmDateTime(Date.now(), timezone),
+        previous: {
+          ...previous,
+          updatedAt:
+            previous.updatedAt === 0 ? null : formatLlmDateTime(previous.updatedAt, timezone),
+          feelings: previous.feelings.map((feeling) => ({
+            ...feeling,
+            occurredAt: formatLlmDateTime(feeling.occurredAt, timezone),
+          })),
+        },
+        pending: pending.map((feeling) => ({
+          ...feeling,
+          occurredAt: formatLlmDateTime(feeling.occurredAt, timezone),
+        })),
+      };
+      const [updatePrompt, reviewPrompt] = await Promise.all([
+        renderPrompt("emotion.update"),
+        renderPrompt("emotion.review"),
+      ]);
+      const sources = new Map(
+        [...previous.feelings, ...pending].map((feeling) => [feeling.id, feeling]),
+      );
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const generated = await generateStructuredOutput({
+          model: flashModel,
+          output: Output.object({ schema: emotionUpdateSchema }),
+          instructions: updatePrompt,
+          prompt: JSON.stringify({ ...context, candidate, issues }),
+          abortSignal: this.stopping.signal,
+        });
+        if (generated.finishReason !== "stop") {
+          throw new Error(`情绪更新未完整生成：${generated.finishReason}`);
+        }
+        candidate = generated.output;
+        // 契约错误交回生成者修正，不由程序截断、补造来源或静默去重。
+        issues = [];
+        const sourceIds = new Set<string>();
+        for (const feeling of candidate.feelings) {
+          if (!sources.has(feeling.sourceId)) {
+            issues.push(`感受引用了不存在的来源：${feeling.sourceId}`);
+          }
+          if (sourceIds.has(feeling.sourceId)) {
+            issues.push(`同一来源重复保留：${feeling.sourceId}`);
+          }
+          if (feeling.content.length > 100) {
+            issues.push(`感受超过 100 字符：${feeling.sourceId}`);
+          }
+          sourceIds.add(feeling.sourceId);
+        }
+        if (issues.length) {
+          continue;
+        }
+        const review = await generateStructuredOutput({
+          model: flashModel,
+          output: Output.object({ schema: emotionReviewSchema }),
+          instructions: reviewPrompt,
+          prompt: JSON.stringify({ ...context, candidate }),
+          abortSignal: this.stopping.signal,
+        });
+        if (review.finishReason !== "stop") {
+          throw new Error(`情绪审查未完整生成：${review.finishReason}`);
+        }
+        if (!review.output.approved) {
+          issues = review.output.issues;
+          continue;
+        }
+
+        const state: EmotionState = {
+          ...previous,
+          feelings: candidate.feelings.map((feeling) => ({
+            ...sources.get(feeling.sourceId)!,
+            content: feeling.content,
+          })),
+        };
+        const amounts = [0, 5, 15, 30];
+        for (const dimension of ["pleasure", "activation", "control"] as const) {
+          const direction = candidate[dimension];
+          state[dimension] = Math.max(
+            0,
+            Math.min(
+              100,
+              previous[dimension] + Math.sign(direction) * amounts[Math.abs(direction)],
+            ),
+          );
+        }
+        const changed = JSON.stringify(state) !== JSON.stringify(previous);
+        if (changed) {
+          state.updatedAt = Date.now();
+        }
+        return {
+          state,
+          result: {
+            requestIds,
+            status: changed ? "updated" : "unchanged",
+            description: `${changed ? "已更新" : "无需更新，保留原状态"}：${candidate.summary}\n处理后的情绪：${describeEmotion(state)}\n不要重试本批感受，也不必为处理结果再次提交感受；只有出现新的实质变化时再表达。`,
+          },
+        };
+      }
+      return {
+        state: previous,
+        result: {
+          requestIds,
+          status: "rejected",
+          description: `情绪候选三轮内未通过检查，保留原状态。问题：${issues.join("；")}\n本批已结束，不要重试或改写同一内容重新提交；新发生的事情或实质变化可以正常表达。`,
+        },
+      };
+    } catch (error) {
+      this.stopping.signal.throwIfAborted();
+      logger.error("情绪更新或审查失败，本批结束", { error });
+      return {
+        state: previous,
+        result: {
+          requestIds,
+          status: "failed",
+          description:
+            "情绪更新或审查调用失败，本批未完成，保留原状态。不要重试同一批感受或为此再次调用工具；新发生的事情可以正常表达。",
+        },
+      };
     }
   }
 

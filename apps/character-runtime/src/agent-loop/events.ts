@@ -2,6 +2,7 @@ import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { ActivityView, WorldEvent } from "@yuiju/shared/world/protocol";
 import type { ConversationScope } from "../conversation/message";
+import type { EmotionResult } from "../emotion/emotion";
 import { characterKey } from "../storage";
 
 export type CharacterEvent = {
@@ -10,6 +11,7 @@ export type CharacterEvent = {
 } & (
   | { type: "world"; event: WorldEvent }
   | { type: "connected" }
+  | { type: "emotion_result"; result: EmotionResult }
   | { type: "activity_due"; activityId: string; endsAt: number }
   | { type: "plan_attention"; planId: string; attentionAt: number; revision: number }
   | {

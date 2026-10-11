@@ -10,6 +10,7 @@ import { plannerPrompt } from "./conversation/planner";
 import { plannerCompressionPrompt } from "./conversation/planner-compression";
 import { replyerPrompt } from "./conversation/replyer";
 import { replyerCompressionPrompt } from "./conversation/replyer-compression";
+import { emotionReviewPrompt } from "./emotion/review";
 import { emotionUpdatePrompt } from "./emotion/update";
 import {
   coarseMemoryPrompt,
@@ -39,6 +40,7 @@ export const promptDefinitions: readonly PromptTemplate[] = [
   peopleReviewPrompt,
   yuunoInitialCognition,
   emotionUpdatePrompt,
+  emotionReviewPrompt,
   mainAgentPrompt,
   mainCompressionPrompt,
   mainRecoveryPrompt,

@@ -308,6 +308,10 @@ export class MainAgentLoop {
         }
       } else if (event.type === "connected") {
         lines.push("世界连接已建立，需要了解现状时可以查询。");
+      } else if (event.type === "emotion_result") {
+        lines.push(
+          `感受处理结果（${formatLlmDateTime(event.occurredAt, this.timezone)}，提交 ID：${event.result.requestIds.join("、")}）：\n${event.result.description}`,
+        );
       } else if (event.type === "activity_due") {
         lines.push(
           `活动 ${event.activityId} 已超过预计时长的 1.5 倍，尚未确认结束，需要了解实际状态。`,

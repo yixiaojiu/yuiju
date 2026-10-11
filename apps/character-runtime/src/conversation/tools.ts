@@ -257,6 +257,7 @@ export function createPlannerTools(
         let failure: string | undefined;
         try {
           const replyInput = { ...input, senderId };
+          const generationStartedAt = performance.now();
           const text = await context.replyer.reply(
             replyInput,
             [...context.history],
@@ -272,6 +273,7 @@ export function createPlannerTools(
             scope.channelId,
             text,
             replyInput,
+            generationStartedAt,
             async () => {
               stage = "prepare-send";
               await context.beforeSend();

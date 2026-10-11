@@ -31,7 +31,8 @@ for (const scenario of mainAgentCases) {
           async () => {},
           { queueAgentEvents: true },
         );
-        const emotion = new Emotion("yuuno");
+        // 测评仅模拟感受提交，不启动后台情绪处理或唤醒主 loop。
+        const emotion = new Emotion("yuuno", () => {});
         vi.spyOn(world, "inspect").mockImplementation(async (query) => {
           record("effect", "世界查询（真实规则，内存状态）", query);
           if (scenario.unavailable) {

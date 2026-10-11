@@ -82,7 +82,8 @@ export const agentTools = {
     inputSchema: personSchema,
   }),
   express_feeling: tool({
-    description: "你可以提交对某件事的感受，情绪稍后更新，不会重新触发思考。",
+    description:
+      "你可以提交对实际事情的感受，情绪经更新与审查后以事件反馈结果；提交不代表已更新，无需等待或重复提交。",
     inputSchema: feelingSchema,
   }),
   inspect_world: tool({
@@ -328,7 +329,7 @@ export async function executeAgentAction(
   }
   if (call.name === "express_feeling") {
     await context.emotion.submit(requestId, feelingSchema.parse(call.input).feeling, createdAt);
-    return "已记下这份感受，情绪变化将用于之后的思考与交流。";
+    return `已提交感受，提交 ID：${requestId}。尚未更新情绪，最终结果稍后以事件通知；无需等待或重复提交。`;
   }
   if (call.name === "share") {
     const input = shareSchema.parse(call.input);
