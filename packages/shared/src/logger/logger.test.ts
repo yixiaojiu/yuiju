@@ -7,7 +7,7 @@ import { assert, expect, it } from "vitest";
 import winston from "winston";
 import { init_logger, logger } from "./logger";
 
-it("共享实例输出控制台文本与 JSON 文件，保留业务字段和错误堆栈", async () => {
+it("共享实例输出控制台文本与 JSON 文件，保留业务字段和错误堆栈，并脱敏凭据", async () => {
   const temp_dir = await mkdtemp(join(tmpdir(), "yuiju-logger-"));
   const log_dir = join(temp_dir, "app", "logs");
   try {
@@ -33,6 +33,15 @@ it("共享实例输出控制台文本与 JSON 文件，保留业务字段和错�
     logger.info("收到事件", { event_type: "action_completed" });
     logger.error("连接失败", error);
     logger.error(new Error("直接记录异常"));
+    logger.info("模型配置", {
+      api_key: "sk-live-abcdef",
+      onebot: { token: "napcat-token", endpoint: "wss://bot.example.com" },
+      base_url: "https://api.example.com/v1",
+      context_window_tokens: 128000,
+    });
+    logger.error("数据库连接失败", {
+      error_message: "cannot connect mongodb://user:s3cret@db.example.com:27017",
+    });
     const finished = once(logger, "finish");
     logger.end();
     await finished;
@@ -43,7 +52,7 @@ it("共享实例输出控制台文本与 JSON 文件，保留业务字段和错�
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(records).toHaveLength(3);
+    expect(records).toHaveLength(5);
     expect(records[0]).toMatchObject({
       app: "test-app",
       level: "info",
@@ -54,6 +63,16 @@ it("共享实例输出控制台文本与 JSON 文件，保留业务字段和错�
     expect(records[1].message).toContain("连接失败");
     expect(records[1].stack).toBe(error.stack);
     expect(records[2].stack).toContain("Error: 直接记录异常");
+
+    // 凭据按字段名整体替换，嵌套字段同样生效；计数指标与地址不受影响。
+    expect(records[3].api_key).toBe("[已脱敏]");
+    expect(records[3].onebot.token).toBe("[已脱敏]");
+    expect(records[3].onebot.endpoint).toBe("wss://bot.example.com");
+    expect(records[3].base_url).toBe("https://api.example.com/v1");
+    expect(records[3].context_window_tokens).toBe(128000);
+    // 上游异常正文里夹带的连接串凭据按值擦除。
+    expect(records[4].error_message).toContain("[已脱敏]@db.example.com");
+    expect(records[4].error_message).not.toContain("s3cret");
   } finally {
     logger.close();
     await rm(temp_dir, { recursive: true, force: true });
