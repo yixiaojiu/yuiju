@@ -23,6 +23,11 @@ const allEventTypes: WorldEvent["type"][] = [
   "idle_reminder",
 ];
 
+/** 世界服务配置了令牌时，HTTP 与 WebSocket 携带同一份凭据。 */
+function authorizationHeader(token: string | undefined): Record<string, string> {
+  return token === undefined ? {} : { authorization: "Bearer " + token };
+}
+
 /** 世界通知确认前，主 agent 模式持久入队，聊天调试模式直接同步状态。 */
 export class WorldClient {
   readonly characterId: string;
@@ -44,8 +49,8 @@ export class WorldClient {
 
   async start(): Promise<void> {
     const config = await load_config();
-    const baseUrl = config.app!.world_simulator!.base_url!;
-    this.connectionTask = this.runConnection(baseUrl);
+    const { base_url, token } = config.app!.world_simulator!;
+    this.connectionTask = this.runConnection(base_url!, token);
   }
 
   async stop(): Promise<void> {
@@ -65,9 +70,10 @@ export class WorldClient {
   async inspect(query: InspectWorldInput): Promise<WorldResult<InspectWorldResult>> {
     const config = await load_config();
 
-    const response = await fetch(new URL("/inspect", config.app!.world_simulator!.base_url!), {
+    const { base_url, token } = config.app!.world_simulator!;
+    const response = await fetch(new URL("/inspect", base_url!), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authorizationHeader(token) },
       body: JSON.stringify({ characterId: this.characterId, query }),
       signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
     });
@@ -82,9 +88,10 @@ export class WorldClient {
   ): Promise<WorldResult<ExecuteActionResult>> {
     const config = await load_config();
 
-    const response = await fetch(new URL("/actions", config.app!.world_simulator!.base_url!), {
+    const { base_url, token } = config.app!.world_simulator!;
+    const response = await fetch(new URL("/actions", base_url!), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authorizationHeader(token) },
       body: JSON.stringify({ characterId: this.characterId, requestId, ...input }),
       signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
     });
@@ -107,13 +114,13 @@ export class WorldClient {
     );
   }
 
-  private async runConnection(baseUrl: string): Promise<void> {
+  private async runConnection(baseUrl: string, token: string | undefined): Promise<void> {
     const endpoint = new URL("/events", baseUrl);
     endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
     while (!this.stopping.signal.aborted) {
       const disconnected = new AbortController();
       const signal = AbortSignal.any([this.stopping.signal, disconnected.signal]);
-      const socket = new WebSocket(endpoint);
+      const socket = new WebSocket(endpoint, { headers: authorizationHeader(token) });
       this.socket = socket;
       socket.once("close", () => disconnected.abort());
       socket.on("error", (error) => logger.warn("角色世界连接异常", { error }));

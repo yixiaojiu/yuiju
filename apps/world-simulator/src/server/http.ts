@@ -3,6 +3,7 @@ import { executeActionSchema, inspectWorldSchema } from "@yuiju/shared/world/pro
 import { Hono } from "hono";
 import { z } from "zod";
 import type { World } from "../world";
+import { isWorldRequestAuthorized } from "./authorization";
 
 const inspectRequestSchema = z.strictObject({
   characterId: z.string().min(1),
@@ -13,9 +14,18 @@ const actionRequestSchema = executeActionSchema.extend({
   requestId: z.string().min(1),
 });
 
-/** HTTP 入口只负责请求校验和响应，世界规则交给 World 执行。 */
-export function createWorldHttpApp(world: World) {
+/** HTTP 入口只负责令牌校验、请求校验和响应，世界规则交给 World 执行。 */
+export function createWorldHttpApp(world: World, token: string | undefined) {
   const app = new Hono();
+  app.use("*", async (context, next) => {
+    if (!isWorldRequestAuthorized(context.req.header("authorization"), token)) {
+      return context.json(
+        { ok: false, code: "unauthorized", message: "世界服务需要访问令牌" },
+        401,
+      );
+    }
+    await next();
+  });
   app.post("/inspect", async (context) => {
     const parsed = inspectRequestSchema.safeParse(await context.req.json());
     if (!parsed.success) {

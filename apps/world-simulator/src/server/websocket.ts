@@ -11,6 +11,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { WorldEventQueues } from "../queue";
 import { worldRetentionMs } from "../storage";
 import type { World } from "../world";
+import { isWorldRequestAuthorized } from "./authorization";
 
 type Subscription = {
   socket: WebSocket;
@@ -21,7 +22,12 @@ type Subscription = {
 };
 
 /** WS 负责连接与确认；BullMQ 负责未完成通知的持久化、重试和重启恢复。 */
-export function attachWorldWebSocket(server: Server, world: World, queues: WorldEventQueues) {
+export function attachWorldWebSocket(
+  server: Server,
+  world: World,
+  queues: WorldEventQueues,
+  token: string | undefined,
+) {
   const sockets = new WebSocketServer({ server, path: "/events" });
   sockets.on("error", (error) => logger.error("世界 WebSocket 服务异常", { error }));
   const connections = new Map<WebSocket, Promise<void>>();
@@ -81,7 +87,12 @@ export function attachWorldWebSocket(server: Server, world: World, queues: World
     return worker;
   });
 
-  sockets.on("connection", async (socket) => {
+  sockets.on("connection", async (socket, request) => {
+    if (!isWorldRequestAuthorized(request.headers.authorization, token)) {
+      logger.warn("世界事件连接未通过令牌校验");
+      socket.close(1008, "unauthorized");
+      return;
+    }
     const task = handleConnection(socket);
     connections.set(socket, task);
     try {

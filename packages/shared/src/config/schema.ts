@@ -47,17 +47,36 @@ const model_group_schema = z.strictObject({
   ),
 });
 
+/** 世界服务默认只监听本机；监听其他地址必须在配置里显式声明并配令牌。 */
+export const defaultWorldHost = "127.0.0.1";
+export const defaultWorldPort = 48100;
+const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"]);
+
+const world_simulator_schema = z
+  .strictObject({
+    base_url: z.url({ protocol: /^https?$/ }).optional(),
+    host: z.string().min(1).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    token: z.string().min(1).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.token !== undefined || loopbackHosts.has(value.host ?? defaultWorldHost)) {
+      return;
+    }
+    context.addIssue({
+      code: "custom",
+      path: ["token"],
+      message: "世界服务监听非本机地址时必须配置 token，否则同一网络的任何人都能执行角色行动",
+    });
+  });
+
 export const config_schema = z.strictObject({
   version: z.literal(1),
   app: z
     .strictObject({
       timezone: z.string().min(1).optional(),
       public_deployment: z.boolean().optional(),
-      world_simulator: z
-        .strictObject({
-          base_url: z.url({ protocol: /^https?$/ }).optional(),
-        })
-        .optional(),
+      world_simulator: world_simulator_schema.optional(),
     })
     .optional(),
   database: z

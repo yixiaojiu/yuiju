@@ -1,4 +1,4 @@
-import type { Config } from "@yuiju/shared/config/schema";
+import { type Config, defaultWorldHost, defaultWorldPort } from "@yuiju/shared/config/schema";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { closeRedis, getRedis } from "@yuiju/shared/database/redis";
 import { characterDefinitions } from "./content/characters";
@@ -51,7 +51,11 @@ export async function startWorldSimulator(config: Config) {
     await queues.start();
     await world.start();
     stopSync = startWorldSync(world, config);
-    server = await serveWorld(world, queues);
+    server = await serveWorld(world, queues, {
+      host: config.app!.world_simulator?.host ?? defaultWorldHost,
+      port: config.app!.world_simulator?.port ?? defaultWorldPort,
+      token: config.app!.world_simulator?.token,
+    });
   } catch (error) {
     try {
       await closeResources();
