@@ -3,8 +3,11 @@ import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText, tool, type UserContent } from "ai";
+import dayjs from "dayjs";
+import timezonePlugin from "dayjs/plugin/timezone";
+import utc from "dayjs/plugin/utc";
 import { z } from "zod";
-import { formatPeople, readPeople } from "../memory/people";
+import { formatPeople, readPeople, updatePersonMemory } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
 import { formatPlans, readPlans } from "../plan/plan";
 import {
@@ -17,6 +20,9 @@ import {
 import type { OneBotConnection } from "./onebot";
 import type { Replyer } from "./replyer";
 import { sendReply } from "./sender";
+
+dayjs.extend(utc);
+dayjs.extend(timezonePlugin);
 
 /** Planner 从聊天 XHTML 中选择需要理解的媒体，不要求一次读取全部附件。 */
 const understandMediaSchema = z.object({
@@ -72,6 +78,16 @@ const noticeSchema = z.strictObject({
     .describe("你反馈的主 loop 事件 ID；独立的群聊信息不填，不是消息 id"),
 });
 const personSchema = z.strictObject({ "sender-id": z.string().min(1) });
+const personMemorySchema = personSchema.extend({
+  description: z
+    .string()
+    .min(1)
+    .describe("你认为值得记住的新信息、纠正或重要互动，保留不确定性，不代写完整画像。"),
+  messageIds: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe("支持本次更新的真实消息 id；提供必要的前后文、纠正和回应，不只摘取一句话。"),
+});
 
 /** 不绑定执行逻辑的工具定义，规划和压缩共用同一套 schema。 */
 export const plannerTools = {
@@ -89,6 +105,11 @@ export const plannerTools = {
     description:
       "你可以读取对这个人的已有认识。同一平台身份跨群共用画像，并联合读取手动关联的其他平台身份。",
     inputSchema: personSchema,
+  }),
+  updatePersonMemory: tool({
+    description:
+      "你可以提交值得记住的人物信息，程序会结合来源原文和旧画像生成、审查并保存。仅发过言、普通接话不需要记录；不把玩笑或猜测写成事实。返回实际更新结果，失败或审查未通过时不要重复提交同一内容。",
+    inputSchema: personMemorySchema,
   }),
   readPlans: tool({
     description: "你可以查看角色已经接受的安排与进展。",
@@ -122,6 +143,7 @@ export const plannerToolDescription = JSON.stringify(
       notifyCharacter: noticeSchema,
       recall: recallSchema,
       readPerson: personSchema,
+      updatePersonMemory: personMemorySchema,
       readPlans: z.strictObject({}),
     }).map(([name, schema]) => [
       name,
@@ -220,6 +242,58 @@ export function createPlannerTools(
         } catch (error) {
           logger.error("人物认识读取失败", { error });
           return `人物认识读取失败：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+      toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
+    }),
+    updatePersonMemory: tool({
+      ...plannerTools.updatePersonMemory,
+      async execute({ "sender-id": senderId, description, messageIds }, { abortSignal }) {
+        try {
+          const messages = context.history.filter(
+            (message) => message.kind === "message" && messageIds.includes(message.id),
+          );
+          if (
+            messageIds.some(
+              (id) => !messages.some((message) => message.kind === "message" && message.id === id),
+            )
+          ) {
+            return "未更新：来源消息不在当前真实交流中，请使用可见消息的 id。";
+          }
+          const person = [...context.history]
+            .reverse()
+            .find(
+              (message) =>
+                message.kind === "message" && !message.isSelf && message.senderId === senderId,
+            );
+          if (!person) {
+            return "未更新：人物必须是当前真实交流中的群友，不能按昵称猜测 sender-id。";
+          }
+          const result = await updatePersonMemory(
+            scope.characterId,
+            {
+              platform: scope.platform,
+              userId: senderId,
+              name: person.senderName,
+              lastSpokeAt: person.timestamp,
+            },
+            {
+              description,
+              messages: messages.map((message) => ({
+                date: dayjs(message.timestamp).tz(timezone).format("YYYY-MM-DD"),
+                text: renderMessage(message, timezone),
+              })),
+            },
+            abortSignal,
+          );
+          return {
+            updated: "人物画像已更新。",
+            unchanged: "无需更新，当前画像已经包含这些认识或没有值得新增的内容。不要重复提交。",
+            rejected: "审查未通过，保留原画像。不要重复提交同一内容。",
+          }[result];
+        } catch (error) {
+          logger.error("人物画像更新失败", { error });
+          return `人物画像更新失败，本次不再重试。不要重复提交同一内容：${error instanceof Error ? error.message : String(error)}`;
         }
       },
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),

@@ -1,4 +1,5 @@
 import { readFile, rm } from "node:fs/promises";
+import { isDeepStrictEqual } from "node:util";
 import { load_config } from "@yuiju/shared/config/load";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { strongModel } from "@yuiju/shared/llm/models";
@@ -10,10 +11,11 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { formatLlmPlatform, stringifyLlmMemory } from "../conversation/platform";
-import { memoryPath, writeMemoryFile } from "./files";
+import { lockMemoryFile, memoryPath, writeMemoryFile } from "./files";
 import {
   initializePeopleActivity,
   readPeopleActivity,
+  recordPersonActivity,
   writePeopleActivity,
 } from "./people-activity";
 
@@ -21,8 +23,11 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 export type PersonIdentity = { platform: string; userId: string };
-/** 群聊整理提取的临时依据；日期由程序绑定，正文保留原话及语境，不直接当作画像。 */
-export type PersonMemoryMaterial = PersonIdentity & { date: string; text: string };
+/** Planner 提交意图，程序附带真实原文；生成和审查共用这份依据。 */
+export type PersonMemoryInput = {
+  description: string;
+  messages: { date: string; text: string }[];
+};
 const identitySchema = z.strictObject({ platform: z.string().min(1), userId: z.string().min(1) });
 const linksSchema = z.array(z.array(identitySchema).min(2));
 /** 模型只生成两段认识正文；身份和昵称由程序维护。 */
@@ -136,76 +141,46 @@ type ProfileContext = {
   currentDate: string;
   previous: ProfileContent | null;
   linked: PersonProfile[];
-  materials: { date: string; text: string }[];
+  material: PersonMemoryInput | null;
 };
 
-/** 汇集整日材料；超出输入预算时按材料分批，全部通过后才提交这一人的画像。 */
+/** 只更新指定人物；原文不从 Planner 描述中推导，超出输入预算直接返回失败。 */
 async function reviewPersonProfile(
   characterId: string,
   person: PersonIdentity & { name: string },
-  materials: PersonMemoryMaterial[],
-  signal: AbortSignal,
+  material: PersonMemoryInput | null,
+  signal?: AbortSignal,
 ): Promise<ProfileDecision> {
   const profiles = await readPeople(characterId, person);
   const own = profiles.find(
     (profile) => profile.platform === person.platform && profile.userId === person.userId,
   );
   const config = await load_config();
-  const inputBudget = config.llm!.models!.strong!.context_window_tokens! * 0.8;
   const context: ProfileContext = {
-    person,
+    person: { platform: person.platform, userId: person.userId, name: person.name },
     currentDate: dayjs().tz(config.app!.timezone!).format("YYYY-MM-DD"),
     previous: own ? { facts: own.facts, impressions: own.impressions } : null,
     linked: profiles.filter((profile) => profile !== own),
-    materials: [],
+    material,
   };
   const persona = await renderPrompt(`character.persona.${characterId}`);
-  const instructions = {
-    update: `${persona}\n\n${await renderPrompt("memory.people")}`,
-    review: `${persona}\n\n${await renderPrompt("memory.peopleReview")}`,
-  };
-  const profileSchemaText = JSON.stringify(z.toJSONSchema(profileContentSchema));
-  const reviewSchemaText = JSON.stringify(z.toJSONSchema(reviewSchema));
-  let offset = 0;
-  do {
-    signal.throwIfAborted();
-    const start = offset;
-    context.materials = [];
-    while (offset < materials.length) {
-      const { date, text } = materials[offset];
-      context.materials.push({ date, text });
-      const updatePrompt = stringifyLlmMemory({ ...context, candidate: null, issues: [] });
-      const reviewPrompt = stringifyLlmMemory({ ...context, candidate: context.previous });
-      if (
-        Buffer.byteLength(instructions.update + updatePrompt + profileSchemaText, "utf8") >=
-          inputBudget ||
-        Buffer.byteLength(instructions.review + reviewPrompt + reviewSchemaText, "utf8") >=
-          inputBudget
-      ) {
-        context.materials.pop();
-        break;
-      }
-      offset += 1;
-    }
-    if (offset === start && offset < materials.length) {
-      throw new Error("人物画像与单条人物材料超过整理输入预算");
-    }
-    // 无材料的定期清理也执行一次；分批结果先留在内存，失败不写入半份画像。
-    const decision = await reviewProfileBatch(context, instructions, inputBudget, signal);
-    if (!decision.approved) {
-      return decision;
-    }
-    context.previous = decision.content;
-  } while (offset < materials.length);
-  return { approved: true, content: context.previous };
+  return await reviewProfile(
+    context,
+    {
+      update: `${persona}\n\n${await renderPrompt("memory.people")}`,
+      review: `${persona}\n\n${await renderPrompt("memory.peopleReview")}`,
+    },
+    config.llm!.models!.strong!.context_window_tokens! * 0.8,
+    signal,
+  );
 }
 
 /** 更新和审查使用同一份依据，每批最多三轮；每次调用前检查完整输入。 */
-async function reviewProfileBatch(
+async function reviewProfile(
   context: ProfileContext,
   instructions: { update: string; review: string },
   inputBudget: number,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ProfileDecision> {
   let candidate: ProfileContent | null = null;
   let issues: string[] = [];
@@ -290,106 +265,120 @@ async function reviewProfileBatch(
   return { approved: false, content: null };
 }
 
-/** 更新与定期清理共用审查和写入流程；调用失败跳过，不保存任务或恢复进度。 */
-async function updateProfiles(
+/** 调用方持有人物文件锁；更新与定期清理共用审查、保存及审查时间记录。 */
+async function saveReviewedProfile(
   characterId: string,
-  people: (PersonIdentity & { name: string })[],
-  materials: PersonMemoryMaterial[],
-  signal: AbortSignal,
-): Promise<void> {
-  for (const person of people) {
-    signal.throwIfAborted();
-    // 各群、各批的提取结果按平台身份汇集，不再重复读取整个群的原文。
-    const related = materials.filter(
-      (material) => material.platform === person.platform && material.userId === person.userId,
-    );
-    let decision: ProfileDecision;
-    try {
-      decision = await reviewPersonProfile(characterId, person, related, signal);
-    } catch (error) {
-      signal.throwIfAborted();
-      logger.warn("人物画像更新失败，本次跳过并保留旧画像", { person: person.name, error });
-      continue;
+  person: PersonIdentity & { name: string; lastSpokeAt: number },
+  material: PersonMemoryInput | null,
+  signal?: AbortSignal,
+): Promise<"updated" | "unchanged" | "rejected"> {
+  const decision = await reviewPersonProfile(characterId, person, material, signal);
+  if (!decision.approved) {
+    return "rejected";
+  }
+  const previous = await readProfile(characterId, person);
+  let changed = false;
+  if (decision.content !== null) {
+    const profile: PersonProfile = {
+      platform: person.platform,
+      userId: person.userId,
+      name: person.name,
+      ...decision.content,
+    };
+    changed = !isDeepStrictEqual(previous, profile);
+    if (changed) {
+      await writeMemoryFile(await profilePath(characterId, person), profile);
     }
-    if (decision.approved && decision.content !== null) {
-      await writeMemoryFile(await profilePath(characterId, person), {
-        ...person,
-        ...decision.content,
-      } satisfies PersonProfile);
-    } else {
-      // 昵称是平台事实，即使本轮内容未更新或被驳回，也不由模型决定是否同步。
-      const previous = await readProfile(characterId, person);
-      if (previous && previous.name !== person.name) {
-        await writeMemoryFile(await profilePath(characterId, person), {
-          ...previous,
-          name: person.name,
-        });
-      }
-    }
-    if (decision.approved) {
-      const activity = await readPeopleActivity(characterId);
-      const entry = activity.people.find(
-        (item) => item.platform === person.platform && item.userId === person.userId,
-      )!;
-      entry.lastReviewedAt = Date.now();
-      await writePeopleActivity(characterId, activity);
-    }
+  }
+  await recordPersonActivity(characterId, person, Date.now());
+  return changed ? "updated" : "unchanged";
+}
+
+/** 即时更新单人画像，失败由工具返回给 Planner，不保留重试任务。 */
+export async function updatePersonMemory(
+  characterId: string,
+  person: PersonIdentity & { name: string; lastSpokeAt: number },
+  material: PersonMemoryInput,
+  signal?: AbortSignal,
+): Promise<"updated" | "unchanged" | "rejected"> {
+  const release = await lockMemoryFile(await profilePath(characterId, person));
+  try {
+    signal?.throwIfAborted();
+    await recordPersonActivity(characterId, person);
+    // 其他群可能已经提供更晚的昵称，使用登记后的最新身份。
+    const activity = await readPeopleActivity(characterId);
+    const current = activity.people.find(
+      (entry) => entry.platform === person.platform && entry.userId === person.userId,
+    )!;
+    return await saveReviewedProfile(characterId, current, material, signal);
+  } finally {
+    release();
   }
 }
 
-export async function organizePeople(
-  characterId: string,
-  materials: PersonMemoryMaterial[],
-  signal: AbortSignal,
-): Promise<void> {
-  const activity = await readPeopleActivity(characterId);
-  const identities = new Set(
-    materials.map((person) => JSON.stringify([person.platform, person.userId])),
-  );
-  // 使用活跃统计按真实消息时间维护的最新昵称，旧批次不能将其覆盖回旧昵称。
-  const people = activity.people
-    .filter((person) => identities.has(JSON.stringify([person.platform, person.userId])))
-    .map(({ platform, userId, name }) => ({ platform, userId, name }));
-  await updateProfiles(characterId, people, materials, signal);
-}
-
-/** 每日进入模型整理前执行；无新消息也清理，热度和真实最后发言时间由程序决定。 */
+/** 删除前在人物锁内重新核对活跃情况，不能用旧快照覆盖刚发生的即时更新。 */
 export async function pruneInactivePeople(characterId: string): Promise<void> {
-  const activity = await readPeopleActivity(characterId);
-  for (const person of [...activity.people]) {
-    const inactiveDays = (Date.now() - person.lastSpokeAt) / 86_400_000;
-    if (person.heat - inactiveDays >= -30) {
-      continue;
+  const candidates = await readPeopleActivity(characterId);
+  for (const person of candidates.people) {
+    const releaseProfile = await lockMemoryFile(await profilePath(characterId, person));
+    try {
+      const releaseActivity = await lockMemoryFile(
+        await memoryPath(characterId, "people", "activity.json"),
+      );
+      try {
+        const activity = await readPeopleActivity(characterId);
+        const current = activity.people.find(
+          (entry) => entry.platform === person.platform && entry.userId === person.userId,
+        )!;
+        const inactiveDays = (Date.now() - current.lastSpokeAt) / 86_400_000;
+        if (current.heat - inactiveDays >= -30) {
+          continue;
+        }
+        await rm(await profilePath(characterId, person), { force: true });
+        activity.people = activity.people.filter((entry) => entry !== current);
+        await writePeopleActivity(characterId, activity);
+      } finally {
+        releaseActivity();
+      }
+    } finally {
+      releaseProfile();
     }
-    // 先删画像再提交统计；中途重启允许重复删除，也涵盖从未建立画像的发言者。
-    await rm(await profilePath(characterId, person), { force: true });
-    activity.people = activity.people.filter((item) => item !== person);
-    await writePeopleActivity(characterId, activity);
   }
 }
 
-/** 仅让新达到两个月的条目进入内容清理；稳定认识经审查保留后不必每天重写。 */
+/** 仅清理新达到两个月的条目；与即时更新共用人物锁，不用旧画像覆盖新认识。 */
 export async function forgetPeople(characterId: string, signal: AbortSignal): Promise<void> {
-  const activity = await readPeopleActivity(characterId);
+  const candidates = await readPeopleActivity(characterId);
   const timezone = (await load_config()).app!.timezone!;
   const cutoff = dayjs().tz(timezone).subtract(2, "month").format("YYYY-MM-DD");
-  const people: (PersonIdentity & { name: string })[] = [];
-  for (const person of activity.people) {
-    const profile = await readProfile(characterId, person);
-    if (!profile) {
-      continue;
-    }
-    const previousCutoff =
-      person.lastReviewedAt === null
-        ? ""
-        : dayjs(person.lastReviewedAt).tz(timezone).subtract(2, "month").format("YYYY-MM-DD");
-    if (
-      [...profileEntries(profile.facts), ...profileEntries(profile.impressions)].some(
-        (entry) => entry.date > previousCutoff && entry.date <= cutoff,
-      )
-    ) {
-      people.push({ platform: person.platform, userId: person.userId, name: person.name });
+  for (const person of candidates.people) {
+    const release = await lockMemoryFile(await profilePath(characterId, person));
+    try {
+      signal.throwIfAborted();
+      const activity = await readPeopleActivity(characterId);
+      const current = activity.people.find(
+        (entry) => entry.platform === person.platform && entry.userId === person.userId,
+      )!;
+      const profile = await readProfile(characterId, person);
+      if (!profile) {
+        continue;
+      }
+      const previousCutoff =
+        current.lastReviewedAt === null
+          ? ""
+          : dayjs(current.lastReviewedAt).tz(timezone).subtract(2, "month").format("YYYY-MM-DD");
+      if (
+        [...profileEntries(profile.facts), ...profileEntries(profile.impressions)].some(
+          (entry) => entry.date > previousCutoff && entry.date <= cutoff,
+        )
+      ) {
+        await saveReviewedProfile(characterId, current, null, signal);
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      logger.warn("人物画像清理失败，本次跳过并保留旧画像", { person: person.name, error });
+    } finally {
+      release();
     }
   }
-  await updateProfiles(characterId, people, [], signal);
 }

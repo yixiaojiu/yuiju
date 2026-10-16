@@ -6,7 +6,7 @@ import {
 } from "@yuiju/shared/llm/context-usage";
 import { logger } from "@yuiju/shared/logger/logger";
 import { generateText, type LanguageModel, type ModelMessage, type ToolSet } from "ai";
-import type { ConversationScope } from "./message";
+import { type ConversationScope, readMessageIds } from "./message";
 
 /** coveredThrough 对应 Planner 的交互序号或 Replyer 的群消息序号。 */
 export type ContextSummary = { text: string; coveredThrough: number };
@@ -97,26 +97,75 @@ export class ConversationContext {
     }
     const messages = [...prefix, ...history.flatMap((unit) => unit.messages), ...current];
 
-    // Replyer 每个 history 单位对应一条真实聊天消息，临时任务不参与计数。
-    // 仍保留 70% 容量触发，避免不足 50 条的长消息使请求无法进入压缩流程。
+    // Replyer 每个单位对应一个群事件；Planner 只计真实收发消息，按 ID 去重。
+    // 从后往前计数，重复展示的同一消息以最近出现的位置决定保留边界。
+    const messageCounts = history.map(() => 1);
+    if (this.options.stage === "planner") {
+      const countedIds = new Set<string>();
+      for (let index = history.length - 1; index >= 0; index -= 1) {
+        const ids = history[index].messages.flatMap((message) => {
+          if (
+            message.role === "user" &&
+            typeof message.content === "string" &&
+            message.content.startsWith("<message ")
+          ) {
+            return readMessageIds(message.content);
+          }
+          if (message.role === "tool") {
+            return message.content.flatMap((part) =>
+              part.type === "tool-result" &&
+              part.toolName === "reply" &&
+              part.output.type === "text"
+                ? readMessageIds(part.output.value)
+                : [],
+            );
+          }
+          return [];
+        });
+        messageCounts[index] = 0;
+        for (const id of ids) {
+          if (!countedIds.has(id)) {
+            countedIds.add(id);
+            messageCounts[index] += 1;
+          }
+        }
+      }
+    }
+
     const contextTokens = estimateInputTokens(
       messages,
       this.options.toolDescription,
       this.inputUsage,
     );
-    const messageCountReached = this.options.stage === "replyer" && history.length >= 50;
+    const messageCount = messageCounts.reduce((sum, count) => sum + count, 0);
+    const messageCountReached = messageCount >= (this.options.stage === "planner" ? 200 : 50);
     const shouldCompress = messageCountReached || contextTokens >= this.options.windowTokens * 0.7;
     if (shouldCompress && !this.task && !this.completed && history.length > 1) {
       // Replyer 保留最近 10 条；积压超过 50 条时，也将其余旧消息一起整理。
       let keepFrom = Math.max(0, history.length - 10);
       if (this.options.stage === "planner") {
-        // Planner 继续保留约 10% 窗口的完整交互，工具调用与结果不能拆开。
+        // 条数触发保留最近 30 条；仅容量触发仍保留约 10% 窗口的完整交互。
+        // 一个单位可能含多条消息，保留整个单位，不能拆开工具调用和结果。
         keepFrom = history.length;
         let retainedEstimate = 0;
+        let retainedMessages = 0;
         do {
           keepFrom -= 1;
-          retainedEstimate += estimateInputTokens(history[keepFrom].messages, "", this.inputUsage);
-        } while (keepFrom > 0 && retainedEstimate < this.options.windowTokens * 0.1);
+          if (messageCountReached) {
+            retainedMessages += messageCounts[keepFrom];
+          } else {
+            retainedEstimate += estimateInputTokens(
+              history[keepFrom].messages,
+              "",
+              this.inputUsage,
+            );
+          }
+        } while (
+          keepFrom > 0 &&
+          (messageCountReached
+            ? retainedMessages < 30
+            : retainedEstimate < this.options.windowTokens * 0.1)
+        );
       }
 
       if (keepFrom > 0) {

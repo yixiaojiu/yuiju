@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import type { ArchivedConversationMessage } from "../conversation/storage";
-import { memoryPath, writeMemoryFile } from "./files";
+import { lockMemoryFile, memoryPath, writeMemoryFile } from "./files";
 
 const activitySchema = z.strictObject({
   /** 每个整理日只统计一次，失败重跑不能重复累计热度。 */
@@ -50,35 +50,69 @@ export async function updatePeopleActivity(
   date: string,
   messages: ArchivedConversationMessage[],
 ): Promise<void> {
-  const activity = await readPeopleActivity(characterId);
-  if (activity.countedDate === date) {
-    return;
-  }
-  for (const message of messages) {
-    if (message.isSelf || message.kind !== "message") {
-      continue;
+  const release = await lockMemoryFile(await memoryPath(characterId, "people", "activity.json"));
+  try {
+    const activity = await readPeopleActivity(characterId);
+    if (activity.countedDate === date) {
+      return;
     }
-    let person = activity.people.find(
-      (item) => item.platform === message.platform && item.userId === message.senderId,
+    for (const message of messages) {
+      if (message.isSelf || message.kind !== "message") {
+        continue;
+      }
+      let person = activity.people.find(
+        (item) => item.platform === message.platform && item.userId === message.senderId,
+      );
+      if (!person) {
+        person = {
+          platform: message.platform,
+          userId: message.senderId,
+          name: message.senderName,
+          heat: 0,
+          lastSpokeAt: message.timestamp,
+          lastReviewedAt: null,
+        };
+        activity.people.push(person);
+      }
+      person.heat = Math.min(100, person.heat + 1);
+      if (message.timestamp >= person.lastSpokeAt) {
+        person.lastSpokeAt = message.timestamp;
+        person.name = message.senderName;
+      }
+    }
+    // 统计和去重标记写在同一份原子快照中，模型失败不回滚实际发言。
+    activity.countedDate = date;
+    await writePeopleActivity(characterId, activity);
+  } finally {
+    release();
+  }
+}
+
+/** 即时画像更新登记身份及审查时间，不累计热度；发言热度仍由每日统计统一计算。 */
+export async function recordPersonActivity(
+  characterId: string,
+  person: { platform: string; userId: string; name: string; lastSpokeAt: number },
+  reviewedAt?: number,
+): Promise<void> {
+  const release = await lockMemoryFile(await memoryPath(characterId, "people", "activity.json"));
+  try {
+    const activity = await readPeopleActivity(characterId);
+    let entry = activity.people.find(
+      (item) => item.platform === person.platform && item.userId === person.userId,
     );
-    if (!person) {
-      person = {
-        platform: message.platform,
-        userId: message.senderId,
-        name: message.senderName,
-        heat: 0,
-        lastSpokeAt: message.timestamp,
-        lastReviewedAt: null,
-      };
-      activity.people.push(person);
+    if (!entry) {
+      entry = { ...person, heat: 0, lastReviewedAt: null };
+      activity.people.push(entry);
     }
-    person.heat = Math.min(100, person.heat + 1);
-    if (message.timestamp >= person.lastSpokeAt) {
-      person.lastSpokeAt = message.timestamp;
-      person.name = message.senderName;
+    if (person.lastSpokeAt >= entry.lastSpokeAt) {
+      entry.name = person.name;
+      entry.lastSpokeAt = person.lastSpokeAt;
     }
+    if (reviewedAt !== undefined) {
+      entry.lastReviewedAt = reviewedAt;
+    }
+    await writePeopleActivity(characterId, activity);
+  } finally {
+    release();
   }
-  // 统计和去重标记写在同一份原子快照中，模型失败不回滚实际发言。
-  activity.countedDate = date;
-  await writePeopleActivity(characterId, activity);
 }

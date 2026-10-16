@@ -8,7 +8,7 @@
     "build": "next build",
     "build:vercel": "mkdir -p ../../data/config && cp ../../yuiju.config.vercel.json ../../data/config/config.json && pnpm run build",
     "start": "next start --port 6100",
-    "type-check": "tsc --noEmit"
+    "type-check": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@monaco-editor/react": "4.7.0",

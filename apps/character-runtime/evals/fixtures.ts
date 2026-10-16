@@ -250,6 +250,7 @@ export async function runEvaluation(
   scenario: EvaluationCase,
   input: unknown,
   execute: (signal: AbortSignal) => Promise<void>,
+  timeoutMs = 90_000,
 ): Promise<void> {
   const result: EvaluationResult = {
     ...scenario,
@@ -261,8 +262,8 @@ export async function runEvaluation(
   const startedAt = performance.now();
   const controller = new AbortController();
   const timer = setTimeout(
-    () => controller.abort(new Error("测评超过 90 秒，已中止模型请求")),
-    90_000,
+    () => controller.abort(new Error(`测评超过 ${timeoutMs / 1000} 秒，已中止模型请求`)),
+    timeoutMs,
   );
   fixture.qualityToolResults = null;
   fixture.events = [];

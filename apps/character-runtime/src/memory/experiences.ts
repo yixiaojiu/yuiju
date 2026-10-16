@@ -2,18 +2,15 @@ import { load_config } from "@yuiju/shared/config/load";
 import { mongoCollectionName } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
-import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { flashModel, strongModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import type { ActivityView, PositionView } from "@yuiju/shared/world/protocol";
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import dayjs from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
 import utc from "dayjs/plugin/utc";
-import { z } from "zod";
 import { stringifyLlmMemory } from "../conversation/platform";
 import { characterKey } from "../storage";
-import type { PersonMemoryMaterial } from "./people";
 import { generateMemoryChunks, indexExperienceMemory, removeMemoryIndex } from "./vector-index";
 
 dayjs.extend(isoWeek);
@@ -61,11 +58,17 @@ export async function archiveExperiences(characterId: string): Promise<void> {
     const batch = entries.slice(offset, offset + 100);
     await collection.bulkWrite(
       batch.map(([, value]) => {
-        const material: Omit<StoredMaterial, "characterId"> = JSON.parse(value);
+        const material: Omit<StoredMaterial, "characterId" | "expiresAt"> = JSON.parse(value);
         return {
           updateOne: {
             filter: { characterId, id: material.id },
-            update: { $setOnInsert: { ...material, characterId } },
+            update: {
+              $setOnInsert: {
+                ...material,
+                characterId,
+                expiresAt: new Date(material.occurredAt + 30 * 86_400_000),
+              },
+            },
             upsert: true,
           },
         };
@@ -78,8 +81,7 @@ export async function archiveExperiences(characterId: string): Promise<void> {
 export type StoredMaterial = ExperienceMaterial & {
   source: "world" | "feeling";
   characterId: string;
-  organized?: boolean;
-  expiresAt?: Date;
+  expiresAt: Date;
 };
 /** 一篇普通正文；日期使用项目时区的自然日，向量只是外部派生索引。 */
 export type ExperienceMemory = {
@@ -119,15 +121,14 @@ export function memoryPeriodId(grain: ExperienceMemory["grain"], date: string): 
   return `${grain}:${period}`;
 }
 
-/** 同一次群聊整理同时产出经历摘要与人物材料；仅保存在每日任务进度中。 */
+/** 一批群聊的简短经历摘要；人物画像由 Planner 按需更新。 */
 export type ConversationMemorySummary = {
   platform: string;
   channelId: string;
   text: string;
-  people: PersonMemoryMaterial[];
 };
 
-/** 同一群的一批原文先压成记忆素材；输入分批与成功后的进度保存由每日任务负责。 */
+/** 只概括聊天经历，使用普通文本输出，不提取人物材料。 */
 export async function summarizeMemoryConversation(
   characterId: string,
   date: string,
@@ -135,62 +136,32 @@ export async function summarizeMemoryConversation(
   signal: AbortSignal,
 ): Promise<ConversationMemorySummary> {
   const conversation = materials[0].conversation!;
-  const participants = new Map(
-    materials.flatMap((material) => material.people).map((person) => [person.userId, person]),
-  );
-  const schema = z.strictObject({
-    text: z.string().trim().min(1).describe("你对本批线上交流的简洁摘要。"),
-    people: z.array(
-      z.strictObject({
-        userId: z
-          .string()
-          .refine((value) => participants.has(value), "人物必须来自本批发言者列表")
-          .describe("材料所属人物的发送者 ID，必须使用 participants 中的 userId。"),
-        text: z
-          .string()
-          .trim()
-          .min(1)
-          .describe("你提取的有依据的新信息、纠正或重要互动，保留日期、必要原话与对话背景。"),
-      }),
-    ),
-  });
   const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.conversations")}`;
   const prompt = stringifyLlmMemory({
     date,
     ...conversation,
-    participants: [...participants.values()].map(({ userId, name }) => ({ userId, name })),
     messages: materials.map((material) => material.content).join("\n"),
   });
   const budget = (await load_config()).llm!.models!.flash!.context_window_tokens! * 0.8;
-  if (
-    Buffer.byteLength(instructions + prompt + JSON.stringify(z.toJSONSchema(schema)), "utf8") >=
-    budget
-  ) {
+  if (Buffer.byteLength(instructions + prompt, "utf8") >= budget) {
     throw new Error("群聊素材超过记忆压缩窗口");
   }
-  const result = await generateStructuredOutput({
+  const result = await generateText({
     model: flashModel,
     instructions,
     prompt,
-    output: Output.object({ schema }),
+    maxRetries: 0,
     abortSignal: signal,
   });
-  if (result.finishReason !== "stop") {
-    throw new Error("群聊记忆素材未正常生成，保留整理进度");
+  if (result.finishReason !== "stop" || !result.text.trim()) {
+    throw new Error(
+      `群聊摘要生成未完成：日期=${date}，群=${conversation.channelId}，消息数=${materials.length}，结束原因=${result.finishReason}`,
+    );
   }
-  return {
-    ...conversation,
-    text: result.output.text,
-    people: result.output.people.map((person) => ({
-      platform: conversation.platform,
-      userId: person.userId,
-      date,
-      text: person.text,
-    })),
-  };
+  return { ...conversation, text: result.text.trim() };
 }
 
-/** 分批只更新一篇草稿，生成失败不覆盖已经保存的完整正文。 */
+/** 汇总当天的世界经历和全部聊天摘要，只生成一次，保留已有正文中仍有效的内容。 */
 export async function prepareExperienceMemory(
   characterId: string,
   date: string,
@@ -222,7 +193,7 @@ export async function prepareExperienceMemory(
     abortSignal: signal,
   });
   if (result.finishReason !== "stop" || !result.text.trim()) {
-    throw new Error("每日记忆正文未正常生成，保留原文和整理进度");
+    throw new Error("每日记忆正文未正常生成，保留原文");
   }
   return {
     id: memoryPeriodId("day", date),

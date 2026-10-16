@@ -47,6 +47,14 @@ export function visibleText(content: string): string {
   return texts.join("");
 }
 
+/** 读取程序渲染的顶层群消息 ID；不把正文或引用里的嵌套消息重复计数。 */
+export function readMessageIds(content: string): string[] {
+  return h
+    .parse(content)
+    .filter((node) => node.type === "message")
+    .map((node) => String(node.attrs.id));
+}
+
 /**
  * 将聊天事件渲染为 XHTML，身份信息放在属性中，引用与正文作为子元素。
  * Satori 将属性名转为连字符形式；只使用事件发生时间，重复渲染保持稳定。
