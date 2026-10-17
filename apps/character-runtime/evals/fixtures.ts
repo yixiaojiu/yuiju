@@ -40,7 +40,10 @@ vi.mock("@yuiju/shared/logger/logger", () => {
     } else {
       record("log", message, { level, ...data });
     }
-    if (message === "角色主 loop 中断，保留当前进度等待接续") {
+    if (
+      message === "主 agent 本轮执行失败，结束本批，不再重试" ||
+      message === "主 agent 状态读写失败，停止本次调度"
+    ) {
       fixture.complete(data.error);
     }
   }
@@ -186,30 +189,17 @@ vi.mock("../src/memory/self-cognition", async (importOriginal) => ({
 }));
 vi.mock("../src/plan/plan", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/plan/plan")>()),
-  readPlans: async () => structuredClone(fixture.plans),
   signalPlansDue: async () => {},
   nextPlanAttention: async () => null,
-  savePlan: async (
-    _characterId: string,
-    id: string,
-    input: Omit<Plan, "id" | "revision" | "updatedAt" | "operationId">,
-    operationId: string,
-    create: boolean,
-  ) => {
-    const previous = fixture.plans.find((plan) => plan.id === id);
-    if (create ? previous !== undefined : previous === undefined) {
-      throw new Error(`场景中计划 ${id} 的创建/更新条件不成立`);
-    }
-    const plan = {
-      ...input,
-      id,
-      revision: (previous?.revision ?? 0) + 1,
-      operationId,
-      updatedAt: Date.now(),
-    };
-    fixture.plans = [...fixture.plans.filter((item) => item.id !== id), plan];
+}));
+vi.mock("../src/plan/storage", () => ({
+  readPlans: async () => structuredClone(fixture.plans),
+  readPlan: async (_characterId: string, id: string) =>
+    structuredClone(fixture.plans.find((plan) => plan.id === id) ?? null),
+  commitPlan: async (_characterId: string, _previous: Plan | null, plan: Plan) => {
+    fixture.plans = [...fixture.plans.filter((item) => item.id !== plan.id), structuredClone(plan)];
     record("effect", "保存计划（内存）", plan);
-    return plan;
+    return true;
   },
 }));
 vi.mock("../src/agent-loop/events", () => ({
@@ -226,7 +216,6 @@ vi.mock("../src/agent-loop/storage", () => ({
   saveAgentState: async (_characterId: string, state: AgentState) => {
     fixture.agentState = structuredClone(state);
   },
-  readAgentActions: async () => structuredClone(fixture.actions),
   appendAgentAction: async (_characterId: string, _roundId: string, action: AgentAction) =>
     fixture.actions.push(structuredClone(action)) - 1,
   saveAgentAction: async (

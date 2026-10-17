@@ -8,7 +8,7 @@ import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { renderMessage } from "../conversation/message";
 import { queryMemoryMessages } from "../conversation/storage";
-import { forgetEndedPlans } from "../plan/plan";
+import { cleanupPlans } from "../plan/plan";
 import { characterKey } from "../storage";
 import {
   archiveExperiences,
@@ -57,7 +57,7 @@ export class DailyMemory {
       try {
         await archiveExperiences(this.characterId);
       } catch (error) {
-        logger.error("角色经历归档失败，保留 Redis 材料", { error });
+        logger.error("读取或移除待归档经历失败，本轮停止扫描", { error });
       }
       try {
         await setTimeout(5_000, undefined, { signal: this.stopping.signal });
@@ -73,6 +73,18 @@ export class DailyMemory {
     const timezone = (await load_config()).app!.timezone!;
     while (!this.stopping.signal.aborted) {
       const date = dayjs().tz(timezone).format("YYYY-MM-DD");
+      // 计划清理独立于素材读取和模型生成；已通知但未处理的计划到期即可移除。
+      try {
+        const removed = await cleanupPlans(this.characterId, Date.now());
+        if (removed) {
+          logger.info("已清理无人处理或过期的计划", { count: removed });
+        }
+      } catch (error) {
+        if (this.stopping.signal.aborted) {
+          return;
+        }
+        logger.error("每日计划清理失败，本次跳过", { error });
+      }
       try {
         await this.organizeThrough(dayjs.tz(date, timezone).valueOf(), timezone);
       } catch (error) {
@@ -158,10 +170,9 @@ export class DailyMemory {
     }
     try {
       await coarsenExperiences(this.characterId, date, this.stopping.signal);
-      await forgetEndedPlans(this.characterId, Date.now() - 30 * 86_400_000);
     } catch (error) {
       this.stopping.signal.throwIfAborted();
-      logger.warn("记忆归并或过期计划清理未完成，本次跳过", { error });
+      logger.warn("记忆归并未完成，本次跳过", { error });
     }
     try {
       await forgetPeople(this.characterId, this.stopping.signal);

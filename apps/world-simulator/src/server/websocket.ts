@@ -6,7 +6,7 @@ import {
   type WorldServerMessage,
   worldClientMessageSchema,
 } from "@yuiju/shared/world/protocol";
-import { DelayedError, Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import { WebSocket, WebSocketServer } from "ws";
 import type { WorldEventQueues } from "../queue";
 import { worldRetentionMs } from "../storage";
@@ -20,66 +20,76 @@ type Subscription = {
   acknowledgements: EventEmitter;
 };
 
-/** WS 负责连接与确认；BullMQ 负责未完成通知的持久化、重试和重启恢复。 */
+/** WS 负责连接与确认；BullMQ 保存离线积压；每条通知连接后只尝试投递一次。 */
 export function attachWorldWebSocket(server: Server, world: World, queues: WorldEventQueues) {
   const sockets = new WebSocketServer({ server, path: "/events" });
   sockets.on("error", (error) => logger.error("世界 WebSocket 服务异常", { error }));
   const connections = new Map<WebSocket, Promise<void>>();
   const subscriptions = new Map<string, Subscription>();
-  // 离线时 Worker 也运行，定期重试并删除过期通知，不依赖世界 tick 清理历史。
-  const workers = [...queues.notifications].map(([characterId, queue]) => {
-    const worker = new Worker<WorldEvent>(
-      queue.name,
-      async (job, token) => {
-        if (job.data.occurredAt <= Date.now() - worldRetentionMs) {
-          return;
-        }
-        const subscription = subscriptions.get(characterId);
-        if (!subscription || subscription.signal.aborted) {
-          await job.moveToDelayed(Date.now() + 5_000, token);
-          throw new DelayedError();
-        }
-        if (!subscription.eventTypes.has(job.data.type)) {
-          // 场景主动过滤的通知直接完成，切回场景后不再补发。
-          return;
-        }
-        const signal = AbortSignal.any([subscription.signal, AbortSignal.timeout(30_000)]);
-        const acknowledged = once(subscription.acknowledgements, job.id!, { signal });
-        send(subscription.socket, { type: "event", deliveryId: job.id!, event: job.data });
-        logger.info("世界通知已发出，等待确认", {
+  // 离线时不消费通知，订阅后启动 Worker；断线暂停取新任务，在途任务失败即结束。
+  const workers = new Map(
+    [...queues.notifications].map(([characterId, queue]) => {
+      const worker = new Worker<WorldEvent>(
+        queue.name,
+        async (job) => {
+          try {
+            if (job.data.occurredAt <= Date.now() - worldRetentionMs) {
+              return;
+            }
+            const subscription = subscriptions.get(characterId);
+            if (!subscription || subscription.signal.aborted) {
+              throw new Error("角色已断开，本次投递取消");
+            }
+            if (!subscription.eventTypes.has(job.data.type)) {
+              // 场景主动过滤的通知直接完成，切回场景后不再补发。
+              return;
+            }
+            const signal = AbortSignal.any([subscription.signal, AbortSignal.timeout(30_000)]);
+            const acknowledged = once(subscription.acknowledgements, job.id!, { signal });
+            send(subscription.socket, { type: "event", deliveryId: job.id!, event: job.data });
+            logger.info("世界通知已发出，等待确认", {
+              characterId,
+              deliveryId: job.id,
+              eventId: job.data.eventId,
+              type: job.data.type,
+              attempt: job.attemptsMade + 1,
+            });
+            logger.silly("e2e.notification.sent", { characterId, jobId: job.id, event: job.data });
+            // 仅当前任务等 ACK，其他任务继续发送；超时或断线终止本次投递。
+            await acknowledged;
+            logger.info("世界通知已确认接收", {
+              characterId,
+              deliveryId: job.id,
+              eventId: job.data.eventId,
+            });
+            logger.silly("e2e.notification.acknowledged", {
+              characterId,
+              jobId: job.id,
+              eventId: job.data.eventId,
+            });
+          } catch (error) {
+            throw new UnrecoverableError(error instanceof Error ? error.message : String(error));
+          }
+        },
+        {
+          autorun: false,
+          connection: queues.workerConnection,
+          prefix: queue.opts.prefix,
+          concurrency: 32,
+          maxStalledCount: 0,
+        },
+      );
+      worker.on("error", (error) => logger.error("世界通知 Worker 异常", { characterId, error }));
+      worker.on("failed", (job, error) =>
+        logger.warn("世界通知未确认，任务已终止，不再重试", {
           characterId,
-          deliveryId: job.id,
-          eventId: job.data.eventId,
-          type: job.data.type,
-          attempt: job.attemptsMade + 1,
-        });
-        logger.silly("e2e.notification.sent", { characterId, jobId: job.id, event: job.data });
-        // 仅当前任务等 ACK，其他任务继续发送；超时、断线由 BullMQ 延迟重试。
-        await acknowledged;
-        logger.info("世界通知已确认接收", {
-          characterId,
-          deliveryId: job.id,
-          eventId: job.data.eventId,
-        });
-        logger.silly("e2e.notification.acknowledged", {
-          characterId,
-          jobId: job.id,
-          eventId: job.data.eventId,
-        });
-      },
-      {
-        connection: queues.workerConnection,
-        prefix: queue.opts.prefix,
-        concurrency: 32,
-        maxStalledCount: Number.MAX_SAFE_INTEGER,
-      },
-    );
-    worker.on("error", (error) => logger.error("世界通知 Worker 异常", { characterId, error }));
-    worker.on("failed", (job, error) =>
-      logger.warn("世界通知未确认，队列将重试", { characterId, eventId: job?.data.eventId, error }),
-    );
-    return worker;
-  });
+          eventId: job?.data.eventId,
+          error,
+        }),
+      );
+      return [characterId, worker];
+    }),
+  );
 
   sockets.on("connection", async (socket) => {
     const task = handleConnection(socket);
@@ -144,6 +154,7 @@ export function attachWorldWebSocket(server: Server, world: World, queues: World
           acknowledgements: new EventEmitter().setMaxListeners(0),
         });
         send(socket, { type: "ready", current: current.value });
+        await workers.get(characterId)!.resume();
         logger.info("角色已订阅世界事件", { characterId, eventTypes: message.eventTypes });
       }
     } catch (error) {
@@ -160,6 +171,7 @@ export function attachWorldWebSocket(server: Server, world: World, queues: World
       stopping.abort();
       socket.close();
       if (characterId !== undefined) {
+        await workers.get(characterId)!.pause(true);
         subscriptions.delete(characterId);
         logger.info("角色世界订阅已断开", { characterId });
       }
@@ -172,7 +184,7 @@ export function attachWorldWebSocket(server: Server, world: World, queues: World
         socket.terminate();
       }
       await Promise.all(connections.values());
-      await Promise.all(workers.map((worker) => worker.close()));
+      await Promise.all([...workers.values()].map((worker) => worker.close()));
       await new Promise<void>((resolve, reject) =>
         sockets.close((error) => (error ? reject(error) : resolve())),
       );

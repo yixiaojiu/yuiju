@@ -58,7 +58,7 @@ export class World {
     new ResourceEvolution(),
     new PlaceEvolution(),
   ];
-  /** 按活动 ID 跟踪生成与结算任务，防止重复 tick 再次生成；仅在当前进程持有。 */
+  /** 按活动 ID 跟踪结算；提交失败时保留占位，避免 tick 反复调用模型，重启后重新检查世界状态。 */
   private readonly activityCompletionTasks = new Map<string, Promise<void>>();
 
   constructor(
@@ -399,7 +399,7 @@ export class World {
     }
   }
 
-  /** 生成不占用修改队列；保存失败保留已生成文本，重新进入队列按最新状态结算。 */
+  /** 小插曲只生成一次，失败不附加文本；结算提交失败则停止该活动的自动结算。 */
   private async generateRandomEventAndSettleActivity(
     characterId: string,
     positive: boolean,
@@ -419,65 +419,58 @@ export class World {
     const signal = this.stopController.signal;
     let randomEventDescription: string | undefined;
     try {
-      while (!signal.aborted) {
-        try {
-          if (randomEventDescription === undefined) {
-            const startedAt = Date.now();
-            logger.info("活动小插曲开始生成", {
-              characterId,
-              activityId: activity.activityId,
-              actionId: activity.actionId,
-              positive,
-            });
-            randomEventDescription = await generateRandomEvent(input, signal);
-            logger.info("活动小插曲生成完成", {
-              characterId,
-              activityId: activity.activityId,
-              durationMs: Date.now() - startedAt,
-              description: randomEventDescription,
-            });
-          }
-
-          await this.enqueueStateChange(async () => {
-            signal.throwIfAborted();
-            await this.restoreAfterFailedCommit();
-            // Redis 已提交但响应丢失时，恢复到的活动可能已经结束或换成下一项。
-            if (
-              this.committedState!.characters[characterId].currentActivity?.activityId !==
-              activity.activityId
-            ) {
-              return;
-            }
-            const draftState = structuredClone(this.committedState!);
-            const completionFact = settleActivity(
-              draftState,
-              this.characterDefinitions.get(characterId)!,
-              this.map,
-              this.characterNames,
-              this.timezone,
-              randomEventDescription,
-            );
-            await this.commitStateAndFacts(draftState, [completionFact]);
-          });
-          return;
-        } catch (error) {
-          if (signal.aborted) {
-            return;
-          }
-          logger.error("活动完成失败，保留当前活动稍后重试", {
-            characterId,
-            activityId: activity.activityId,
-            error,
-          });
-          await setTimeout(1_000, undefined, { signal });
-        }
+      const startedAt = Date.now();
+      logger.info("活动小插曲开始生成", {
+        characterId,
+        activityId: activity.activityId,
+        actionId: activity.actionId,
+        positive,
+      });
+      randomEventDescription = await generateRandomEvent(input, signal);
+      logger.info("活动小插曲生成完成", {
+        characterId,
+        activityId: activity.activityId,
+        durationMs: Date.now() - startedAt,
+        description: randomEventDescription,
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        return;
       }
+      logger.error("活动小插曲生成失败，本次不附加小插曲，不再重试", { error });
+    }
+
+    try {
+      await this.enqueueStateChange(async () => {
+        signal.throwIfAborted();
+        await this.restoreAfterFailedCommit();
+        if (
+          this.committedState!.characters[characterId].currentActivity?.activityId !==
+          activity.activityId
+        ) {
+          return;
+        }
+        const draftState = structuredClone(this.committedState!);
+        const completionFact = settleActivity(
+          draftState,
+          this.characterDefinitions.get(characterId)!,
+          this.map,
+          this.characterNames,
+          this.timezone,
+          randomEventDescription,
+        );
+        await this.commitStateAndFacts(draftState, [completionFact]);
+      });
+      this.activityCompletionTasks.delete(activity.activityId);
     } catch (error) {
       if (!signal.aborted) {
-        throw error;
+        // 结算状态不能假装已提交；保留任务占位，停止这一活动的自动尝试。
+        logger.error("活动结算提交失败，已停止该活动自动结算，请检查世界存储", {
+          characterId,
+          activityId: activity.activityId,
+          error,
+        });
       }
-    } finally {
-      this.activityCompletionTasks.delete(activity.activityId);
     }
   }
 

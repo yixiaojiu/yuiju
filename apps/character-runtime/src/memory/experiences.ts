@@ -3,6 +3,7 @@ import { mongoCollectionName } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { flashModel, strongModel } from "@yuiju/shared/llm/models";
+import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import type { ActivityView, PositionView } from "@yuiju/shared/world/protocol";
 import { generateText } from "ai";
@@ -42,39 +43,41 @@ export async function recordExperience(
   );
 }
 
-/** Mongo 按来源 id 幂等写入；成功后删除该批，不影响并发到达的新材料。 */
+/** 先消费本批素材再归档；写入失败或进程退出允许丢失，不重新入队。 */
 export async function archiveExperiences(characterId: string): Promise<void> {
   const redis = await getRedis();
   const key = `${characterKey(characterId)}:memory:pending`;
   const entries = Object.entries(await redis.hgetall(key));
-  if (!entries.length) {
-    return;
-  }
-  const collection = await materialCollection();
-  await collection.createIndex({ characterId: 1, id: 1 }, { unique: true });
-  await collection.createIndex({ characterId: 1, occurredAt: 1 });
-  await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   for (let offset = 0; offset < entries.length; offset += 100) {
     const batch = entries.slice(offset, offset + 100);
-    await collection.bulkWrite(
-      batch.map(([, value]) => {
-        const material: Omit<StoredMaterial, "characterId" | "expiresAt"> = JSON.parse(value);
-        return {
-          updateOne: {
-            filter: { characterId, id: material.id },
-            update: {
-              $setOnInsert: {
-                ...material,
-                characterId,
-                expiresAt: new Date(material.occurredAt + 30 * 86_400_000),
-              },
-            },
-            upsert: true,
-          },
-        };
-      }),
-    );
     await redis.hdel(key, ...batch.map(([id]) => id));
+    try {
+      const collection = await materialCollection();
+      await collection.createIndex({ characterId: 1, id: 1 }, { unique: true });
+      await collection.createIndex({ characterId: 1, occurredAt: 1 });
+      await collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+      await collection.bulkWrite(
+        batch.map(([, value]) => {
+          const material: Omit<StoredMaterial, "characterId" | "expiresAt"> = JSON.parse(value);
+          return {
+            updateOne: {
+              filter: { characterId, id: material.id },
+              update: {
+                $setOnInsert: {
+                  ...material,
+                  characterId,
+                  expiresAt: new Date(material.occurredAt + 30 * 86_400_000),
+                },
+              },
+              upsert: true,
+            },
+          };
+        }),
+        { ordered: false },
+      );
+    } catch (error) {
+      logger.error("角色经历归档失败，本批已消费，不再重试", { count: batch.length, error });
+    }
   }
 }
 

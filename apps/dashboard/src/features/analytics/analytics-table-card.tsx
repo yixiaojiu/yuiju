@@ -59,7 +59,9 @@ export function AnalyticsTableCard({
             "缓存命中率",
             "操作",
           ]
-        : ["时间", "群聊", "耗时", "操作"];
+        : eventName === "app.error"
+          ? ["时间", "应用", "错误类型", "异常名称", "操作"]
+          : ["时间", "群聊", "耗时", "操作"];
   return (
     <>
       <Card className="gap-0 overflow-hidden rounded-2xl py-0">
@@ -151,6 +153,16 @@ export function AnalyticsTableCard({
                         entry.eventData.cacheReadTokens !== null
                           ? `${((entry.eventData.cacheReadTokens / entry.eventData.inputTokens) * 100).toFixed(1)}%`
                           : "—"}
+                      </TableCell>
+                    </>
+                  ) : entry.eventName === "app.error" ? (
+                    <>
+                      <TableCell className={cellStyle}>{entry.eventData.app}</TableCell>
+                      <TableCell className="max-w-96 whitespace-normal break-words px-4 py-3 text-xs">
+                        {entry.eventData.errorType}
+                      </TableCell>
+                      <TableCell className={cellStyle}>
+                        {entry.eventData.errorName ?? "—"}
                       </TableCell>
                     </>
                   ) : (

@@ -12,7 +12,8 @@ import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { generateText } from "ai";
 import { formatLlmPlatform } from "../conversation/platform";
 import { recordExperience } from "../memory/experiences";
-import { formatPlans, nextPlanAttention, readPlans, signalPlansDue } from "../plan/plan";
+import { formatPlans, nextPlanAttention, signalPlansDue } from "../plan/plan";
+import { readPlans } from "../plan/storage";
 import { formatWorldEvent } from "../world/tools";
 import { agentMessages, prepareAgentContext } from "./context";
 import {
@@ -21,21 +22,8 @@ import {
   readCharacterEvents,
   signalActivityDue,
 } from "./events";
-import {
-  type AgentState,
-  finishAgentRound,
-  loadAgentState,
-  readAgentActions,
-  saveAgentAction,
-  saveAgentState,
-} from "./storage";
-import {
-  type AgentToolContext,
-  agentToolDescription,
-  agentTools,
-  createAgentTools,
-  executeAgentAction,
-} from "./tools";
+import { type AgentState, finishAgentRound, loadAgentState, saveAgentState } from "./storage";
+import { type AgentToolContext, agentToolDescription, agentTools, createAgentTools } from "./tools";
 
 /** 一个角色的日常决策执行器；只串行自己的轮次，不占用世界推进或其他角色。 */
 export class MainAgentLoop {
@@ -83,7 +71,7 @@ export class MainAgentLoop {
     }
   }
 
-  /** 失败时保留原轮次，十秒后读取 Redis 确认提交结果再接续，不重建请求标识。 */
+  /** 先记录本批输入；失败结束本轮，只有新事件或正常日程才能再次唤醒。 */
   private async run(): Promise<void> {
     let failed = false;
     try {
@@ -96,12 +84,21 @@ export class MainAgentLoop {
           context: { summary: "", units: [] },
           round: null,
         };
-        const recovering = state.round !== null;
-        if (!state.round) {
-          const batch = await readCharacterEvents(characterId);
-          if (!batch.events.length) {
-            continue;
-          }
+        if (state.round) {
+          // 中断的旧轮次不重放，避免重复调用模型或再次执行已发生的操作。
+          await finishAgentRound(characterId, state);
+          logger.warn("已结束中断的主 agent 轮次，不再重试");
+          this.wakeRequested = true;
+          continue;
+        }
+        const batch = await readCharacterEvents(characterId);
+        if (!batch.events.length) {
+          continue;
+        }
+        state.round = { id: randomUUID(), ...batch };
+        // 先记录本批边界；失败会消费本批，进程中断后也只清理、不重放。
+        await saveAgentState(characterId, state);
+        try {
           const hasIdleReminder = batch.events.some(
             (event) => event.type === "world" && event.event.type === "idle_reminder",
           );
@@ -132,8 +129,6 @@ export class MainAgentLoop {
             }
             if (!batch.events.length) {
               // 只消费过期提醒，不向上下文追加空输入，也不调用模型。
-              state.round = { id: randomUUID(), ...batch };
-              await finishAgentRound(characterId, state);
               this.wakeRequested = true;
               continue;
             }
@@ -157,12 +152,15 @@ export class MainAgentLoop {
             }
           }
           state.context.units.push([{ role: "user", content: input }]);
-          state.round = { id: randomUUID(), ...batch };
-          await saveAgentState(characterId, state);
+          await this.runRound(state);
+        } catch (error) {
+          if (this.active) {
+            logger.error("主 agent 本轮执行失败，结束本批，不再重试", { error });
+          }
+        } finally {
+          // 保存完整步骤的上下文，并清理本轮工具操作记录；不重复执行副作用。
+          await finishAgentRound(characterId, state);
         }
-
-        await this.runRound(state, recovering);
-        await finishAgentRound(characterId, state);
 
         // 再读一次，接住本轮执行期间保存的新事件。
         this.wakeRequested = true;
@@ -170,13 +168,13 @@ export class MainAgentLoop {
     } catch (error) {
       failed = true;
       if (this.active) {
-        logger.error("角色主 loop 中断，保留当前进度等待接续", { error });
+        logger.error("主 agent 状态读写失败，停止本次调度", { error });
       }
     } finally {
       this.task = undefined;
       if (this.active) {
         if (failed) {
-          this.timer = setTimeout(() => this.wake(), 10_000);
+          this.wakeRequested = false;
         } else if (this.wakeRequested) {
           this.wake();
         } else {
@@ -186,37 +184,9 @@ export class MainAgentLoop {
     }
   }
 
-  /** SDK 管理整轮工具调用；中间上下文只在内存更新，成功结束后由外层统一提交。 */
-  private async runRound(state: AgentState, recovering: boolean): Promise<void> {
-    const { characterId } = this.execution;
+  /** SDK 管理整轮工具调用；完整步骤在内存更新，结束本轮时由外层统一提交。 */
+  private async runRound(state: AgentState): Promise<void> {
     const round = state.round!;
-    if (recovering) {
-      const actions = await readAgentActions(characterId, round.id);
-      for (const [index, action] of actions.entries()) {
-        this.stopping.signal.throwIfAborted();
-        if (action.result === undefined) {
-          action.result = await executeAgentAction(this.execution, action, true);
-          await saveAgentAction(characterId, round.id, index, action);
-        }
-      }
-      // 不恢复丢失的思考过程；先提供实际操作记录，模型按需查询现状再继续决策。
-      const recovery = await renderPrompt("agentLoop.recovery", {
-        actions:
-          actions
-            .map(
-              (action) =>
-                `${formatLlmDateTime(action.createdAt, this.timezone)} ${action.name} ${JSON.stringify(action.input)}\n结果：${action.result}`,
-            )
-            .join("\n\n") || "没有已记录的操作。",
-      });
-      // 恢复操作记录后统一查询一次；旧行动回执不直接覆盖当前活动与聊天权限。
-      const syncFailure = await this.execution.syncWorldActivity();
-      let input = `${recovery}\n\n当前时间：${formatLlmDateTime(Date.now(), this.timezone)}`;
-      if (syncFailure !== null) {
-        input += `\n\n${syncFailure}`;
-      }
-      state.context.units.push([{ role: "user", content: input }]);
-    }
 
     // 工具持久化失败必须终止 SDK，不能被转换为 tool-error 后继续产生新的副作用。
     const failed = new AbortController();
@@ -316,13 +286,15 @@ export class MainAgentLoop {
         lines.push(
           `活动 ${event.activityId} 已超过预计时长的 1.5 倍，尚未确认结束，需要了解实际状态。`,
         );
-      } else if (event.type === "plan_attention") {
+      } else if (event.type === "plan_attention" || event.type === "plan_review") {
         const plan = (await readPlans(characterId)).find((item) => item.id === event.planId);
         if (
           plan?.revision === event.revision &&
           (plan.status === "pending" || plan.status === "in_progress")
         ) {
-          lines.push(`这项计划到了关注时间：${await formatPlans([plan])}`);
+          lines.push(
+            `${event.type === "plan_review" ? "这项计划已过计划日期或长期未更新，需要确认后续安排" : "这项计划到了关注时间"}：${await formatPlans([plan])}`,
+          );
         }
       } else {
         lines.push(
@@ -355,9 +327,6 @@ export class MainAgentLoop {
       }
     } catch (error) {
       logger.error("恢复角色关注时间失败", { error });
-      if (this.active) {
-        this.timer = setTimeout(() => this.wake(), 10_000);
-      }
     }
   }
 

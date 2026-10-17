@@ -39,6 +39,7 @@
     "ignoreUnknown": true,
     "includes": [
       "**",
+      "!!data",
       "!!**/dist",
       "!!**/node_modules",
       "!!**/.venv",

@@ -15,7 +15,7 @@ export type AgentAction = {
     | "update_plan";
   input: unknown;
   createdAt: number;
-  /** 缺失表示执行结果尚未持久确认；恢复时沿用原 id 与参数。 */
+  /** 缺失表示执行结果尚未持久确认；不自动重放。 */
   result?: string;
 };
 
@@ -24,7 +24,7 @@ export type AgentState = {
   round: {
     id: string;
     events: CharacterEvent[];
-    /** 旧世界 inbox 保留原 key，仅在整轮完成时确认本批记录。 */
+    /** 本轮读取的世界通知，在执行前一并消费。 */
     worldEventIds: string[];
     eventIds: string[];
   } | null;
@@ -37,19 +37,6 @@ export async function loadAgentState(characterId: string): Promise<AgentState | 
 
 export async function saveAgentState(characterId: string, state: AgentState): Promise<void> {
   await (await getRedis()).set(`${characterKey(characterId)}:agent:state`, JSON.stringify(state));
-}
-
-/** Redis List 保留实际操作顺序；记录独立于完整上下文，只在本轮完成后清除。 */
-export async function readAgentActions(
-  characterId: string,
-  roundId: string,
-): Promise<AgentAction[]> {
-  const values = await (await getRedis()).lrange(
-    `${characterKey(characterId)}:agent:actions:${roundId}`,
-    0,
-    -1,
-  );
-  return values.map((value) => JSON.parse(value));
 }
 
 /** 执行前保存调用，返回 List 位置，执行后只更新这一条记录。 */
@@ -78,7 +65,7 @@ export async function saveAgentAction(
   );
 }
 
-/** 完成输入与保存上下文同事务提交；本轮开始后收到的新事件不在删除范围内。 */
+/** 消费本批输入、保存上下文并清理操作记录；不会删除后来收到的新事件。 */
 export async function finishAgentRound(characterId: string, state: AgentState): Promise<void> {
   const redis = await getRedis();
   const key = characterKey(characterId);

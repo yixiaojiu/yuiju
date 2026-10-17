@@ -9,7 +9,8 @@ import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { formatPeople, readPeople, updatePersonMemory } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
-import { formatPlans, readPlans } from "../plan/plan";
+import { formatPlans } from "../plan/plan";
+import { readPlans } from "../plan/storage";
 import {
   type ConversationMessage,
   type ConversationScope,

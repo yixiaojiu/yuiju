@@ -3,13 +3,13 @@ import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getEnvironment } from "@yuiju/shared/env/environment";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
-import { Queue, Worker } from "bullmq";
+import { Queue, UnrecoverableError, Worker } from "bullmq";
 import Redis from "ioredis";
 import type { WorldFact } from "./events";
 import { archiveWorldFact, worldRetentionMs } from "./storage";
 import { syncWorldFact } from "./sync";
 
-/** 世界提交只入队；归档和通知分别消费，失败每 5 秒重试，最长保留 30 天。 */
+/** 世界提交只入队；归档和通知分别消费，每个任务仅尝试一次，失败结束，不重新投递。 */
 export class WorldEventQueues {
   readonly archive: Queue<WorldFact>;
   readonly notifications = new Map<string, Queue<WorldEvent>>();
@@ -26,9 +26,7 @@ export class WorldEventQueues {
       connection: producer,
       prefix: `${redisKeyPrefix()}world`,
       defaultJobOptions: {
-        // 每次重试至少间隔 5 秒，次数覆盖整个保留期；消费时仍按 occurredAt 判断过期。
-        attempts: Math.ceil(worldRetentionMs / 5_000) + 1,
-        backoff: { type: "fixed", delay: 5_000 },
+        attempts: 1,
         removeOnComplete: true,
         // 最终失败后保留 30 天；由 BullMQ 后续失败任务触发清理，不是 Redis TTL。
         removeOnFail: { age: worldRetentionMs / 1_000 },
@@ -47,24 +45,32 @@ export class WorldEventQueues {
     this.archiveWorker = new Worker<WorldFact>(
       this.archive.name,
       async (job) => {
-        if (job.data.occurredAt > Date.now() - worldRetentionMs) {
-          await archiveWorldFact(job.data);
-          if (getEnvironment() === "production" && (await load_config()).database?.sync_mongo_uri) {
-            await syncWorldFact(job.data);
+        try {
+          if (job.data.occurredAt > Date.now() - worldRetentionMs) {
+            await archiveWorldFact(job.data);
+            if (
+              getEnvironment() === "production" &&
+              (await load_config()).database?.sync_mongo_uri
+            ) {
+              await syncWorldFact(job.data);
+            }
+            logger.silly("e2e.archive.completed", { jobId: job.id, eventId: job.data.eventId });
           }
-          logger.silly("e2e.archive.completed", { jobId: job.id, eventId: job.data.eventId });
+        } catch (error) {
+          // 已入队的旧任务可能仍带有重试次数；明确终止该任务，不沿用旧次数。
+          throw new UnrecoverableError(error instanceof Error ? error.message : String(error));
         }
       },
       {
         connection: this.workerConnection,
         prefix: options.prefix,
-        // 崩溃重启不耗尽任务；保留期限由事件自身的 occurredAt 决定。
-        maxStalledCount: Number.MAX_SAFE_INTEGER,
+        // 进程中断导致锁丢失时也不重新执行归档。
+        maxStalledCount: 0,
       },
     );
     this.archiveWorker.on("error", (error) => logger.error("世界归档 Worker 异常", { error }));
     this.archiveWorker.on("failed", (job, error) =>
-      logger.error("世界事实归档失败，队列将重试", { eventId: job?.data.eventId, error }),
+      logger.error("世界事实归档失败，任务已终止，不再重试", { eventId: job?.data.eventId, error }),
     );
   }
 

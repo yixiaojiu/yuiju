@@ -22,7 +22,9 @@ export function AnalyticsSummaryCards({
   summary: AnalyticsSummary;
 }) {
   let cards: { label: string; value: string; note?: string }[];
-  if (eventName === "agent.context_compression") {
+  if (eventName === "app.error") {
+    cards = [{ label: "错误次数", value: summary.total.toLocaleString("zh-CN") }];
+  } else if (eventName === "agent.context_compression") {
     cards = [
       { label: "压缩触发次数", value: summary.total.toLocaleString("zh-CN") },
       { label: "平均窗口占用（估算）", value: formatContextRatio(summary.averageContextRatio) },

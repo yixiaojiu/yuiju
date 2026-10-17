@@ -2,6 +2,7 @@ import { Context, HTTP, h, type Session } from "@satorijs/core";
 import { OneBotBot } from "@yuiju/satorijs-adapter-onebot/bot";
 import type { Config } from "@yuiju/shared/config/schema";
 import { logger } from "@yuiju/shared/logger/logger";
+import { z } from "zod";
 import type { IncomingEvent, IncomingMessage, IncomingPoke, ReplyTarget } from "./message";
 
 /** demo 使用的原始 Session 接入；正式群聊由 OneBotConnection 过滤后接入。 */
@@ -29,12 +30,12 @@ export function readOneBotMessage(session: Session): IncomingMessage {
   // 这里只接收已通过白名单检查的 QQ 群消息，字段遵循 OneBot adapter 的群消息契约。
   return {
     kind: "message",
-    id: session.messageId!,
-    senderId: session.userId!,
-    senderName: session.author.name!,
+    id: z.string().parse(session.messageId),
+    senderId: z.string().parse(session.userId),
+    senderName: z.string().parse(session.author.name),
     timestamp: session.timestamp,
     isSelf: false,
-    content: session.content!,
+    content: z.string().parse(session.content),
     ...(session.quote && {
       quote: {
         id: session.quote.id!,
@@ -51,8 +52,8 @@ export function readOneBotPoke(session: Session): IncomingPoke {
   const targetSenderId = (session as Session & { targetId: string }).targetId;
   return {
     kind: "poke",
-    senderId: session.userId!,
-    senderName: session.author.name!,
+    senderId: z.string().parse(session.userId),
+    senderName: z.string().parse(session.author.name),
     timestamp: session.timestamp,
     isSelf: false,
     targetSenderId,
@@ -90,6 +91,8 @@ export class OneBotConnection {
     const receive = async (session: Session) => {
       // 平台入口先限定接收范围，白名单外的事件不能创建会话或写入历史。
       if (
+        // 群文件上传是 adapter 合成的 message，没有普通消息 ID 和昵称。
+        session.event.subtype === "guild-file-added" ||
         !this.accepting ||
         !session.guildId ||
         !this.config.group_white_list?.some((group) => group.group_id === session.guildId) ||
@@ -109,7 +112,7 @@ export class OneBotConnection {
             kind: "recall",
             recalledMessageId: session.messageId!,
             operatorId: session.operatorId!,
-            senderId: session.userId!,
+            senderId: z.string().parse(session.userId),
             senderName: member.user!.name!,
             timestamp: session.timestamp,
             isSelf: false,

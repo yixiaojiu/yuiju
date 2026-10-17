@@ -26,6 +26,8 @@ export type AnalyticsFilters = {
   host: string;
   status: LlmRequestStatus | "";
   scene: CompressionScene | "";
+  app: string;
+  errorType: string;
 };
 
 const inputStyle =
@@ -69,6 +71,7 @@ export function AnalyticsFilterCard({
                 <SelectItem value="conversation.replyer">Replyer 耗时</SelectItem>
                 <SelectItem value="llm.request">LLM 请求</SelectItem>
                 <SelectItem value="agent.context_compression">上下文压缩</SelectItem>
+                <SelectItem value="app.error">应用错误</SelectItem>
               </SelectContent>
             </Select>
           </label>
@@ -179,6 +182,27 @@ export function AnalyticsFilterCard({
                     <SelectItem value="cancelled">取消</SelectItem>
                   </SelectContent>
                 </Select>
+              </label>
+            </>
+          ) : draft.eventName === "app.error" ? (
+            <>
+              <label className="grid gap-1.5 text-xs text-muted-foreground">
+                应用
+                <input
+                  className={inputStyle}
+                  value={draft.app}
+                  placeholder="完整应用名"
+                  onChange={(event) => setDraft({ ...draft, app: event.target.value })}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs text-muted-foreground">
+                错误类型
+                <input
+                  className={inputStyle}
+                  value={draft.errorType}
+                  placeholder="完整错误类型"
+                  onChange={(event) => setDraft({ ...draft, errorType: event.target.value })}
+                />
               </label>
             </>
           ) : (

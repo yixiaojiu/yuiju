@@ -11,6 +11,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 export type AnalyticsEventName =
+  | "app.error"
   | "conversation.planner"
   | "conversation.replyer"
   | "llm.request"
@@ -18,6 +19,10 @@ export type AnalyticsEventName =
 export type CompressionScene = "main" | "planner" | "replyer";
 export type LlmRequestStatus = "success" | "failed" | "cancelled" | "timeout";
 export type AnalyticsEntry = { id: string; eventTime: number } & (
+  | {
+      eventName: "app.error";
+      eventData: { app: string; errorType: string; errorName?: string };
+    }
   | {
       eventName: "agent.context_compression";
       eventData: {
@@ -92,6 +97,12 @@ const querySchema = z
   .discriminatedUnion("eventName", [
     z.strictObject({
       ...queryFields,
+      eventName: z.literal("app.error"),
+      app: z.string().trim().optional(),
+      errorType: z.string().trim().optional(),
+    }),
+    z.strictObject({
+      ...queryFields,
       eventName: z.literal("agent.context_compression"),
       scene: z.enum(["main", "planner", "replyer"]).optional(),
       channelId: z.string().trim().optional(),
@@ -137,12 +148,17 @@ export const analyticsApi = new Hono().get("/", async (c) => {
           ...(query.host && { "eventData.host": query.host }),
           ...(query.status && { "eventData.status": query.status }),
         }
-      : {
-          "eventData.characterId": deployment.characterId,
-          ...(query.channelId && { "eventData.channelId": query.channelId }),
-          ...(query.eventName === "agent.context_compression" &&
-            query.scene && { "eventData.scene": query.scene }),
-        }),
+      : query.eventName === "app.error"
+        ? {
+            ...(query.app && { "eventData.app": query.app }),
+            ...(query.errorType && { "eventData.errorType": query.errorType }),
+          }
+        : {
+            "eventData.characterId": deployment.characterId,
+            ...(query.channelId && { "eventData.channelId": query.channelId }),
+            ...(query.eventName === "agent.context_compression" &&
+              query.scene && { "eventData.scene": query.scene }),
+          }),
   };
   const collection = (await getMongoDatabase()).collection(mongoCollectionName("analytics_events"));
   const pageSize = 20;

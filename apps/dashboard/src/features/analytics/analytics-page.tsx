@@ -19,6 +19,8 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
     host: "",
     status: "",
     scene: "",
+    app: "",
+    errorType: "",
   });
   const [query, setQuery] = useState<AnalyticsQuery>({ filters: initialFilters, page: 1 });
   const [result, setResult] = useState<{
@@ -45,10 +47,12 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
               host: filters.host,
               status: filters.status,
             }
-          : {
-              channelId: filters.channelId,
-              ...(filters.eventName === "agent.context_compression" && { scene: filters.scene }),
-            };
+          : filters.eventName === "app.error"
+            ? { app: filters.app, errorType: filters.errorType }
+            : {
+                channelId: filters.channelId,
+                ...(filters.eventName === "agent.context_compression" && { scene: filters.scene }),
+              };
       for (const [key, value] of Object.entries(fields)) {
         if (value.trim()) {
           params.set(key, value.trim());

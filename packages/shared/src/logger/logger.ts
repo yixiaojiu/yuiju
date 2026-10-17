@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
 import winston from "winston";
 import DailyRotateFile from "winston-daily-rotate-file";
+import { reportAnalyticsEvent } from "../analytics/report-event";
 
 // 应用入口先初始化，业务模块再开始记录日志；导入时不创建输出或文件。
 export const logger = winston.createLogger({ transports: [] });
@@ -26,6 +27,7 @@ export async function init_logger(options: {
       winston.format.timestamp(),
       // 两种输出共用字段限制；大对象转为可读文本，小对象仍保留结构。
       winston.format((entry) => {
+        const errorName = entry.error instanceof Error ? entry.error.name : undefined;
         for (const [key, value] of Object.entries(entry)) {
           const text =
             typeof value === "string"
@@ -41,6 +43,18 @@ export async function init_logger(options: {
           }
           const marker = `…（省略 ${text.length - 900} 字符）…`;
           entry[key] = `${text.slice(0, 450)}${marker}${text.slice(-450)}`;
+        }
+        // 在公共格式化阶段采集一次，不随控制台、文件等输出重复上报。
+        // 只取错误分类字段；异步写入不阻塞日志和业务执行。
+        if (entry.level === "error") {
+          reportAnalyticsEvent({
+            eventName: "app.error",
+            eventData: {
+              app: options.app,
+              errorType: entry.message,
+              ...(errorName && { errorName }),
+            },
+          });
         }
         return entry;
       })(),

@@ -18,18 +18,18 @@ import { formatPeople, readPeople } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
 import { readSelfCognition } from "../memory/self-cognition";
 import {
+  createPlanSchema,
   formatPlans,
   parsePlanTimes,
   type planInputSchema,
-  planToolSchema,
-  readPlans,
   savePlan,
+  updatePlanSchema,
 } from "../plan/plan";
+import { readPlans } from "../plan/storage";
 import type { WorldClient } from "../world/client";
 import { formatWorldView } from "../world/tools";
 import { type AgentAction, appendAgentAction, saveAgentAction } from "./storage";
 
-const updatePlanSchema = planToolSchema.extend({ planId: z.string().min(1) });
 const feelingSchema = z.strictObject({
   feeling: z.string().min(1).describe("你对实际发生的某件事的感受，用自然语言表达"),
 });
@@ -141,11 +141,13 @@ export const agentTools = {
     inputSchema: z.strictObject({}),
   }),
   create_plan: tool({
-    description: "你可以记录自己接受的打算及下次关注时间。",
-    inputSchema: planToolSchema,
+    description:
+      "你可以记录自己的打算。只需填写内容，背景、安排时间和下次关注时间按需提供；新计划从待办状态开始。",
+    inputSchema: createPlanSchema,
   }),
   update_plan: tool({
-    description: "你可以更新已有安排、进展或取消。提交修改后的完整计划。",
+    description:
+      "你可以更新已有安排、进展，或标记完成、取消。提供 planId 和至少一个要修改的字段；省略字段保持原值，时间传 null 表示清除。完成或取消会自动清除提醒，更新会解除本次维护提醒对应的待清理状态。",
     inputSchema: updatePlanSchema,
   }),
 };
@@ -201,7 +203,7 @@ export function createAgentTools(
       const index = await appendAgentAction(context.characterId, roundId, action);
 
       signal.throwIfAborted();
-      action.result = await executeAgentAction(context, action, false);
+      action.result = await executeAgentAction(context, action);
       await saveAgentAction(context.characterId, roundId, index, action);
 
       return action.result;
@@ -317,16 +319,9 @@ export function createAgentTools(
 }
 
 /** 正常执行与中断恢复共用业务入口；恢复沿用原请求标识，已保存结果的操作不再执行。 */
-export async function executeAgentAction(
-  context: AgentToolContext,
-  call: AgentAction,
-  recovering: boolean,
-): Promise<string> {
+async function executeAgentAction(context: AgentToolContext, call: AgentAction): Promise<string> {
   const { characterId, world } = context;
   const { id: requestId, createdAt } = call;
-  if (Date.now() - createdAt >= 30 * 24 * 60 * 60_000) {
-    return "这次中断的调用已超过结果保留期限，不能重放。请查询现状后重新决定。";
-  }
   if (call.name === "express_feeling") {
     await context.emotion.submit(requestId, feelingSchema.parse(call.input).feeling, createdAt);
     return `已提交感受，提交 ID：${requestId}。尚未更新情绪，最终结果稍后以事件通知；无需等待或重复提交。`;
@@ -356,20 +351,17 @@ export async function executeAgentAction(
       ].join("\n");
     }
     const activity = result.value.status === "started" ? result.value.activity : null;
-    // 恢复时返回的是旧回执；由主 loop 恢复完操作后统一同步当前活动。
-    if (!recovering) {
-      if (activity) {
-        await context.observeActivity(activity);
-      } else {
-        // 即时行动也由世界进入空闲发呆，通过查询同步，不能在角色侧构造世界状态。
-        await context.syncWorldActivity();
-      }
+    if (activity) {
+      await context.observeActivity(activity);
+    } else {
+      // 即时行动也由世界进入空闲发呆，通过查询同步，不能在角色侧构造世界状态。
+      await context.syncWorldActivity();
     }
     const timezone = (await load_config()).app!.timezone!;
     return `${result.value.description}\n活动 ID：${result.value.activity.activityId}\n${activity ? `预计结束：${formatLlmDateTime(activity.endsAt!, timezone)}` : "已完成"}`;
   }
   let id = requestId;
-  let input: z.infer<typeof planToolSchema>;
+  let input: Omit<z.infer<typeof updatePlanSchema>, "planId">;
   if (call.name === "update_plan") {
     const { planId, ...fields } = updatePlanSchema.parse(call.input);
     id = planId;
@@ -378,15 +370,9 @@ export async function executeAgentAction(
       return `计划不存在：${id}`;
     }
   } else {
-    input = planToolSchema.parse(call.input);
+    input = createPlanSchema.parse(call.input);
   }
-  if (
-    (input.status === "completed" || input.status === "cancelled") &&
-    input.attentionAt !== null
-  ) {
-    return "已结束的计划不能保留下次关注时间，请将 attentionAt 设为 null。";
-  }
-  let fields: z.infer<typeof planInputSchema>;
+  let fields: Partial<z.infer<typeof planInputSchema>>;
   try {
     fields = parsePlanTimes(input, (await load_config()).app!.timezone!);
   } catch (error) {

@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import { mongoCollectionName, redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
@@ -136,6 +135,10 @@ export async function saveConversationState(
   changes: Partial<ConversationState>,
   events: ConversationMessage[] = [],
 ): Promise<void> {
+  // 在提交前拒绝不符合消息契约的事件，避免坏记录进入会话及归档缓冲。
+  for (const event of events) {
+    messageSchema.parse(event);
+  }
   const redis = await getRedis();
   const key = conversationKey(scope);
   const transaction = redis
@@ -193,32 +196,28 @@ export async function* pendingArchiveScopes(): AsyncGenerator<ConversationScope>
   } while (cursor !== "0");
 }
 
-/** COUNT 仅是 Redis 扫描提示；归档调用方仍需按批量上限拆分返回的记录。 */
-export async function readPendingArchive(scope: ConversationScope, cursor: string) {
+/** 取走本页后再解析和归档；失败不重新入队，新到消息不在删除范围内。 */
+export async function takePendingArchive(scope: ConversationScope, cursor: string) {
   const redis = await getRedis();
-  const [nextCursor, fields] = await redis.hscan(
-    `${conversationKey(scope)}:archive`,
-    cursor,
-    "COUNT",
-    100,
-  );
+  const key = `${conversationKey(scope)}:archive`;
+  const [nextCursor, fields] = await redis.hscan(key, cursor, "COUNT", 100);
+  const sequences = fields.filter((_, index) => index % 2 === 0);
+  if (sequences.length) {
+    await redis.hdel(key, ...sequences);
+  }
   const messages: ConversationMessage[] = [];
   for (let index = 0; index < fields.length; index += 2) {
-    const message = messageSchema.parse(JSON.parse(fields[index + 1]));
-    if (String(message.sequence) !== fields[index]) throw new Error("待归档序号与正文不一致");
-    messages.push(message);
+    try {
+      const message = messageSchema.parse(JSON.parse(fields[index + 1]));
+      if (String(message.sequence) !== fields[index]) {
+        throw new Error("待归档序号与正文不一致");
+      }
+      messages.push(message);
+    } catch (error) {
+      logger.error("聊天归档记录不符合契约，已丢弃", { error });
+    }
   }
   return { cursor: nextCursor, messages };
-}
-
-/** 仅移除调用方已经确认归档或已经过期的序号。 */
-export async function removePendingArchive(
-  scope: ConversationScope,
-  sequences: number[],
-): Promise<void> {
-  if (!sequences.length) return;
-  const redis = await getRedis();
-  await redis.hdel(`${conversationKey(scope)}:archive`, ...sequences.map(String));
 }
 
 /** 每日整理只冻结原始消息的定位信息，不复制正文。 */
@@ -226,7 +225,7 @@ export type ArchivedConversationMessage = ConversationScope & ConversationMessag
 type MessageDocument = ArchivedConversationMessage & { expireAt: Date };
 let collectionTask: Promise<mongo.Collection<MessageDocument>> | undefined;
 
-/** 索引只由聊天存储定义；MongoDB 故障时由后台归档下一轮重新尝试初始化。 */
+/** 索引只由聊天存储定义；本批失败不重试，后续新批次可以重新初始化。 */
 async function messageCollection(): Promise<mongo.Collection<MessageDocument>> {
   collectionTask ??= initializeMessageCollection();
   try {
@@ -256,51 +255,28 @@ async function initializeMessageCollection() {
   return collection;
 }
 
-/**
- * 只追加事实，不覆盖已有文档。写入后逐条核对事实，部分成功只返回确认一致的序号。
- * 网络错误下无法确认的记录继续留在 Redis；唯一键冲突不能直接当作成功。
- */
+/** 只追加事实；每批仅写入一次，部分失败也不重新投递。 */
 export async function archiveConversationMessages(
   scope: ConversationScope,
   messages: ConversationMessage[],
-): Promise<number[]> {
+): Promise<void> {
   const collection = await messageCollection();
-  const documents = messages.map((message) => ({
-    ...scope,
-    ...message,
-    expireAt: new Date(message.timestamp + MESSAGE_RETENTION_MS),
-  }));
-  let writeError: unknown;
-  try {
-    await collection.bulkWrite(
-      documents.map((document) => ({
-        updateOne: {
-          filter: { ...scope, sequence: document.sequence },
-          update: { $setOnInsert: document },
-          upsert: true,
+  await collection.bulkWrite(
+    messages.map((message) => ({
+      updateOne: {
+        filter: { ...scope, sequence: message.sequence },
+        update: {
+          $setOnInsert: {
+            ...scope,
+            ...message,
+            expireAt: new Date(message.timestamp + MESSAGE_RETENTION_MS),
+          },
         },
-      })),
-      { ordered: false },
-    );
-  } catch (error) {
-    writeError = error;
-  }
-  const stored = await collection
-    .find({ ...scope, sequence: { $in: messages.map((message) => message.sequence) } })
-    .toArray();
-  const bySequence = new Map(stored.map(({ _id, ...document }) => [document.sequence, document]));
-  const confirmed: number[] = [];
-  for (const document of documents) {
-    const existing = bySequence.get(document.sequence);
-    if (isDeepStrictEqual(existing, document)) {
-      confirmed.push(document.sequence);
-    } else {
-      logger.error(existing ? "聊天归档事实冲突" : "聊天归档未确认", {
-        error: writeError,
-      });
-    }
-  }
-  return confirmed;
+        upsert: true,
+      },
+    })),
+    { ordered: false },
+  );
 }
 
 /** 历史浏览及记忆整理使用；正常对话和恢复不调用 MongoDB 查询。 */
