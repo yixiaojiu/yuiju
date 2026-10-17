@@ -1,9 +1,4 @@
 import { mainAgentPrompt, mainCompressionPrompt, mainRecoveryPrompt } from "./agent-loop/main";
-import { yuunoInitialCognition } from "./character/yuuno/cognition";
-import { yuunoMainPrompt } from "./character/yuuno/main";
-import { yuunoPersona } from "./character/yuuno/persona";
-import { yuunoPlannerPrompt } from "./character/yuuno/planner";
-import { yuunoReplyerPrompt } from "./character/yuuno/replyer";
 import { multimodalPrompt } from "./conversation/multimodal";
 import { pausedConversationPrompt } from "./conversation/paused";
 import { plannerPrompt } from "./conversation/planner";
@@ -18,6 +13,7 @@ import {
   cognitionReviewPrompt,
   conversationMemoryPrompt,
   experiencePrompt,
+  initialCognitionPrompt,
   memoryChunksPrompt,
   peoplePrompt,
   peopleReviewPrompt,
@@ -26,10 +22,7 @@ import type { PromptTemplate } from "./template";
 import { worldRandomEventPrompt } from "./world/random-event";
 
 export const promptDefinitions: readonly PromptTemplate[] = [
-  yuunoPersona,
-  yuunoMainPrompt,
-  yuunoPlannerPrompt,
-  yuunoReplyerPrompt,
+  initialCognitionPrompt,
   experiencePrompt,
   memoryChunksPrompt,
   cognitionReviewPrompt,
@@ -38,7 +31,6 @@ export const promptDefinitions: readonly PromptTemplate[] = [
   conversationMemoryPrompt,
   peoplePrompt,
   peopleReviewPrompt,
-  yuunoInitialCognition,
   emotionUpdatePrompt,
   emotionReviewPrompt,
   mainAgentPrompt,

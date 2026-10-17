@@ -10,8 +10,8 @@ import {
   settleActivity,
   startAction,
 } from "../../world-simulator/src/actions/execution";
-import { characterDefinitions } from "../../world-simulator/src/content/characters";
-import { places, routes } from "../../world-simulator/src/content/locations";
+import { createCharacterDefinition } from "../../world-simulator/src/content/characters";
+import { createWorldLocations } from "../../world-simulator/src/content/locations";
 import {
   actionConditions,
   actionIsKnown,
@@ -28,9 +28,10 @@ import type { WorldState } from "../../world-simulator/src/state";
  */
 export function createEvaluationWorld(initialState: WorldState, now: number, timezone: string) {
   const state = structuredClone(initialState);
-  const map = createWorldMap(places, routes);
-  const definition = characterDefinitions.find((item) => item.characterId === "yuuno")!;
+  const definition = createCharacterDefinition("yuuno", ["student"]);
   const names = new Map([[definition.characterId, "雨泽悠乃"]]);
+  const { places, routes } = createWorldLocations(names);
+  const map = createWorldMap(places, routes);
 
   return {
     state,

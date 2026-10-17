@@ -1,15 +1,21 @@
 import { z } from "zod";
+import { getHomePlaceIds } from "../content/characters";
 import { itemsById } from "../content/items";
 import { localTimestamp, worldTime } from "../environment/time";
 import { changeBody } from "../state";
 import { emptyPayloadSchema } from "./anywhere";
-import { defineAction } from "./definition";
+import { type ActionContext, defineAction } from "./definition";
 import { checkInventory, consumeItems } from "./inventory";
+
+/** 每个角色只能在自己的屋内执行居家行动。 */
+function homePlaceIds({ character }: ActionContext): readonly string[] {
+  return [getHomePlaceIds(character.characterId).interiorId];
+}
 
 const wakeUp = defineAction({
   id: "起床",
   description: "起床洗漱，开始一天的生活。体力设为 85，饱腹设为 20。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
   durationDescription: "10 分钟",
@@ -26,7 +32,7 @@ const wakeUp = defineAction({
 const nap = defineAction({
   id: "再睡一会",
   description: "在家再睡一小会儿。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
   durationDescription: "10 分钟",
@@ -41,7 +47,7 @@ const nap = defineAction({
 const chargePhone = defineAction({
   id: "给手机充电",
   description: "将手机充满，每补充 10% 电量需要 3 分钟。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
   durationDescription: "按开始时缺少的电量计算，每 10% 耗时 3 分钟",
@@ -66,7 +72,7 @@ const chargePhone = defineAction({
 const sleep = defineAction({
   id: "睡觉",
   description: "睡到下一次早晨 07:30，醒来时体力为 85、饱腹为 20。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
   durationDescription: "到下一次早晨 07:30",
@@ -97,7 +103,7 @@ const sleep = defineAction({
 const cook = defineAction({
   id: "在家做饭吃",
   description: "从背包选择至少一种不同食材，每种使用一份，做成一餐吃掉。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: z.strictObject({
     ingredientIds: z
@@ -150,7 +156,7 @@ const cook = defineAction({
 const stayHome = defineAction({
   id: "待在家里",
   description: "周末待在家中放松或学习，开始时恢复 20 点体力、消耗 10 点饱腹。",
-  placeIds: ["home_interior"],
+  placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
   durationDescription: "60 分钟",

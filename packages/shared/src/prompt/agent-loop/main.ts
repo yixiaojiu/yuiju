@@ -1,7 +1,7 @@
 import type { PromptTemplate } from "../template";
 
 export const mainAgentPrompt: PromptTemplate = {
-  key: "agentLoop.main",
+  key: "agent_loop.main",
   description: "主 agent 通用职责、世界交互与事实约束",
   template: `你正在自己的世界里生活，根据收到的事情决定接下来做什么。你可以自然地思考、查询、行动，也可以不采取行动而结束。
 
@@ -18,7 +18,7 @@ recall 的 search 模式用于找相关片段，read 模式用于按日期阅读
 };
 
 export const mainCompressionPrompt: PromptTemplate = {
-  key: "agentLoop.compression",
+  key: "agent_loop.compression",
   description: "主 loop 旧交互压缩；保留生活脉络和未解决事项。",
   template: `请将旧摘要与这段交互压缩为连续的简短自然语言，供你继续生活和决策。
 保留已经发生的关键事实、自己的感受、尚未完成的安排、行动结果及仍不确定的问题。区分打算、实际执行与他人转述，保留继续查询或行动所需的标识，以及未完成交流的事件 ID 与关联关系。
@@ -26,7 +26,7 @@ export const mainCompressionPrompt: PromptTemplate = {
 };
 
 export const mainRecoveryPrompt: PromptTemplate = {
-  key: "agentLoop.recovery",
+  key: "agent_loop.recovery",
   description: "主 loop 中断后，根据已记录的实际操作继续本轮思考。",
   template: `你正在继续此前中断的一轮思考。以下是本轮操作记录，执行情况以结果为准，不要因思考中断而重复执行已完成的操作。
 结果不确定的操作不能当作未执行，应先查询现状；记录中的时间和状态属于当时，当前情况以最新查询为准。未保存的思考与查询过程可以重新进行。

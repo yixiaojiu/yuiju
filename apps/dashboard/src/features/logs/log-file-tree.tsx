@@ -14,16 +14,21 @@ export type LogFileSelection = {
 function LogFolder({
   app,
   label,
+  characterId,
   selected,
   onSelect,
 }: {
   app: LogFileSelection["app"];
   label: string;
+  characterId: string;
   selected: LogFileSelection | null;
   onSelect: (file: LogFileSelection) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const { data, error } = useQuery<{ files: string[] }>(`/api/logs/files?app=${app}`, 10000);
+  const { data, error } = useQuery<{ files: string[] }>(
+    `/api/logs/files?${new URLSearchParams({ app, ...(app === "character-runtime" && { characterId }) })}`,
+    10000,
+  );
 
   return (
     <div>
@@ -71,9 +76,11 @@ function LogFolder({
 }
 
 export function LogFileTree({
+  characterId,
   selected,
   onSelect,
 }: {
+  characterId: string;
   selected: LogFileSelection | null;
   onSelect: (file: LogFileSelection) => void;
 }) {
@@ -81,12 +88,19 @@ export function LogFileTree({
     <Card className="max-h-[calc(100dvh-180px)] gap-1 overflow-auto rounded-xl p-3">
       <nav aria-label="日志文件">
         <LogFolder
+          characterId={characterId}
           app="character-runtime"
           label="角色服务"
           selected={selected}
           onSelect={onSelect}
         />
-        <LogFolder app="world-simulator" label="世界服务" selected={selected} onSelect={onSelect} />
+        <LogFolder
+          characterId={characterId}
+          app="world-simulator"
+          label="世界服务"
+          selected={selected}
+          onSelect={onSelect}
+        />
       </nav>
     </Card>
   );

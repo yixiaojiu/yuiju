@@ -3,6 +3,7 @@ import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { Hono } from "hono";
 import { getDeployment } from "@/lib/deployment";
+import { getQueryCharacter } from "../character-query";
 
 export type CharacterStatus = {
   name: string;
@@ -23,7 +24,9 @@ export type CharacterStatus = {
 
 export const charactersApi = new Hono().get("/", async (c) => {
   const deployment = await getDeployment();
-  const { characterId, source, publicDeployment } = deployment;
+  const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
+  const { source, publicDeployment } = deployment;
+  const characterId = character.id;
   const redis = await getRedis(source);
   const prefix = redisKeyPrefix();
   const characterKey = `${prefix}character:${encodeURIComponent(characterId)}`;
@@ -35,7 +38,7 @@ export const charactersApi = new Hono().get("/", async (c) => {
   );
   const storedEmotion = emotion === null ? null : JSON.parse(emotion);
   const status: CharacterStatus = {
-    name: deployment.name,
+    name: character.name,
     timezone: deployment.timezone,
     publicDeployment,
     world: world === null ? null : JSON.parse(world),

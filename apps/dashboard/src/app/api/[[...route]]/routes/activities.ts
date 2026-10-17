@@ -7,6 +7,7 @@ import utc from "dayjs/plugin/utc";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDeployment } from "@/lib/deployment";
+import { getQueryCharacter } from "../character-query";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -51,6 +52,7 @@ export const activitiesApi = new Hono().get("/", async (c) => {
   }
   const { startDate, endDate, page, action, keyword } = parsed.data;
   const deployment = await getDeployment();
+  const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
   const start =
     startDate === undefined ? undefined : dayjs.tz(startDate, deployment.timezone).valueOf();
   const end =
@@ -83,7 +85,7 @@ export const activitiesApi = new Hono().get("/", async (c) => {
     }>([
       {
         $match: {
-          characterId: deployment.characterId,
+          characterId: character.id,
           type: { $in: ["activity_started", "activity_completed"] },
           ...(end !== undefined ? { "activity.startedAt": { $lt: end } } : {}),
           activity: { $ne: null },

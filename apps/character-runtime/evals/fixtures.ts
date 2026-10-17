@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { load_config } from "@yuiju/shared/config/load";
+import { initializePrompts } from "@yuiju/shared/prompt/template";
 import type { ToolSet } from "ai";
-import { inject, vi } from "vitest";
+import { beforeAll, inject, vi } from "vitest";
 import type { CharacterEvent } from "../src/agent-loop/events";
 import type { AgentAction, AgentState } from "../src/agent-loop/storage";
 import type { Plan } from "../src/plan/plan";
@@ -15,6 +16,10 @@ declare module "vitest" {
     evalOutputDir: string;
   }
 }
+
+beforeAll(async () => {
+  await initializePrompts();
+});
 
 /** 每个用例重建；仅替代外部状态，不模拟 Planner 或主 loop 的判断。 */
 export const fixture = {

@@ -3,6 +3,7 @@
 import { Button } from "@yuiju/shared/ui/components/button";
 import { useState } from "react";
 import type { PersonProfile } from "@/app/api/[[...route]]/routes/memories";
+import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
 import { ExperiencesPanel } from "@/features/memories/experiences-panel";
@@ -11,8 +12,10 @@ import { useQuery } from "@/lib/use-query";
 
 const panel = "rounded-2xl border border-border/80 bg-card p-6 shadow-sm";
 
-function People() {
-  const { data, error } = useQuery<{ people: PersonProfile[] }>("/api/memories/people");
+function People({ characterId }: { characterId: string }) {
+  const { data, error } = useQuery<{ people: PersonProfile[] }>(
+    `/api/memories/people?${new URLSearchParams({ characterId })}`,
+  );
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   if (!data) {
@@ -68,9 +71,9 @@ function People() {
   );
 }
 
-function SelfCognition() {
+function SelfCognition({ characterId }: { characterId: string }) {
   const { data, error } = useQuery<{ text: string; updatedAt: number | null }>(
-    "/api/memories/self-cognition",
+    `/api/memories/self-cognition?${new URLSearchParams({ characterId })}`,
   );
   if (!data) {
     return <QueryState error={error} />;
@@ -85,14 +88,45 @@ function SelfCognition() {
   );
 }
 
-export function MemoriesPage({ publicDeployment }: { publicDeployment: boolean }) {
+export function MemoriesPage({
+  characters,
+  publicDeployment,
+}: {
+  characters: CharacterOption[];
+  publicDeployment: boolean;
+}) {
+  const [characterId, setCharacterId] = useState(characters[0]?.id);
+  if (characterId === undefined) {
+    return <p className="text-sm text-muted-foreground">未配置角色</p>;
+  }
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">记忆</h1>
+        <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
+      </div>
+      <MemoriesQuery
+        key={characterId}
+        characterId={characterId}
+        publicDeployment={publicDeployment}
+      />
+    </div>
+  );
+}
+
+function MemoriesQuery({
+  characterId,
+  publicDeployment,
+}: {
+  characterId: string;
+  publicDeployment: boolean;
+}) {
   const [tab, setTab] = useState("experiences");
   const tabs = publicDeployment
     ? { experiences: "经历记忆" }
     : { experiences: "经历记忆", people: "人物画像", self: "自我认知" };
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">记忆</h1>
       <div className="flex gap-2 border-b pb-3">
         {Object.entries(tabs).map(([value, label]) => (
           <Button
@@ -106,11 +140,11 @@ export function MemoriesPage({ publicDeployment }: { publicDeployment: boolean }
         ))}
       </div>
       {tab === "experiences" ? (
-        <ExperiencesPanel />
+        <ExperiencesPanel characterId={characterId} />
       ) : tab === "people" ? (
-        <People />
+        <People characterId={characterId} />
       ) : (
-        <SelfCognition />
+        <SelfCognition characterId={characterId} />
       )}
     </div>
   );

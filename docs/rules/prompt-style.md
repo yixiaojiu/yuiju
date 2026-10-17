@@ -26,8 +26,10 @@
 
 ## 维护位置
 
-- 新系统的提示词定义集中维护在 `packages/shared/src/prompt/`，按业务模块分目录，例如 `conversation/planner.ts`、`conversation/replyer.ts`。
-- 每个提示词导出包含唯一 `key`、默认 `template` 和可选 `description` 的常量；模板变量使用 `{{variableName}}`。
-- 内置提示词在 `definitions.ts` 中显式汇集；模板系统首次渲染时自动加载并注册，并发调用共用一次初始化。业务只调用 `renderPrompt(key, variables)`，不负责注册；定义文件不在导入时自动注册。
+- 通用默认提示词集中维护在 `packages/shared/src/prompt/`，按业务模块分目录；角色专属提示词放在 `data/prompt/${key}.txt` 或 `${key}.md`，正文为纯文本，仅加载这两种扩展名的文件。
+- prompt key 保留点号分组，各段使用下划线命名，例如 `agent_loop.main`、`character.initial_cognition.yuuno`；TS 函数和变量仍使用驼峰。
+- 代码内的每个提示词导出包含唯一 `key`、默认 `template` 和可选 `description` 的常量；模板变量使用 `{{variableName}}`。
+- 内置提示词在 `definitions.ts` 中显式汇集；应用及 eval 入口在启动业务前调用 `initializePrompts()`。先加载默认模板，再读取 data 文件：去掉扩展名得到 key，同 key 覆盖正文并保留 description，新 key 直接注册；同 key 同时存在两种扩展名、文件读取失败时直接报错。
+- 业务只通过 `renderPrompt(key, variables)` 渲染内存模板，不访问文件；修改文件后重启生效。
 - 业务包只组合上下文和调用 LLM，不在业务流程里散写大段 prompt。
 - 修改 prompt 时同步检查 structured output schema 的 `describe` 文案，避免视角或语义不一致。

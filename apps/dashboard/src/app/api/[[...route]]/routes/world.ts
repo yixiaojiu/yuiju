@@ -6,6 +6,7 @@ import type { WorldEvent } from "@yuiju/shared/world/protocol";
 import { Queue } from "bullmq";
 import { Hono } from "hono";
 import { getDeployment } from "@/lib/deployment";
+import { getQueryCharacter } from "../character-query";
 
 type EventSummary = Pick<WorldEvent, "eventId" | "type" | "description" | "occurredAt">;
 export type NotificationState = "waiting" | "active" | "delayed" | "failed";
@@ -145,6 +146,7 @@ export const worldApi = new Hono().get("/", async (c) => {
   if (deployment.publicDeployment) {
     return c.json({ environment, readAt: Date.now() } satisfies WorldDashboardStatus);
   }
-  const interaction = await readWorldInteraction(deployment.characterId);
+  const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
+  const interaction = await readWorldInteraction(character.id);
   return c.json({ environment, interaction, readAt: Date.now() } satisfies WorldDashboardStatus);
 });

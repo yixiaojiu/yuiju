@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ActivitiesResponse } from "@/app/api/[[...route]]/routes/activities";
 import type { CharacterStatus } from "@/app/api/[[...route]]/routes/characters";
+import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { QueryState } from "@/components/query-state";
 import { today } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
@@ -10,8 +11,24 @@ import { HomeStatusCard } from "./home-status-card";
 import { HomeWorldState } from "./home-world-state";
 
 /** 角色展示与世界观测各自查询，倒计时只在浏览器内推进。 */
-export function HomePage() {
-  const { data, error } = useQuery<CharacterStatus>("/api/character", 5000);
+export function HomePage({ characters }: { characters: CharacterOption[] }) {
+  const [characterId, setCharacterId] = useState(characters[0]?.id);
+  if (characterId === undefined) {
+    return <p className="text-sm text-muted-foreground">未配置角色</p>;
+  }
+  return (
+    <div className="space-y-5">
+      <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
+      <HomeQuery key={characterId} characterId={characterId} />
+    </div>
+  );
+}
+
+function HomeQuery({ characterId }: { characterId: string }) {
+  const { data, error } = useQuery<CharacterStatus>(
+    `/api/character?${new URLSearchParams({ characterId })}`,
+    5000,
+  );
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -20,13 +37,21 @@ export function HomePage() {
   if (!data) {
     return <QueryState error={error} />;
   }
-  return <HomeContent data={data} now={now} />;
+  return <HomeContent characterId={characterId} data={data} now={now} />;
 }
 
-function HomeContent({ data, now }: { data: CharacterStatus; now: number }) {
+function HomeContent({
+  characterId,
+  data,
+  now,
+}: {
+  characterId: string;
+  data: CharacterStatus;
+  now: number;
+}) {
   const date = today(data.timezone);
   const { data: activities, error } = useQuery<ActivitiesResponse>(
-    `/api/activities?startDate=${date}&endDate=${date}&page=1`,
+    `/api/activities?${new URLSearchParams({ characterId, startDate: date, endDate: date, page: "1" })}`,
     30000,
   );
   return (
@@ -39,7 +64,11 @@ function HomeContent({ data, now }: { data: CharacterStatus; now: number }) {
           </p>
         )}
       </div>
-      <HomeWorldState now={now} publicDeployment={data.publicDeployment} />
+      <HomeWorldState
+        characterId={characterId}
+        now={now}
+        publicDeployment={data.publicDeployment}
+      />
     </div>
   );
 }

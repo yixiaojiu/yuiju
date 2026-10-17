@@ -99,7 +99,7 @@ export const plannerTools = {
   }),
   recall: tool({
     description:
-      "你可以回忆已经整理的生活经历。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。记忆属于你，表达时结合当前聊天语境。",
+      "你可以回忆已经整理的生活经历。每日记忆在零点整理前一天，今天未整理的内容不在其中；久远记忆可能只剩周、月、年概括。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。记忆属于你，表达时结合当前聊天语境。",
     inputSchema: recallSchema,
   }),
   readPerson: tool({
@@ -123,7 +123,7 @@ export const plannerTools = {
   }),
   reply: tool({
     description:
-      "你尝试参与文字交流，Replyer 根据聊天记录、人设与补充上下文决定具体回复，也可以选择本次不回复；返回实际发送记录或未发送的结果。主动不回复不是执行失败。没有额外上下文时可直接调用；引用和 @ 可选，分别使用消息 id 和 sender-id。",
+      "你决定这次要参与文字交流后调用，不能用它试探是否还能接一句。Replyer 根据聊天记录、人设与补充上下文决定具体回复，也可以选择本次不回复；返回实际发送记录或未发送的结果。主动不回复不是执行失败。没有额外上下文时省略 replyContext；引用和 @ 可选，分别使用消息 id 和 sender-id。",
     inputSchema: replySchema,
   }),
   poke: tool({ description: "你戳一戳某个人，返回实际执行结果。", inputSchema: pokeSchema }),
@@ -191,6 +191,7 @@ export type ConversationToolContext = {
 export function createPlannerTools(
   scope: ConversationScope,
   timezone: string,
+  botIds: readonly string[],
   context: ConversationToolContext,
 ) {
   let replyQueue = Promise.resolve();
@@ -282,7 +283,7 @@ export function createPlannerTools(
               description,
               messages: messages.map((message) => ({
                 date: dayjs(message.timestamp).tz(timezone).format("YYYY-MM-DD"),
-                text: renderMessage(message, timezone),
+                text: renderMessage(message, timezone, botIds),
               })),
             },
             abortSignal,
@@ -382,7 +383,7 @@ export function createPlannerTools(
         } finally {
           release();
         }
-        const result = sent.map((message) => renderMessage(message, timezone));
+        const result = sent.map((message) => renderMessage(message, timezone, botIds));
         if (failure) result.unshift(failure);
         return result.join("\n");
       },
@@ -412,7 +413,7 @@ export function createPlannerTools(
                 ? "戳一戳执行失败，结果未确认。"
                 : "以下戳一戳已确认执行，记录保存失败。";
         }
-        const result = sent.map((message) => renderMessage(message, timezone));
+        const result = sent.map((message) => renderMessage(message, timezone, botIds));
         if (failure) result.unshift(failure);
         return result.join("\n");
       },

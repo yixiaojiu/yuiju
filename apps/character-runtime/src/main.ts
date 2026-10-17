@@ -5,6 +5,7 @@ import { load_config } from "@yuiju/shared/config/load";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { closeRedis } from "@yuiju/shared/database/redis";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
+import { initializePrompts } from "@yuiju/shared/prompt/template";
 import { Character } from "./character";
 import { startConversationArchive } from "./conversation/archive";
 
@@ -32,6 +33,7 @@ async function main() {
     log_dir: join(fileURLToPath(new URL("../logs/", import.meta.url)), characterId),
     level: "info",
   });
+  await initializePrompts();
   const character = new Character(characterId, config.characters[characterId], mode);
   const archive = mode !== "agent" ? startConversationArchive(characterId) : undefined;
   const startup = character.start();

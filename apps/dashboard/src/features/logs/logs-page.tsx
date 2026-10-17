@@ -5,12 +5,23 @@ import { Card } from "@yuiju/shared/ui/components/card";
 import { Pause, Play, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LogEntry } from "@/app/api/[[...route]]/routes/logs";
+import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { type LogFileSelection, LogFileTree } from "@/features/logs/log-file-tree";
 import { formatTime } from "@/lib/date";
 
 /** 文件切换时通过 key 重建读取会话；游标与内容只属于当前选中的文件。 */
-function LogContent({ app, file, onReload }: { app: string; file: string; onReload: () => void }) {
+function LogContent({
+  app,
+  file,
+  characterId,
+  onReload,
+}: {
+  app: string;
+  file: string;
+  characterId: string;
+  onReload: () => void;
+}) {
   const [following, setFollowing] = useState(true);
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string>();
@@ -20,7 +31,11 @@ function LogContent({ app, file, onReload }: { app: string; file: string; onRelo
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function load() {
       try {
-        const params = new URLSearchParams({ app, file });
+        const params = new URLSearchParams({
+          app,
+          file,
+          ...(app === "character-runtime" && { characterId }),
+        });
         if (offset.current !== undefined) {
           params.set("offset", String(offset.current));
         }
@@ -50,7 +65,7 @@ function LogContent({ app, file, onReload }: { app: string; file: string; onRelo
       controller.abort();
       clearTimeout(timer);
     };
-  }, [app, file, following]);
+  }, [app, file, characterId, following]);
   const text = entries
     .map(
       (entry) =>
@@ -81,16 +96,32 @@ function LogContent({ app, file, onReload }: { app: string; file: string; onRelo
   );
 }
 
-export function LogsPage() {
+export function LogsPage({ characters }: { characters: CharacterOption[] }) {
+  const [characterId, setCharacterId] = useState(characters[0]?.id);
+  if (characterId === undefined) {
+    return <p className="text-sm text-muted-foreground">未配置角色</p>;
+  }
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">日志</h1>
+        <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
+      </div>
+      <LogsQuery key={characterId} characterId={characterId} />
+    </div>
+  );
+}
+
+function LogsQuery({ characterId }: { characterId: string }) {
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<LogFileSelection | null>(null);
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold">日志</h1>
       <div className="grid items-start gap-4 min-[1020px]:grid-cols-[280px_minmax(0,1fr)]">
-        <LogFileTree selected={selected} onSelect={setSelected} />
+        <LogFileTree characterId={characterId} selected={selected} onSelect={setSelected} />
         {selected ? (
           <LogContent
+            characterId={characterId}
             key={`${selected.app}/${selected.file}/${revision}`}
             onReload={() => setRevision(revision + 1)}
             app={selected.app}

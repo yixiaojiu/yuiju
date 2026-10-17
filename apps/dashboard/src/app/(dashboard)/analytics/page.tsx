@@ -4,9 +4,9 @@ import { today } from "@/lib/date";
 import { getDeployment } from "@/lib/deployment";
 
 export default async function Page() {
-  const { publicDeployment, timezone } = await getDeployment();
+  const { publicDeployment, timezone, characters } = await getDeployment();
   if (publicDeployment) {
     notFound();
   }
-  return <AnalyticsPage initialDate={today(timezone)} />;
+  return <AnalyticsPage characters={characters} initialDate={today(timezone)} />;
 }

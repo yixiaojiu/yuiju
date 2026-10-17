@@ -35,7 +35,7 @@
 - `packages/shared` 放实际共用的技术能力与集中维护的提示词定义，不放大脑、聊天、记忆等业务执行逻辑。
 - 旧应用与旧包保留作参考，新功能在新架构中实现，不要求兼容旧逻辑。
 - 项目内部模块使用能够直接定位声明文件的具体路径导入，不通过包根入口或 barrel index 聚合导入。
-- 提示词定义集中维护在 `packages/shared/src/prompt/`，按业务模块分目录，导出包含 `key`、`template` 和可选 `description` 的常量；通过 `definitions.ts` 汇集，由模板系统首次渲染时自动注册，业务只通过 key 渲染。
+- 默认提示词集中维护在 `packages/shared/src/prompt/`，通过 `definitions.ts` 汇集；应用启动时调用 `initializePrompts()`，先注册默认模板，再用 `data/prompt/${key}.txt` 或 `${key}.md` 的纯文本覆盖或新增模板，同 key 文件重复时报错。key 保留点号分组，各段使用下划线命名。角色专属提示词放在 data 中；业务统一通过 `renderPrompt(key, variables)` 读取内存模板，修改文件后重启生效。
 
 ## 验证命令
 

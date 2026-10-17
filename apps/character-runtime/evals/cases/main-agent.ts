@@ -1,4 +1,5 @@
-import { places } from "../../../world-simulator/src/content/locations";
+import { getHomePlaceIds } from "../../../world-simulator/src/content/characters";
+import { createWorldLocations } from "../../../world-simulator/src/content/locations";
 import { isPlaceOpen } from "../../../world-simulator/src/environment/places";
 import { weatherPeriod } from "../../../world-simulator/src/environment/weather";
 import type { WorldState } from "../../../world-simulator/src/state";
@@ -16,6 +17,7 @@ export type MainAgentCase = EvaluationCase & {
 const time = "2026-10-06T18:00:00+08:00";
 const now = new Date(time).getTime();
 const timezone = "Asia/Shanghai";
+const { places } = createWorldLocations(new Map([["yuuno", "雨泽悠乃"]]));
 /** 固定场景：完整小镇，角色在屋内且饱腹很低，背包中有一份百奇。 */
 const world: WorldState = {
   weather: { type: "晴", temperatureLevel: "舒适" },
@@ -34,7 +36,7 @@ const world: WorldState = {
   characters: {
     yuuno: {
       characterId: "yuuno",
-      placeId: "home_interior",
+      placeId: getHomePlaceIds("yuuno").interiorId,
       stamina: 80,
       satiety: 10,
       money: 100,

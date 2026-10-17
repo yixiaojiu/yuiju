@@ -141,12 +141,14 @@ export class DailyMemory {
       this.stopping.signal.throwIfAborted();
       logger.warn("人物活跃统计或清理失败，本次跳过", { error });
     }
+    const config = await load_config();
+    const botIds = config.characters![this.characterId].onebot?.bot_ids ?? [];
     materials.push(
       ...messages.map((message) => ({
         id: `conversation:${message.platform}:${message.channelId}:${message.sequence}`,
         occurredAt: message.timestamp,
         source: "conversation" as const,
-        content: renderMessage(message, timezone),
+        content: renderMessage(message, timezone, botIds),
         conversation: { platform: message.platform, channelId: message.channelId },
         people: [],
       })),

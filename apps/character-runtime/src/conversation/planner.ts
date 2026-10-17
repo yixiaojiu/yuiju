@@ -26,7 +26,10 @@ export class Planner {
   /** 上下文交互序号，与群消息序号、业务轮次分开计数。 */
   private sequence = 0;
 
-  constructor(private readonly scope: ConversationScope) {}
+  constructor(
+    private readonly scope: ConversationScope,
+    private readonly botIds: readonly string[],
+  ) {}
 
   async initialize(state: ConversationState["planner"]) {
     const config = await load_config();
@@ -39,7 +42,7 @@ export class Planner {
       renderPrompt(`character.persona.${this.scope.characterId}`),
       renderPrompt("conversation.planner"),
       renderPrompt(`conversation.planner.${this.scope.characterId}`),
-      renderPrompt("conversation.plannerCompression"),
+      renderPrompt("conversation.planner_compression"),
     ]);
     this.history = state.history;
     this.sequence = Math.max(state.summary.coveredThrough, state.history.at(-1)?.sequence ?? 0);
@@ -80,7 +83,7 @@ export class Planner {
       ...messages.map(
         (message): ModelMessage => ({
           role: "user",
-          content: renderMessage(message, this.timezone),
+          content: renderMessage(message, this.timezone, this.botIds),
         }),
       ),
     );
@@ -100,7 +103,7 @@ export class Planner {
         model: flashModel,
         messages: this.history.flatMap((unit) => unit.messages),
         allowSystemInMessages: true,
-        tools: createPlannerTools(this.scope, this.timezone, execution),
+        tools: createPlannerTools(this.scope, this.timezone, this.botIds, execution),
         maxRetries: 0,
         stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
         prepareStep: async () => {

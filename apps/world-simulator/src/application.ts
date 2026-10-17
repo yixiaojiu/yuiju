@@ -1,8 +1,8 @@
 import type { Config } from "@yuiju/shared/config/schema";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { closeRedis, getRedis } from "@yuiju/shared/database/redis";
-import { characterDefinitions } from "./content/characters";
-import { places, routes } from "./content/locations";
+import { createCharacterDefinition } from "./content/characters";
+import { createWorldLocations } from "./content/locations";
 import { createWorldMap } from "./map";
 import { WorldEventQueues } from "./queue";
 import { serveWorld } from "./server/server";
@@ -11,21 +11,18 @@ import { World } from "./world";
 
 /** 组装并恢复世界，再启动服务；返回按依赖顺序释放资源的 stop 方法。 */
 export async function startWorldSimulator(config: Config) {
-  const map = createWorldMap(places, routes);
   const names = new Map(
     Object.entries(config.characters ?? {}).map(([id, character]) => [id, character.name]),
   );
+  const { places, routes } = createWorldLocations(names);
+  const map = createWorldMap(places, routes);
   const definitions = new Map(
-    characterDefinitions
-      .filter((definition) => names.has(definition.characterId))
-      .map((definition) => [definition.characterId, definition]),
+    Object.entries(config.characters ?? {}).map(([id, character]) => [
+      id,
+      createCharacterDefinition(id, character.identities),
+    ]),
   );
 
-  for (const characterId of names.keys()) {
-    if (!definitions.has(characterId)) {
-      throw new Error(`角色 ${characterId} 缺少世界初始资料，请在 content/characters.ts 声明`);
-    }
-  }
   for (const definition of definitions.values()) {
     for (const placeId of [definition.initialPlaceId, ...definition.familiarPlaceIds]) {
       if (!map.placesById.has(placeId)) {

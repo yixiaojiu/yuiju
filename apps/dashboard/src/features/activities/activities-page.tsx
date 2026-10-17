@@ -2,11 +2,28 @@
 
 import { useState } from "react";
 import type { ActivitiesResponse } from "@/app/api/[[...route]]/routes/activities";
+import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { useQuery } from "@/lib/use-query";
 import { ActivityFilterCard, type ActivityFilters } from "./activity-filter-card";
 import { ActivityTableCard } from "./activity-table-card";
 
-export function ActivitiesPage() {
+export function ActivitiesPage({ characters }: { characters: CharacterOption[] }) {
+  const [characterId, setCharacterId] = useState(characters[0]?.id);
+  if (characterId === undefined) {
+    return <p className="text-sm text-muted-foreground">未配置角色</p>;
+  }
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">活动</h1>
+        <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
+      </div>
+      <ActivitiesQuery key={characterId} characterId={characterId} />
+    </div>
+  );
+}
+
+function ActivitiesQuery({ characterId }: { characterId: string }) {
   const [filters, setFilters] = useState<ActivityFilters>({
     startDate: "",
     endDate: "",
@@ -14,7 +31,7 @@ export function ActivitiesPage() {
     keyword: "",
   });
   const [page, setPage] = useState(1);
-  const query = new URLSearchParams({ page: String(page) });
+  const query = new URLSearchParams({ characterId, page: String(page) });
   for (const [key, value] of Object.entries(filters)) {
     if (value) {
       query.set(key, value);
@@ -23,7 +40,6 @@ export function ActivitiesPage() {
   const { data, error } = useQuery<ActivitiesResponse>(`/api/activities?${query}`, 5000);
   return (
     <div className="space-y-3.5">
-      <h1 className="mb-5 text-2xl font-bold">活动</h1>
       <ActivityFilterCard
         actions={data ? data.actions : []}
         onSubmit={(next) => {

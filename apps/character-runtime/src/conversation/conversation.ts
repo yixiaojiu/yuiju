@@ -1,3 +1,7 @@
+import {
+  readConversationSettings,
+  subscribeConversationSettings,
+} from "@yuiju/shared/dashboard/conversation-settings";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { Character } from "../character";
 import type { ConversationAgentEvent } from "../communication";
@@ -8,6 +12,10 @@ import { type OneBotConfig, OneBotConnection } from "./onebot";
 export class Conversation {
   private readonly connection: OneBotConnection;
   private readonly sessions = new Map<string, ConversationLoop>();
+  /** 世界活动许可与人工开关独立；世界通知可能早于会话初始化。 */
+  private participationAllowed: boolean | undefined;
+  private stopSettingsSubscription: (() => void) | undefined;
+  private stopped = false;
 
   constructor(
     private readonly character: Character,
@@ -18,6 +26,9 @@ export class Conversation {
 
   /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */
   async start(participationAllowed?: boolean) {
+    if (participationAllowed !== undefined) {
+      this.participationAllowed = participationAllowed;
+    }
     // 主动恢复白名单中的会话；不能等第一条新消息才重建 wait。
     for (const group of this.onebot.group_white_list ?? []) {
       const channelId = group.group_id;
@@ -28,21 +39,40 @@ export class Conversation {
         this.connection,
         this.character,
         group.collect_training_data,
+        this.onebot.bot_ids ?? [],
       );
       await session.initialize();
-      if (participationAllowed !== undefined) {
-        await session.setParticipationAllowed(participationAllowed);
-      }
       this.sessions.set(channelId, session);
     }
+    this.stopSettingsSubscription = await subscribeConversationSettings(
+      this.character.id,
+      async () => {
+        const settings = await readConversationSettings(this.character.id);
+        if (this.stopped) {
+          return;
+        }
+        await Promise.all(
+          [...this.sessions].map(([groupId, session]) =>
+            session.setEnabled(settings[groupId] ?? true),
+          ),
+        );
+      },
+    );
     await this.connection.start(async (channelId, message) => {
       // 入口已严格校验白名单；连接建立期间先记录，resume 后再执行模型。
       await this.sessions.get(channelId)!.receive(message);
     });
-    for (const session of this.sessions.values()) session.resume();
+    if (this.participationAllowed !== undefined) {
+      await this.setParticipationAllowed(this.participationAllowed);
+    }
+    for (const session of this.sessions.values()) {
+      session.resume();
+    }
   }
 
   async stop() {
+    this.stopped = true;
+    this.stopSettingsSubscription?.();
     this.connection.stopReceiving();
     // 连接保留到所有在途轮次结束，分段发送可以按原决定完成。
     const results = await Promise.allSettled(
@@ -60,6 +90,7 @@ export class Conversation {
 
   /** 各群独立整理暂停期背景；一个群的模型调用不占用另一个群的执行队列。 */
   async setParticipationAllowed(allowed: boolean): Promise<void> {
+    this.participationAllowed = allowed;
     await Promise.all(
       [...this.sessions.values()].map((session) => session.setParticipationAllowed(allowed)),
     );

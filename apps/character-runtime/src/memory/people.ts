@@ -168,7 +168,7 @@ async function reviewPersonProfile(
     context,
     {
       update: `${persona}\n\n${await renderPrompt("memory.people")}`,
-      review: `${persona}\n\n${await renderPrompt("memory.peopleReview")}`,
+      review: `${persona}\n\n${await renderPrompt("memory.people_review")}`,
     },
     config.llm!.models!.strong!.context_window_tokens! * 0.8,
     signal,

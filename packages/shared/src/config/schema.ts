@@ -8,12 +8,13 @@ const groupWhitelistSchema = z
     z
       .union([
         z.string().min(1),
-        z.strictObject({
+        z.looseObject({
           group_id: z.string().min(1),
           collect_training_data: z.boolean().optional(),
         }),
       ])
       .transform((group) => ({
+        ...(typeof group === "string" ? {} : group),
         group_id: typeof group === "string" ? group : group.group_id,
         collect_training_data: typeof group !== "string" && group.collect_training_data === true,
       })),
@@ -32,7 +33,7 @@ const groupWhitelistSchema = z
     }
   });
 
-const provider_schema = z.strictObject({
+const provider_schema = z.looseObject({
   base_url: z.url(),
   api_key: z.string().optional(),
   model: z.string().min(1),
@@ -40,7 +41,7 @@ const provider_schema = z.strictObject({
   request: z.record(z.string(), z.json()).optional(),
 });
 
-const model_group_schema = z.strictObject({
+const model_group_schema = z.looseObject({
   context_window_tokens: z.number().int().positive().optional(),
   providers: z.array(
     provider_schema.extend({
@@ -49,37 +50,38 @@ const model_group_schema = z.strictObject({
   ),
 });
 
+/** 允许并保留未声明的配置字段；已声明字段仍按各自 schema 校验。 */
 export const config_schema = z
-  .strictObject({
+  .looseObject({
     version: z.literal(1),
     extensions: z
       .array(extensionNameSchema)
       .refine((names) => new Set(names).size === names.length, "扩展包不能重复登记")
       .optional(),
     app: z
-      .strictObject({
+      .looseObject({
         timezone: z.string().min(1).optional(),
         public_deployment: z.boolean().optional(),
         world_simulator: z
-          .strictObject({
+          .looseObject({
             base_url: z.url({ protocol: /^https?$/ }).optional(),
           })
           .optional(),
       })
       .optional(),
     database: z
-      .strictObject({
+      .looseObject({
         mongo_uri: z.string().min(1).optional(),
         redis_url: z.string().min(1).optional(),
         sync_mongo_uri: z.string().min(1).optional(),
         sync_redis_url: z.string().min(1).optional(),
-        qdrant: z.strictObject({ base_url: z.url() }).optional(),
+        qdrant: z.looseObject({ base_url: z.url() }).optional(),
       })
       .optional(),
     llm: z
-      .strictObject({
+      .looseObject({
         models: z
-          .strictObject({
+          .looseObject({
             chat: model_group_schema.optional(),
             strong: model_group_schema.optional(),
             flash: model_group_schema.optional(),
@@ -93,7 +95,7 @@ export const config_schema = z
               })
               .optional(),
             embedding: z
-              .strictObject({
+              .looseObject({
                 dimensions: z.number().int().positive().optional(),
                 providers: z.array(provider_schema),
               })
@@ -105,18 +107,20 @@ export const config_schema = z
     characters: z
       .record(
         z.string().min(1),
-        z.strictObject({
+        z.looseObject({
           name: z.string().min(1),
           nicknames: z.array(z.string().min(1)).optional(),
+          identities: z.array(z.string().min(1)).optional(),
           extensions: z
-            .record(extensionNameSchema, z.strictObject({ enabled: z.boolean().optional() }))
+            .record(extensionNameSchema, z.looseObject({ enabled: z.boolean().optional() }))
             .optional(),
           onebot: z
-            .strictObject({
+            .looseObject({
               self_id: z.string().min(1),
               endpoint: z.url({ protocol: /^wss?$/ }),
               token: z.string().optional(),
               group_white_list: groupWhitelistSchema.optional(),
+              bot_ids: z.array(z.string().min(1)).optional(),
             })
             .optional(),
         }),

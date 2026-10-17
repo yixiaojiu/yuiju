@@ -2,15 +2,23 @@
 
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/[[...route]]/routes/analytics";
+import type { CharacterOption } from "@/components/character-select";
 import { AnalyticsFilterCard, type AnalyticsFilters } from "./analytics-filter-card";
 import { AnalyticsSummaryCards, CompressionDailyTable } from "./analytics-summary";
 import { AnalyticsTableCard } from "./analytics-table-card";
 
 type AnalyticsQuery = { filters: AnalyticsFilters; page: number };
 
-export function AnalyticsPage({ initialDate }: { initialDate: string }) {
+export function AnalyticsPage({
+  initialDate,
+  characters,
+}: {
+  initialDate: string;
+  characters: CharacterOption[];
+}) {
   const [initialFilters] = useState<AnalyticsFilters>({
     eventName: "conversation.planner",
+    characterId: characters.length > 0 ? characters[0].id : "",
     startDate: initialDate,
     endDate: initialDate,
     channelId: "",
@@ -39,6 +47,9 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
         endDate: filters.endDate,
         page: String(page),
       });
+      if (filters.eventName !== "llm.request" && filters.eventName !== "app.error") {
+        params.set("characterId", filters.characterId);
+      }
       const fields =
         filters.eventName === "llm.request"
           ? {
@@ -86,6 +97,7 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
     <div className="space-y-3.5">
       <h1 className="mb-5 text-2xl font-bold">埋点</h1>
       <AnalyticsFilterCard
+        characters={characters}
         initialFilters={initialFilters}
         onSubmit={(filters) => setQuery({ filters, page: 1 })}
       />
@@ -96,7 +108,7 @@ export function AnalyticsPage({ initialDate }: { initialDate: string }) {
         <CompressionDailyTable entries={current.data.compressionDaily} />
       )}
       <AnalyticsTableCard
-        key={query.filters.eventName}
+        key={`${query.filters.eventName}:${query.filters.characterId}`}
         eventName={query.filters.eventName}
         data={current?.data}
         error={current?.error}

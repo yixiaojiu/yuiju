@@ -12,7 +12,11 @@ import type {
 import { createIdleActivity } from "./actions/anywhere";
 import { actionsById } from "./actions/definitions";
 import { createActionContext, settleActivity, startAction } from "./actions/execution";
-import { createCharacterState, type WorldCharacterDefinition } from "./content/characters";
+import {
+  createCharacterState,
+  getHomePlaceIds,
+  type WorldCharacterDefinition,
+} from "./content/characters";
 import type { WorldAdvanceContext, WorldEvolution } from "./environment/evolution";
 import { isPlaceOpen, PlaceEvolution } from "./environment/places";
 import { ResourceEvolution, refreshResources } from "./environment/resources";
@@ -116,10 +120,18 @@ export class World {
     await this.enqueueStateChange(async () => this.advanceWorldTo(now));
     // 在队列外等待补算，小插曲与普通完成结果走相同的提交入口。
     await Promise.all(this.activityCompletionTasks.values());
-    // 旧活动恢复完成后再加入配置中的新角色，不覆盖已有角色状态。
+    // 新角色与其住宅状态一并加入；不覆盖已有角色或住宅的数据。
     const draftState = structuredClone(this.committedState!);
     for (const definition of this.characterDefinitions.values()) {
       if (!draftState.characters[definition.characterId]) {
+        const { homeId, interiorId } = getHomePlaceIds(definition.characterId);
+        for (const placeId of [homeId, interiorId]) {
+          draftState.places[placeId] = {
+            resources: {},
+            closed: false,
+            isOpen: isPlaceOpen(placeId, now, this.timezone, false),
+          };
+        }
         draftState.characters[definition.characterId] = createCharacterState(definition, now);
       }
     }
@@ -533,8 +545,10 @@ export class World {
       logger.info("世界每日资源已刷新", { date: draftState.resourceDate });
     }
     if (previousState) {
-      for (const [placeId, place] of Object.entries(draftState.places)) {
-        if (previousState.places[placeId].isOpen !== place.isOpen) {
+      // 只比较已有地点的开放变化，新角色住宅没有上一份状态。
+      for (const [placeId, previousPlace] of Object.entries(previousState.places)) {
+        const place = draftState.places[placeId];
+        if (previousPlace.isOpen !== place.isOpen) {
           logger.info("地点开放状态已变更", { placeId, isOpen: place.isOpen });
         }
       }

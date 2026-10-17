@@ -1,5 +1,6 @@
 import { load_config } from "@yuiju/shared/config/load";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
+import { initializePrompts } from "@yuiju/shared/prompt/template";
 import { getEnvironment } from "@yuiju/shared/utils/environment";
 import { startWorldSimulator } from "./application";
 
@@ -10,6 +11,7 @@ async function main(): Promise<void> {
     level: getEnvironment() === "production" ? "info" : "debug",
   });
   const config = await load_config();
+  await initializePrompts();
   const application = await startWorldSimulator(config);
 
   async function onSignal(): Promise<void> {

@@ -38,7 +38,7 @@ export async function prepareAgentContext(
       throw new Error("主 loop 最新完整交互已超过压缩阈值，不能截断工具调用继续请求");
     }
     const prefix = context.units.slice(0, -keep);
-    const compressionPrompt = await renderPrompt("agentLoop.compression");
+    const compressionPrompt = await renderPrompt("agent_loop.compression");
     while (
       prefix.length &&
       estimate({ summary: context.summary, units: prefix }, [

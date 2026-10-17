@@ -8,6 +8,7 @@ import dayjs from "dayjs";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDeployment } from "@/lib/deployment";
+import { getQueryCharacter } from "../character-query";
 
 export type PersonProfile = {
   platform: string;
@@ -52,6 +53,7 @@ export const memoriesApi = new Hono()
     }
     const { startDate, endDate, grain, keyword, page } = parsed.data;
     const deployment = await getDeployment();
+    const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
     const collection = (await getMongoDatabase(deployment.source)).collection<ExperienceDocument>(
       mongoCollectionName("character_memories"),
     );
@@ -62,7 +64,7 @@ export const memoriesApi = new Hono()
       .aggregate<{ memories: ExperienceSummary[]; count: { total: number }[] }>([
         {
           $match: {
-            characterId: deployment.characterId,
+            characterId: character.id,
             ...(grain ? { grain } : {}),
             ...(startDate ? { endDate: { $gte: startDate } } : {}),
             ...(endDate ? { startDate: { $lte: endDate } } : {}),
@@ -100,12 +102,10 @@ export const memoriesApi = new Hono()
   })
   .get("/experiences/:id", async (c) => {
     const deployment = await getDeployment();
+    const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
     const memory = await (await getMongoDatabase(deployment.source))
       .collection<ExperienceDocument>(mongoCollectionName("character_memories"))
-      .findOne(
-        { characterId: deployment.characterId, id: c.req.param("id") },
-        { projection: { _id: 0 } },
-      );
+      .findOne({ characterId: character.id, id: c.req.param("id") }, { projection: { _id: 0 } });
     if (!memory) {
       return c.json({ error: "记忆不存在" }, 404);
     }
@@ -116,10 +116,11 @@ export const memoriesApi = new Hono()
     if (deployment.publicDeployment) {
       return c.notFound();
     }
+    const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
     const root = join(
       await get_data_dir(),
       "characters",
-      encodeURIComponent(deployment.characterId),
+      encodeURIComponent(character.id),
       "memory",
       "people",
     );
@@ -141,10 +142,11 @@ export const memoriesApi = new Hono()
     if (deployment.publicDeployment) {
       return c.notFound();
     }
+    const character = getQueryCharacter(c.req.query("characterId"), deployment.characters);
     const path = join(
       await get_data_dir(),
       "characters",
-      encodeURIComponent(deployment.characterId),
+      encodeURIComponent(character.id),
       "memory",
       "self-cognition.json",
     );

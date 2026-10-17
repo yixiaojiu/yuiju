@@ -6,9 +6,10 @@ import {
   weekdayMorning,
 } from "../actions/conditions";
 import type { PlaceDefinition, RouteDefinition } from "../map";
+import { getHomePlaceIds } from "./characters";
 
 /** 小镇采用统一方位；内部布局只表达相对位置，通行仍以显式路线为准。 */
-export const places: PlaceDefinition[] = [
+const publicPlaces: PlaceDefinition[] = [
   {
     id: "town",
     name: "小镇",
@@ -18,12 +19,12 @@ export const places: PlaceDefinition[] = [
     visibility: "public",
   },
   {
-    id: "home",
-    name: "家",
-    description: "悠乃的家。",
+    id: "residential_area",
+    name: "住宅区",
+    description: "角色们各自居住的住宅区。",
     parentId: "town",
     position: { x: 420, y: -520 },
-    visibility: "private",
+    visibility: "public",
   },
   {
     id: "school",
@@ -55,14 +56,6 @@ export const places: PlaceDefinition[] = [
     description: "乘电车可以到达的海边。",
     parentId: "town",
     position: { x: 940, y: -690 },
-    visibility: "public",
-  },
-  {
-    id: "home_interior",
-    name: "屋内",
-    description: "家里的生活空间。",
-    parentId: "home",
-    position: { x: 0, y: 0 },
     visibility: "public",
   },
   {
@@ -154,87 +147,7 @@ export const places: PlaceDefinition[] = [
 ];
 
 /** 逐条迁移旧有向路线，保留往返差异。 */
-export const routes: RouteDefinition[] = [
-  {
-    id: "home_to_campus",
-    fromPlaceId: "home_interior",
-    toPlaceId: "campus",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 20,
-    cost: { money: 0, stamina: 7, satiety: 5 },
-    conditions: [weekdayMorning],
-  },
-  {
-    id: "home_to_shop",
-    fromPlaceId: "home_interior",
-    toPlaceId: "shop",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [daytime, minimumStamina(5)],
-  },
-  {
-    id: "home_to_cafe",
-    fromPlaceId: "home_interior",
-    toPlaceId: "cafe",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [daytime, minimumStamina(5)],
-  },
-  {
-    id: "home_to_supermarket",
-    fromPlaceId: "home_interior",
-    toPlaceId: "supermarket",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [daytime, minimumStamina(5)],
-  },
-  {
-    id: "home_to_diner",
-    fromPlaceId: "home_interior",
-    toPlaceId: "diner",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [daytime, minimumStamina(5)],
-  },
-  {
-    id: "home_to_park",
-    fromPlaceId: "home_interior",
-    toPlaceId: "park",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
-    conditions: [daytime, minimumStamina(3)],
-  },
-  {
-    id: "home_to_shrine",
-    fromPlaceId: "home_interior",
-    toPlaceId: "shrine",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
-    conditions: [daytime, minimumStamina(3)],
-  },
-  {
-    id: "campus_to_home",
-    fromPlaceId: "campus",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 20,
-    cost: { money: 0, stamina: 7, satiety: 5 },
-    conditions: [afternoon, minimumStamina(10)],
-  },
+const publicRoutes: RouteDefinition[] = [
   {
     id: "campus_to_shop",
     fromPlaceId: "campus",
@@ -276,16 +189,6 @@ export const routes: RouteDefinition[] = [
     conditions: [daytime, minimumStamina(5)],
   },
   {
-    id: "cafe_to_home",
-    fromPlaceId: "cafe",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [],
-  },
-  {
     id: "cafe_to_campus",
     fromPlaceId: "cafe",
     toPlaceId: "campus",
@@ -313,16 +216,6 @@ export const routes: RouteDefinition[] = [
     mode: "walk",
     durationMinutes: 5,
     cost: { money: 0, stamina: 1, satiety: 1 },
-    conditions: [],
-  },
-  {
-    id: "diner_to_home",
-    fromPlaceId: "diner",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
     conditions: [],
   },
   {
@@ -366,16 +259,6 @@ export const routes: RouteDefinition[] = [
     conditions: [],
   },
   {
-    id: "shop_to_home",
-    fromPlaceId: "shop",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
-    conditions: [],
-  },
-  {
     id: "shop_to_campus",
     fromPlaceId: "shop",
     toPlaceId: "campus",
@@ -403,16 +286,6 @@ export const routes: RouteDefinition[] = [
     mode: "walk",
     durationMinutes: 5,
     cost: { money: 0, stamina: 1, satiety: 1 },
-    conditions: [],
-  },
-  {
-    id: "supermarket_to_home",
-    fromPlaceId: "supermarket",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
     conditions: [],
   },
   {
@@ -506,16 +379,6 @@ export const routes: RouteDefinition[] = [
     conditions: [minimumMoney(6)],
   },
   {
-    id: "park_to_home",
-    fromPlaceId: "park",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
-    conditions: [],
-  },
-  {
     id: "park_to_shrine",
     fromPlaceId: "park",
     toPlaceId: "shrine",
@@ -556,16 +419,6 @@ export const routes: RouteDefinition[] = [
     conditions: [],
   },
   {
-    id: "shrine_to_home",
-    fromPlaceId: "shrine",
-    toPlaceId: "home_interior",
-    kind: "path",
-    mode: "walk",
-    durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
-    conditions: [],
-  },
-  {
     id: "coast_to_station",
     fromPlaceId: "coast",
     toPlaceId: "station",
@@ -576,3 +429,201 @@ export const routes: RouteDefinition[] = [
     conditions: [minimumMoney(3)],
   },
 ];
+
+/** home 是住宅模板端点，组装时替换为各角色的家门；往返条件保持独立。 */
+const homeRoutes: RouteDefinition[] = [
+  {
+    id: "home_to_campus",
+    fromPlaceId: "home",
+    toPlaceId: "campus",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 20,
+    cost: { money: 0, stamina: 7, satiety: 5 },
+    conditions: [weekdayMorning],
+  },
+  {
+    id: "home_to_shop",
+    fromPlaceId: "home",
+    toPlaceId: "shop",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [daytime, minimumStamina(5)],
+  },
+  {
+    id: "home_to_cafe",
+    fromPlaceId: "home",
+    toPlaceId: "cafe",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [daytime, minimumStamina(5)],
+  },
+  {
+    id: "home_to_supermarket",
+    fromPlaceId: "home",
+    toPlaceId: "supermarket",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [daytime, minimumStamina(5)],
+  },
+  {
+    id: "home_to_diner",
+    fromPlaceId: "home",
+    toPlaceId: "diner",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [daytime, minimumStamina(5)],
+  },
+  {
+    id: "home_to_park",
+    fromPlaceId: "home",
+    toPlaceId: "park",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 3, satiety: 2 },
+    conditions: [daytime, minimumStamina(3)],
+  },
+  {
+    id: "home_to_shrine",
+    fromPlaceId: "home",
+    toPlaceId: "shrine",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 3, satiety: 2 },
+    conditions: [daytime, minimumStamina(3)],
+  },
+  {
+    id: "campus_to_home",
+    fromPlaceId: "campus",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 20,
+    cost: { money: 0, stamina: 7, satiety: 5 },
+    conditions: [afternoon, minimumStamina(10)],
+  },
+  {
+    id: "cafe_to_home",
+    fromPlaceId: "cafe",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [],
+  },
+  {
+    id: "diner_to_home",
+    fromPlaceId: "diner",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [],
+  },
+  {
+    id: "shop_to_home",
+    fromPlaceId: "shop",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [],
+  },
+  {
+    id: "supermarket_to_home",
+    fromPlaceId: "supermarket",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 5, satiety: 3 },
+    conditions: [],
+  },
+  {
+    id: "park_to_home",
+    fromPlaceId: "park",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 3, satiety: 2 },
+    conditions: [],
+  },
+  {
+    id: "shrine_to_home",
+    fromPlaceId: "shrine",
+    toPlaceId: "home",
+    kind: "path",
+    mode: "walk",
+    durationMinutes: 10,
+    cost: { money: 0, stamina: 3, satiety: 2 },
+    conditions: [],
+  },
+];
+
+/** 公共地图共享；住宅按角色 ID 从西向东排列，各家拥有独立地点、入口与对外路线。 */
+export function createWorldLocations(names: ReadonlyMap<string, string>) {
+  const places = [...publicPlaces];
+  const routes = [...publicRoutes];
+  const characterIds = [...names.keys()].sort();
+  for (const [index, characterId] of characterIds.entries()) {
+    const { homeId, interiorId } = getHomePlaceIds(characterId);
+    const name = names.get(characterId)!;
+    places.push(
+      {
+        id: homeId,
+        name: `${name}的家`,
+        description: `${name}的私人住宅，家门连接住宅区的对外道路。`,
+        parentId: "residential_area",
+        position: { x: index, y: 0 },
+        visibility: "private",
+      },
+      {
+        id: interiorId,
+        name: `${name}家的屋内`,
+        description: `${name}家里的生活空间。`,
+        parentId: homeId,
+        position: { x: 0, y: 0 },
+        visibility: "public",
+      },
+    );
+    // 屋内与家门是父子地点；出门、进门立即完成，不改变原有出行耗时与消耗。
+    for (const [fromPlaceId, toPlaceId] of [
+      [homeId, interiorId],
+      [interiorId, homeId],
+    ]) {
+      routes.push({
+        id: `${fromPlaceId}->${toPlaceId}`,
+        fromPlaceId,
+        toPlaceId,
+        kind: "entrance",
+        mode: "walk",
+        durationMinutes: 0,
+        cost: { money: 0, stamina: 0, satiety: 0 },
+        conditions: [],
+      });
+    }
+    for (const route of homeRoutes) {
+      routes.push({
+        ...route,
+        id: `${homeId}:${route.id}`,
+        fromPlaceId: route.fromPlaceId === "home" ? homeId : route.fromPlaceId,
+        toPlaceId: route.toPlaceId === "home" ? homeId : route.toPlaceId,
+      });
+    }
+  }
+  return { places, routes };
+}

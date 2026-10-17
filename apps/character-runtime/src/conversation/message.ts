@@ -60,11 +60,17 @@ export function readMessageIds(content: string): string[] {
  * Satori 将属性名转为连字符形式；只使用事件发生时间，重复渲染保持稳定。
  * @param message 实际收到或发送的事件。
  * @param timezone 项目配置的 app.timezone，用于展示事件发生时间。
+ * @param botIds 配置中已知的 bot 账号；未命中仅表示未标记，不代表真人。
  */
-export function renderMessage(message: IncomingEvent, timezone: string): string {
+export function renderMessage(
+  message: IncomingEvent,
+  timezone: string,
+  botIds: readonly string[],
+): string {
   const identity = {
     senderId: message.senderId,
     senderName: message.senderName,
+    ...(botIds.includes(message.senderId) && { isBot: "true" }),
     time: formatLlmDateTime(message.timestamp, timezone),
     // 使用字符串保留明确的 true / false，避免被序列化为 is-self / no-is-self。
     isSelf: String(message.isSelf),
@@ -84,7 +90,16 @@ export function renderMessage(message: IncomingEvent, timezone: string): string 
   if (message.quote) {
     const { id, senderId, senderName, content } = message.quote;
     children.push(
-      h("quote", { id, senderId, senderName }, content === undefined ? [] : h.parse(content)),
+      h(
+        "quote",
+        {
+          id,
+          senderId,
+          senderName,
+          ...(senderId !== undefined && botIds.includes(senderId) && { isBot: "true" }),
+        },
+        content === undefined ? [] : h.parse(content),
+      ),
     );
   }
   children.push(...h.parse(message.content));

@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: resolve(currentDir, "../.."),
   outputFileTracingIncludes: {
     // 运行时通过工作区标记定位 data，配置内的 $env 仍在服务端解析。
-    "/*": ["../../pnpm-workspace.yaml", "../../data/config/config.json"],
+    "/*": ["../../pnpm-workspace.yaml", "../../data/config/config.json", "../../data/prompt/*"],
   },
 };
 

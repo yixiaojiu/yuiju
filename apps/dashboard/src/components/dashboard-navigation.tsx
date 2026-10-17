@@ -20,12 +20,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  Settings,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, useState } from "react";
 
-type MenuItem = { label: string; icon: LucideIcon } & (
+type MenuItem = { label: string; icon: LucideIcon; privateOnly?: boolean } & (
   | { href: string; children?: never }
   | { href?: never; children: { label: string; href: string }[] }
 );
@@ -34,8 +35,14 @@ const menuItems: MenuItem[] = [
   { label: "主页", href: "/", icon: House },
   { label: "活动", href: "/activities", icon: CalendarDays },
   { label: "记忆", href: "/memories", icon: BookOpen },
-  { label: "日志", href: "/logs", icon: ScrollText },
-  { label: "埋点", href: "/analytics", icon: ChartNoAxesCombined },
+  { label: "日志", href: "/logs", icon: ScrollText, privateOnly: true },
+  { label: "埋点", href: "/analytics", icon: ChartNoAxesCombined, privateOnly: true },
+  {
+    label: "设置",
+    icon: Settings,
+    privateOnly: true,
+    children: [{ label: "会话", href: "/settings/conversations" }],
+  },
 ];
 
 function MenuLinks({
@@ -54,7 +61,7 @@ function MenuLinks({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   return menuItems
-    .filter((item) => !publicDeployment || (item.href !== "/logs" && item.href !== "/analytics"))
+    .filter((item) => !publicDeployment || !item.privateOnly)
     .map((item) => {
       const Icon = item.icon;
       const active = item.children

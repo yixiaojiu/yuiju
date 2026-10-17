@@ -21,7 +21,7 @@ export async function prepareReviewedSelfCognition(
   experience: ExperienceMemory,
   signal: AbortSignal,
 ): Promise<SelfCognition> {
-  const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.selfCognitionReview")}`;
+  const instructions = `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.self_cognition_review")}`;
   const budget = (await load_config()).llm!.models!.strong!.context_window_tokens! * 0.8;
   let cognition = await prepareSelfCognition(characterId, batchId, previous, experience, signal);
   for (let attempt = 0; attempt < 3; attempt += 1) {

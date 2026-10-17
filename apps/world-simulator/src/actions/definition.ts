@@ -25,7 +25,8 @@ export type ActionCompletion = {
 export type ActionDefinition = {
   id: string;
   description: string;
-  placeIds: readonly string[] | null;
+  /** null 表示不限地点；角色专属地点在查询和执行时按上下文解析。 */
+  placeIds: readonly string[] | null | ((context: ActionContext) => readonly string[]);
   identities: readonly string[];
   schema: z.ZodType;
   durationDescription: string;
@@ -59,6 +60,11 @@ export function defineAction<P extends JsonObject, S extends JsonObject>(
     complete: (context, activity) =>
       definition.complete(context, activity.settlement as S, activity.payload as P),
   };
+}
+
+/** 查询、条件展示与执行共用同一份适用地点，避免私人住宅与公共行动混用。 */
+export function getActionPlaceIds(action: ActionDefinition, context: ActionContext) {
+  return typeof action.placeIds === "function" ? action.placeIds(context) : action.placeIds;
 }
 
 /** 规则展示与执行共用同一判断，不在 API 或工具里复制条件。 */

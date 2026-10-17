@@ -15,9 +15,10 @@ import {
   type ActionContext,
   type ActionDefinition,
   evaluateConditions,
+  getActionPlaceIds,
 } from "./actions/definition";
 import { actions, actionsById } from "./actions/definitions";
-import type { WorldCharacterDefinition } from "./content/characters";
+import { getHomePlaceIds, type WorldCharacterDefinition } from "./content/characters";
 import { openingHours } from "./environment/places";
 import {
   findKnownRoutePath,
@@ -107,11 +108,12 @@ export function actionConditions(
       status: context.character.currentActivity?.actionId === "空闲发呆" ? "met" : "unmet",
     },
   ];
-  if (action.placeIds !== null) {
+  const placeIds = getActionPlaceIds(action, context);
+  if (placeIds !== null) {
     conditions.push({
-      description: `位于${action.placeIds.map((id) => context.map.placesById.get(id)!.name).join("或")}`,
+      description: `位于${placeIds.map((id) => context.map.placesById.get(id)!.name).join("或")}`,
       status:
-        context.character.placeId !== null && action.placeIds.includes(context.character.placeId)
+        context.character.placeId !== null && placeIds.includes(context.character.placeId)
           ? "met"
           : "unmet",
     });
@@ -174,6 +176,10 @@ function resolveKnownPlace(
   field: "place" | "fromPlace" | "toPlace",
   context: ActionContext,
 ): WorldResult<string> {
+  // “家”指角色自己的生活空间；访问别人住宅仍受熟悉范围限制。
+  if (input === "家" || input === "回家" || input === "自己家") {
+    return { ok: true, value: getHomePlaceIds(context.character.characterId).interiorId };
+  }
   if (context.knownPlaceIds.has(input)) {
     return { ok: true, value: input };
   }
@@ -291,26 +297,29 @@ export function inspectWorld(
   if (input.type === "action") {
     const action = actionsById.get(input.actionId);
     if (!action || !actionIsKnown(action, definition)) {
-      const available = actions.filter(
-        (item) =>
+      const available = actions.filter((item) => {
+        const placeIds = getActionPlaceIds(item, queryContext);
+        return (
           actionIsKnown(item, definition) &&
-          (item.placeIds === null || (placeId !== null && item.placeIds.includes(placeId))),
-      );
+          (placeIds === null || (placeId !== null && placeIds.includes(placeId)))
+        );
+      });
       return {
         ok: false,
         code: "action_not_available",
         message: `无法查询行动 actionId=${JSON.stringify(input.actionId)}。\n该地点可了解的行动：\n${available.map((item) => `${item.id}：${item.description}`).join("\n")}\n请使用上述 actionId 查询；其他地点的行动可通过 type=place 查询。`,
       };
     }
-    if (action.placeIds !== null && placeId === null) {
+    const placeIds = getActionPlaceIds(action, queryContext);
+    if (placeIds !== null && placeId === null) {
       return {
         ok: false,
         code: "place_required",
         message: `查询行动 ${input.actionId} 需要具体地点；你正在移动，没有当前地点。请通过 place 参数指定熟悉地点的 ID、名称或名称关键词。`,
       };
     }
-    if (action.placeIds !== null && !action.placeIds.includes(placeId!)) {
-      const locations = action.placeIds.filter((id) => context.knownPlaceIds.has(id));
+    if (placeIds !== null && !placeIds.includes(placeId!)) {
+      const locations = placeIds.filter((id) => context.knownPlaceIds.has(id));
       return {
         ok: false,
         code: "action_not_available",
@@ -356,11 +365,13 @@ export function inspectWorld(
           .filter((route) => context.knownPlaceIds.has(route.toPlaceId))
           .map((route) => routeView(route, queryContext));
   const summaries = actions
-    .filter(
-      (action) =>
+    .filter((action) => {
+      const placeIds = getActionPlaceIds(action, queryContext);
+      return (
         actionIsKnown(action, definition) &&
-        (action.placeIds === null || (placeId !== null && action.placeIds.includes(placeId))),
-    )
+        (placeIds === null || (placeId !== null && placeIds.includes(placeId)))
+      );
+    })
     .map((action) => ({ actionId: action.id, description: action.description }));
   const observation = observePlace(placeId, context, names);
   if (input.type === "place") {

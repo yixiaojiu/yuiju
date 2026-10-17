@@ -22,6 +22,7 @@ export class Replyer {
   constructor(
     private readonly scope: ConversationScope,
     private readonly collectTrainingData: boolean,
+    private readonly botIds: readonly string[],
   ) {}
 
   async initialize(summary: Readonly<ContextSummary>) {
@@ -39,7 +40,7 @@ export class Replyer {
           `conversation.replyer.${this.scope.characterId}`,
         ].map(async (key) => ({ key, content: await renderPrompt(key) })),
       ),
-      renderPrompt("conversation.replyerCompression"),
+      renderPrompt("conversation.replyer_compression"),
     ]);
     this.systemPrompts = systemPrompts;
     this.context = new ConversationContext(
@@ -76,7 +77,10 @@ export class Replyer {
       .map((message) => ({
         sequence: message.sequence,
         messages: [
-          { role: "user", content: renderMessage(message, this.timezone) } satisfies ModelMessage,
+          {
+            role: "user",
+            content: renderMessage(message, this.timezone, this.botIds),
+          } satisfies ModelMessage,
         ],
       }));
   }
@@ -117,7 +121,7 @@ export class Replyer {
         taskLines.push(`补充上下文：\n${input.replyContext}`);
       }
       if (quote) {
-        taskLines.push(`本次引用：${renderMessage(quote, this.timezone)}`);
+        taskLines.push(`本次引用：${renderMessage(quote, this.timezone, this.botIds)}`);
       }
       if (!quote && embeddedQuote) {
         taskLines.push(
@@ -127,6 +131,8 @@ export class Replyer {
               id: embeddedQuote.id,
               senderId: embeddedQuote.senderId,
               senderName: embeddedQuote.senderName,
+              ...(embeddedQuote.senderId !== undefined &&
+                this.botIds.includes(embeddedQuote.senderId) && { isBot: "true" }),
             },
             h.parse(embeddedQuote.content!),
           ).toString()}`,
@@ -147,7 +153,7 @@ export class Replyer {
             .map(
               (message): ModelMessage => ({
                 role: "user",
-                content: renderMessage(message, this.timezone),
+                content: renderMessage(message, this.timezone, this.botIds),
               }),
             ),
           task,

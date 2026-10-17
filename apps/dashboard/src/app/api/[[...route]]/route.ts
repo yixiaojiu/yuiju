@@ -1,9 +1,11 @@
 import { logger } from "@yuiju/shared/logger/logger";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { handle } from "hono/vercel";
 import { activitiesApi } from "./routes/activities";
 import { analyticsApi } from "./routes/analytics";
 import { charactersApi } from "./routes/characters";
+import { conversationSettingsApi } from "./routes/conversation-settings";
 import { logsApi } from "./routes/logs";
 import { memoriesApi } from "./routes/memories";
 import { worldApi } from "./routes/world";
@@ -17,8 +19,11 @@ app.use("*", async (c, next) => {
   await next();
 });
 app.onError((error, c) => {
-  logger.error("Dashboard 查询失败", { path: c.req.path, error });
-  return c.json({ error: "读取失败，请检查服务日志" }, 500);
+  if (error instanceof HTTPException) {
+    return c.json({ error: error.message }, error.status);
+  }
+  logger.error("Dashboard 请求失败", { path: c.req.path, error });
+  return c.json({ error: "请求失败，请检查服务日志" }, 500);
 });
 app.route("/character", charactersApi);
 app.route("/activities", activitiesApi);
@@ -26,6 +31,7 @@ app.route("/analytics", analyticsApi);
 app.route("/memories", memoriesApi);
 app.route("/logs", logsApi);
 app.route("/world", worldApi);
+app.route("/settings/conversations", conversationSettingsApi);
 
 app.get("/health", (context) => context.json({ ok: true }));
 

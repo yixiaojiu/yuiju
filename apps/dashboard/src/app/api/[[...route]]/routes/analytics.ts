@@ -6,6 +6,7 @@ import utc from "dayjs/plugin/utc";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getDeployment } from "@/lib/deployment";
+import { getQueryCharacter } from "../character-query";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -104,12 +105,14 @@ const querySchema = z
     z.strictObject({
       ...queryFields,
       eventName: z.literal("agent.context_compression"),
+      characterId: z.string(),
       scene: z.enum(["main", "planner", "replyer"]).optional(),
       channelId: z.string().trim().optional(),
     }),
     z.strictObject({
       ...queryFields,
       eventName: z.enum(["conversation.planner", "conversation.replyer"]),
+      characterId: z.string(),
       channelId: z.string().trim().optional(),
     }),
     z.strictObject({
@@ -154,7 +157,7 @@ export const analyticsApi = new Hono().get("/", async (c) => {
             ...(query.errorType && { "eventData.errorType": query.errorType }),
           }
         : {
-            "eventData.characterId": deployment.characterId,
+            "eventData.characterId": getQueryCharacter(query.characterId, deployment.characters).id,
             ...(query.channelId && { "eventData.channelId": query.channelId }),
             ...(query.eventName === "agent.context_compression" &&
               query.scene && { "eventData.scene": query.scene }),

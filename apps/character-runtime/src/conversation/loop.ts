@@ -64,6 +64,11 @@ export class ConversationLoop {
   private scheduling = false;
   /** 角色确认可以聊天后才开放；发送前还会再次检查，拦截已在途的生成。 */
   private participationAllowed = false;
+  /** 人工开关与活动许可分别维护，只有二者允许且暂停摘要完成后才能发送。 */
+  private enabled = true;
+  private activityAllowsParticipation = false;
+  /** 合并并发的恢复请求；关闭不等待此任务，立即阻止后续发送。 */
+  private resumingTask: Promise<void> | undefined;
   /** Redis 提交失败后停止该会话，避免继续在无法确定的持久化状态上发送。 */
   private persistenceError: Error | undefined;
   /** 队列只覆盖状态变更与提交，不占用模型生成或平台请求的时间。 */
@@ -79,9 +84,10 @@ export class ConversationLoop {
     private readonly connection: OneBotConnection,
     private readonly character: Character,
     collectTrainingData: boolean,
+    private readonly botIds: readonly string[],
   ) {
-    this.planner = new Planner(scope);
-    this.replyer = new Replyer(scope, collectTrainingData);
+    this.planner = new Planner(scope, botIds);
+    this.replyer = new Replyer(scope, collectTrainingData, botIds);
   }
 
   /** 待处理输入由历史与消费边界派生，避免维护另一份可漂移的队列。 */
@@ -139,6 +145,9 @@ export class ConversationLoop {
       if (!this.acceptingMessages) {
         throw new Error("会话已经停止接收事件");
       }
+      if (!this.enabled) {
+        return "未投递：本群会话已关闭，仍接收群消息，但不回复或分享。无需重试。";
+      }
       const events = this.runtime.agentEvents ?? [];
       if (events.some((received) => received.id === event.id)) {
         return `事件已投递，不重复提交。事件 ID：${event.id}`;
@@ -159,9 +168,23 @@ export class ConversationLoop {
     }
   }
 
-  /** 暂停不等待 LLM；恢复先整理固定原文范围，新到消息留给正常 trigger。 */
+  /** 人工关闭仍保留聊天原文，但丢弃尚未执行的主 loop 意图，恢复时不补发。 */
+  async setEnabled(enabled: boolean): Promise<void> {
+    if (this.enabled === enabled) {
+      return;
+    }
+    this.enabled = enabled;
+    await this.updateParticipation();
+  }
+
   async setParticipationAllowed(allowed: boolean): Promise<void> {
-    if (!allowed) {
+    this.activityAllowsParticipation = allowed;
+    await this.updateParticipation();
+  }
+
+  /** 暂停不等待 LLM；恢复先整理固定原文范围，新到消息留给正常 trigger。 */
+  private async updateParticipation(): Promise<void> {
+    if (!this.enabled || !this.activityAllowsParticipation) {
       this.participationAllowed = false;
       clearTimeout(this.wakeTimer);
       const release = await this.acquireStateWrite();
@@ -172,8 +195,13 @@ export class ConversationLoop {
             coveredThrough: this.replyer.summary.coveredThrough,
           };
           this.runtime.waiting = undefined;
-          await this.commit({ runtime: this.runtime });
         }
+        if (!this.enabled) {
+          this.runtime.agentEvents = (this.runtime.agentEvents ?? []).filter(
+            (event) => event.consumed,
+          );
+        }
+        await this.commit({ runtime: this.runtime });
       } finally {
         release();
       }
@@ -182,13 +210,30 @@ export class ConversationLoop {
     if (this.participationAllowed) {
       return;
     }
-    await this.runningTask;
-    if (this.runtime.paused) {
-      await this.summarizePausedMessages();
+    if (!this.resumingTask) {
+      this.resumingTask = this.resumeParticipation();
     }
-    this.participationAllowed = true;
+    await this.resumingTask;
+  }
 
-    this.requestRun();
+  private async resumeParticipation(): Promise<void> {
+    try {
+      await this.runningTask;
+      await this.stateWriteQueue;
+      if (!this.enabled || !this.activityAllowsParticipation || !this.acceptingMessages) {
+        return;
+      }
+      if (this.runtime.paused) {
+        await this.summarizePausedMessages();
+      }
+      // 摘要期间可能再次关闭或进入睡眠，旧的恢复任务不能覆盖新决定。
+      if (this.enabled && this.activityAllowsParticipation && this.acceptingMessages) {
+        this.participationAllowed = true;
+        this.requestRun();
+      }
+    } finally {
+      this.resumingTask = undefined;
+    }
   }
 
   private async summarizePausedMessages(): Promise<void> {
@@ -204,7 +249,7 @@ export class ConversationLoop {
       for (const message of this.history.filter(
         (item) => item.sequence > previous.coveredThrough && item.sequence <= through,
       )) {
-        const size = Buffer.byteLength(renderMessage(message, timezone), "utf8");
+        const size = Buffer.byteLength(renderMessage(message, timezone, this.botIds), "utf8");
         if (bytes + size >= windowTokens * 0.7) {
           break;
         }
@@ -218,7 +263,7 @@ export class ConversationLoop {
         model: flashModel,
         instructions,
         maxRetries: 0,
-        prompt: `已有背景：\n${previous.summary}\n\n后续交流：\n${batch.map((message) => renderMessage(message, timezone)).join("\n")}`,
+        prompt: `已有背景：\n${previous.summary}\n\n后续交流：\n${batch.map((message) => renderMessage(message, timezone, this.botIds)).join("\n")}`,
       });
       if (result.finishReason !== "stop" || !result.text.trim()) {
         throw new Error("暂停聊天摘要未正常生成，保留原文及暂停状态");
@@ -246,7 +291,10 @@ export class ConversationLoop {
       this.runtime.currentRound = undefined;
       this.runtime.failedThroughSequence = undefined;
       this.runtime.waiting = undefined;
-      this.runtime.paused = undefined;
+      this.runtime.paused =
+        this.enabled && this.activityAllowsParticipation
+          ? undefined
+          : { summary: paused.summary, coveredThrough: through };
       this.pruneHistory();
       await this.commit({
         runtime: this.runtime,
@@ -546,7 +594,7 @@ export class ConversationLoop {
         } else {
           this.runtime.failedThroughSequence = next.input.throughSequence;
         }
-        if (execution.waitSeconds !== undefined) {
+        if (execution.waitSeconds !== undefined && this.participationAllowed) {
           const startedAt = Date.now();
           this.runtime.waiting = { startedAt, until: startedAt + execution.waitSeconds * 1000 };
           this.runtime.silentRounds = 0;
@@ -651,6 +699,7 @@ export class ConversationLoop {
     this.acceptingMessages = false;
     this.scheduling = false;
     clearTimeout(this.wakeTimer);
+    await this.resumingTask;
     await this.runningTask;
     await this.stateWriteQueue;
     await Promise.all([this.planner.stop(), this.replyer.stop()]);

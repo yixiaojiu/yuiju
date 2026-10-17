@@ -32,7 +32,7 @@ export async function initializeSelfCognition(characterId: string): Promise<void
     }
   }
   const cognition: SelfCognition = {
-    text: await renderPrompt(`character.initialCognition.${characterId}`),
+    text: await renderPrompt("character.initial_cognition"),
     updatedAt: null,
     lastBatchId: null,
   };
@@ -59,7 +59,7 @@ export async function prepareSelfCognition(
     output: Output.object({
       schema: z.strictObject({ changed: z.boolean(), text: z.string().min(1).max(1600) }),
     }),
-    instructions: `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.selfCognition")}`,
+    instructions: `${await renderPrompt(`character.persona.${characterId}`)}\n\n${await renderPrompt("memory.self_cognition")}`,
     prompt: stringifyLlmMemory({
       previous: previous.text,
       experience: { date: experience.startDate, text: experience.text },

@@ -37,8 +37,8 @@ for (const scenario of [
         ...message,
         sequence: index + 1,
       }));
-      const planner = new Planner(scope);
-      const replyer = new Replyer(scope, false);
+      const planner = new Planner(scope, []);
+      const replyer = new Replyer(scope, false, []);
       const connection = new OneBotConnection("悠乃", {
         self_id: "90001",
         endpoint: "ws://eval.invalid",
@@ -72,7 +72,7 @@ for (const scenario of [
       record("effect", "群聊背景", { messages: history });
       if (history.length) {
         planner.appendBackground(
-          `以下是本轮开始前已经发生的群聊，仅作为背景，不补答旧消息：\n${history.map((message) => renderMessage(message, timezone)).join("\n")}`,
+          `以下是本轮开始前已经发生的群聊，仅作为背景，不补答旧消息：\n${history.map((message) => renderMessage(message, timezone, [])).join("\n")}`,
         );
       }
       const receivedEvents: ConversationAgentEvent[] = [];

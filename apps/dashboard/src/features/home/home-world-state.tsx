@@ -8,13 +8,17 @@ import { formatTime } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
 
 export function HomeWorldState({
+  characterId,
   now,
   publicDeployment,
 }: {
+  characterId: string;
   now: number;
   publicDeployment: boolean;
 }) {
-  const { data, error } = useQuery<WorldDashboardStatus>("/api/world");
+  const { data, error } = useQuery<WorldDashboardStatus>(
+    `/api/world?${new URLSearchParams({ characterId })}`,
+  );
   const environment = data?.environment;
 
   return (

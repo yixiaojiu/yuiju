@@ -14,10 +14,12 @@ import type {
   CompressionScene,
   LlmRequestStatus,
 } from "@/app/api/[[...route]]/routes/analytics";
+import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { compressionSceneLabels } from "./format";
 
 export type AnalyticsFilters = {
   eventName: AnalyticsEventName;
+  characterId: string;
   startDate: string;
   endDate: string;
   channelId: string;
@@ -35,9 +37,11 @@ const inputStyle =
 
 /** 筛选草稿提交后才生效；不同事件的条件只在对应类型的查询中发送。 */
 export function AnalyticsFilterCard({
+  characters,
   initialFilters,
   onSubmit,
 }: {
+  characters: CharacterOption[];
   initialFilters: AnalyticsFilters;
   onSubmit: (filters: AnalyticsFilters) => void;
 }) {
@@ -75,6 +79,18 @@ export function AnalyticsFilterCard({
               </SelectContent>
             </Select>
           </label>
+          {characters.length > 1 &&
+            draft.eventName !== "llm.request" &&
+            draft.eventName !== "app.error" && (
+              <div className="grid content-start gap-1.5 text-xs text-muted-foreground">
+                角色
+                <CharacterSelect
+                  characters={characters}
+                  value={draft.characterId}
+                  onChange={(characterId) => setDraft({ ...draft, characterId })}
+                />
+              </div>
+            )}
           <label
             htmlFor="analytics-dateRange"
             className="grid gap-1.5 text-xs text-muted-foreground sm:col-span-2"

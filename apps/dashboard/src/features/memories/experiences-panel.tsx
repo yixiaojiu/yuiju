@@ -36,9 +36,9 @@ const inputStyle =
   "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm text-foreground";
 
 /** 全文只在打开抽屉时查询，不随分页列表一起加载。 */
-function ExperienceContent({ id }: { id: string }) {
+function ExperienceContent({ id, characterId }: { id: string; characterId: string }) {
   const { data, error } = useQuery<ExperienceDocument>(
-    `/api/memories/experiences/${encodeURIComponent(id)}`,
+    `/api/memories/experiences/${encodeURIComponent(id)}?${new URLSearchParams({ characterId })}`,
   );
   return data ? (
     <MonacoEditorPanel language="markdown" value={data.text} />
@@ -47,12 +47,12 @@ function ExperienceContent({ id }: { id: string }) {
   );
 }
 
-export function ExperiencesPanel() {
+export function ExperiencesPanel({ characterId }: { characterId: string }) {
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<ExperienceSummary | null>(null);
-  const params = new URLSearchParams({ page: String(page) });
+  const params = new URLSearchParams({ characterId, page: String(page) });
   for (const [key, value] of Object.entries(filters)) {
     if (value) {
       params.set(key, value);
@@ -213,7 +213,7 @@ export function ExperiencesPanel() {
                 </SheetTitle>
               </SheetHeader>
               <div className="min-w-0 px-4 pb-4">
-                <ExperienceContent key={selected.id} id={selected.id} />
+                <ExperienceContent characterId={characterId} key={selected.id} id={selected.id} />
               </div>
             </>
           )}

@@ -51,8 +51,8 @@ export class MainAgentLoop {
     this.timezone = config.app!.timezone!;
     const [persona, rules, characterPrompt] = await Promise.all([
       renderPrompt(`character.persona.${this.execution.characterId}`),
-      renderPrompt("agentLoop.main"),
-      renderPrompt(`agentLoop.main.${this.execution.characterId}`),
+      renderPrompt("agent_loop.main"),
+      renderPrompt(`agent_loop.main.${this.execution.characterId}`),
     ]);
     this.instructions = `${persona}\n\n${rules}\n\n${characterPrompt}`;
   }
