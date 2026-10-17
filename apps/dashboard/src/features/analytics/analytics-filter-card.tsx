@@ -1,19 +1,19 @@
-import { useState } from "react";
-import type {
-  AnalyticsEventName,
-  CompressionScene,
-  LlmRequestStatus,
-} from "@/app/api/[[...route]]/routes/analytics";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { DateRangePicker } from "@/components/ui/date-picker";
+import { Button } from "@yuiju/shared/ui/components/button";
+import { Card } from "@yuiju/shared/ui/components/card";
+import { DateRangePicker } from "@yuiju/shared/ui/components/date-picker";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@yuiju/shared/ui/components/select";
+import { useState } from "react";
+import type {
+  AnalyticsEventName,
+  CompressionScene,
+  LlmRequestStatus,
+} from "@/app/api/[[...route]]/routes/analytics";
 import { compressionSceneLabels } from "./format";
 
 export type AnalyticsFilters = {

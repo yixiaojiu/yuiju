@@ -8,7 +8,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-} from "@/components/ui/pagination";
+} from "@yuiju/shared/ui/components/pagination";
 
 /** 只展示服务端返回的分页状态，翻页交由页面发起查询。 */
 export function TablePagination({

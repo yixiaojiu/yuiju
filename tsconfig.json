@@ -22,9 +22,6 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["packages/world/src/*"]
-    }
+    "baseUrl": "."
   }
 }

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { get_data_dir } from "../paths/data";
+import { get_data_dir } from "../utils/path";
 import defaults from "./defaults.json" with { type: "json" };
 import { type Config, config_schema } from "./schema";
 
@@ -73,6 +73,13 @@ export function load_config(): Promise<Config> {
 }
 
 async function readConfig() {
+  const input = await readConfigFile();
+  const resolved = resolveEnvironmentReferences(input, process.env, "配置");
+  return config_schema.parse(resolved);
+}
+
+/** 读取合并后的配置原文；构建工具按需校验字段，不解析运行时密钥引用。 */
+export async function readConfigFile(): Promise<unknown> {
   const data_dir = await get_data_dir();
   const config_dir = join(data_dir, "config");
   // 部署产物已包含目录时只读文件，不向只读文件系统发出创建请求。
@@ -86,11 +93,10 @@ async function readConfig() {
   } catch (error) {
     // 用户配置可以不存在，其他读取错误必须正常暴露。
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return config_schema.parse(defaults);
+      return defaults;
     }
     throw error;
   }
 
-  const resolved = resolveEnvironmentReferences(JSON.parse(user_config), process.env, "配置");
-  return config_schema.parse(merge_config(defaults, resolved));
+  return merge_config(defaults, JSON.parse(user_config));
 }

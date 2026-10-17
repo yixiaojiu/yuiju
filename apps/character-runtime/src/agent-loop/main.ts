@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import {
   type InputTokenUsage,
   measureInputBytes,
@@ -9,6 +8,7 @@ import {
 import { strongModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText } from "ai";
 import { formatLlmPlatform } from "../conversation/platform";
 import { recordExperience } from "../memory/experiences";

@@ -1,5 +1,5 @@
+import { Card } from "@yuiju/shared/ui/components/card";
 import type { CharacterStatus } from "@/app/api/[[...route]]/routes/characters";
-import { Card } from "@/components/ui/card";
 import { formatTime } from "@/lib/date";
 
 export function HomeStatusCard({

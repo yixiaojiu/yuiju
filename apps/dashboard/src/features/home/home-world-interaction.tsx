@@ -1,8 +1,8 @@
+import { Button } from "@yuiju/shared/ui/components/button";
+import { Card } from "@yuiju/shared/ui/components/card";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
 import { useState } from "react";
 import type { NotificationState, WorldInteraction } from "@/app/api/[[...route]]/routes/world";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { formatTime } from "@/lib/date";
 
 const notificationLabels: Record<NotificationState, string> = {

@@ -1,5 +1,5 @@
 import { h } from "@satorijs/core";
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 
 export type ConversationScope = { characterId: string; platform: "onebot"; channelId: string };
 export type ConversationMessage = {

@@ -1,3 +1,14 @@
+import { Button } from "@yuiju/shared/ui/components/button";
+import { Card } from "@yuiju/shared/ui/components/card";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@yuiju/shared/ui/components/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@yuiju/shared/ui/components/table";
 import { useState } from "react";
 import type {
   AnalyticsEntry,
@@ -6,17 +17,6 @@ import type {
 } from "@/app/api/[[...route]]/routes/analytics";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { TablePagination } from "@/components/table-pagination";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { formatTime } from "@/lib/date";
 import { compressionSceneLabels, formatContextRatio, formatTokens } from "./format";
 

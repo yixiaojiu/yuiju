@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ExperienceDocument } from "@yuiju/shared/dashboard/types";
 import { mongoCollectionName } from "@yuiju/shared/database/environment";
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
-import { get_data_dir } from "@yuiju/shared/paths/data";
+import { get_data_dir } from "@yuiju/shared/utils/path";
 import dayjs from "dayjs";
 import { Hono } from "hono";
 import { z } from "zod";

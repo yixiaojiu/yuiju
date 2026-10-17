@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { getQdrant } from "@yuiju/shared/database/qdrant";
-import { getEnvironment } from "@yuiju/shared/env/environment";
 import { embedTexts } from "@yuiju/shared/llm/embedding";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { getEnvironment } from "@yuiju/shared/utils/environment";
 import { Output } from "ai";
 import { z } from "zod";
 import type { ExperienceMemory } from "./experiences";

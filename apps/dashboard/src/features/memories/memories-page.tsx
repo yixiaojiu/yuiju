@@ -1,10 +1,10 @@
 "use client";
 
+import { Button } from "@yuiju/shared/ui/components/button";
 import { useState } from "react";
 import type { PersonProfile } from "@/app/api/[[...route]]/routes/memories";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
-import { Button } from "@/components/ui/button";
 import { ExperiencesPanel } from "@/features/memories/experiences-panel";
 import { formatTime } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";

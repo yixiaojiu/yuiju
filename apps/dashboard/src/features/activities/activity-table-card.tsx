@@ -1,6 +1,4 @@
-import type { ActivitiesResponse } from "@/app/api/[[...route]]/routes/activities";
-import { TablePagination } from "@/components/table-pagination";
-import { Card } from "@/components/ui/card";
+import { Card } from "@yuiju/shared/ui/components/card";
 import {
   Table,
   TableBody,
@@ -8,7 +6,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@yuiju/shared/ui/components/table";
+import type { ActivitiesResponse } from "@/app/api/[[...route]]/routes/activities";
+import { TablePagination } from "@/components/table-pagination";
 import { formatTime } from "@/lib/date";
 
 export function ActivityTableCard({

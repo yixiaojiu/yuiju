@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "extensions": [],
   "app": {
     "timezone": "Asia/Shanghai",
     "public_deployment": false,

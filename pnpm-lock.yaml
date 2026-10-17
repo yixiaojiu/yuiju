@@ -4,6 +4,24 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@types/react':
+      specifier: ^19.2.14
+      version: 19.2.14
+    '@types/react-dom':
+      specifier: ^19
+      version: 19.2.3
+    lucide-react:
+      specifier: 1.48.0
+      version: 1.48.0
+    react:
+      specifier: 19.2.4
+      version: 19.2.4
+    react-dom:
+      specifier: 19.2.4
+      version: 19.2.4
+
 importers:
 
   .:
@@ -138,14 +156,8 @@ importers:
       '@yuiju/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      class-variance-authority:
-        specifier: 0.7.1
-        version: 0.7.1
-      clsx:
-        specifier: 2.1.1
-        version: 2.1.1
       lucide-react:
-        specifier: 1.48.0
+        specifier: 'catalog:'
         version: 1.48.0(react@19.2.4)
       monaco-editor:
         specifier: 0.55.1
@@ -153,21 +165,12 @@ importers:
       next:
         specifier: 16.1.6
         version: 16.1.6(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      radix-ui:
-        specifier: 1.6.7
-        version: 1.6.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react:
-        specifier: 19.2.4
+        specifier: 'catalog:'
         version: 19.2.4
-      react-day-picker:
-        specifier: 10.0.2
-        version: 10.0.2(@types/react@19.2.14)(react@19.2.4)
       react-dom:
-        specifier: 19.2.4
+        specifier: 'catalog:'
         version: 19.2.4(react@19.2.4)
-      tailwind-merge:
-        specifier: 3.7.0
-        version: 3.7.0
       tw-animate-css:
         specifier: 1.4.0
         version: 1.4.0
@@ -176,10 +179,10 @@ importers:
         specifier: 4.3.3
         version: 4.3.3
       '@types/react':
-        specifier: ^19.2.14
+        specifier: 'catalog:'
         version: 19.2.14
       '@types/react-dom':
-        specifier: ^19
+        specifier: 'catalog:'
         version: 19.2.3(@types/react@19.2.14)
       postcss:
         specifier: 8.5.28
@@ -200,33 +203,6 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
 
-  packages/message:
-    dependencies:
-      '@larksuiteoapi/node-sdk':
-        specifier: ^1.64.0
-        version: 1.64.0
-      '@satorijs/adapter-lark':
-        specifier: ^3.12.5
-        version: 3.12.5(@satorijs/core@4.6.0(cordis@3.18.1))
-      '@satorijs/core':
-        specifier: ^4.6.0
-        version: 4.6.0(cordis@3.18.1)
-      '@satorijs/element':
-        specifier: ^3.2.0
-        version: 3.2.0
-      '@satorijs/protocol':
-        specifier: ^1.7.0
-        version: 1.7.0
-      '@yuiju/satorijs-adapter-onebot':
-        specifier: workspace:*
-        version: link:../satorijs-adapter-onebot
-      '@yuiju/source':
-        specifier: workspace:*
-        version: link:../source
-      '@yuiju/utils':
-        specifier: workspace:*
-        version: link:../utils
-
   packages/satorijs-adapter-onebot:
     dependencies:
       '@satorijs/core':
@@ -238,9 +214,40 @@ importers:
 
   packages/shared:
     dependencies:
+      class-variance-authority:
+        specifier: 0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: 2.1.1
+        version: 2.1.1
       jsonrepair:
         specifier: ^3.15.0
         version: 3.15.0
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.48.0(react@19.2.4)
+      radix-ui:
+        specifier: 1.6.7
+        version: 1.6.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 'catalog:'
+        version: 19.2.4
+      react-day-picker:
+        specifier: 10.0.2
+        version: 10.0.2(@types/react@19.2.14)(react@19.2.4)
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.4(react@19.2.4)
+      tailwind-merge:
+        specifier: 3.7.0
+        version: 3.7.0
+    devDependencies:
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.3(@types/react@19.2.14)
 
   packages/source:
     dependencies:
@@ -252,12 +259,6 @@ importers:
         version: 0.35.3(@types/node@24.10.1)
 
   packages/utils: {}
-
-  packages/world:
-    dependencies:
-      '@yuiju/utils':
-        specifier: workspace:*
-        version: link:../utils
 
 packages:
 
@@ -1186,9 +1187,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
       ai: '>=7.0.0 <8'
-
-  '@larksuiteoapi/node-sdk@1.64.0':
-    resolution: {integrity: sha512-r3ae0lAi3ipH1g1geUo1fmb7DK5e0WAKrrrDi25yJCKBvxtiKLsR3ldss3OZnqyfP7yGHkjeN0BYuzyaWgxFoA==}
 
   '@monaco-editor/loader@1.7.0':
     resolution: {integrity: sha512-gIwR1HrJrrx+vfyOhYmCZ0/JcWqG5kbfG7+d3f/C1LXk2EvzAbHSg3MQ5lO2sMlo9izoAZ04shohfKLVT6crVA==}
@@ -2321,11 +2319,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@satorijs/adapter-lark@3.12.5':
-    resolution: {integrity: sha512-nTgJfcDQtBjTsMwVkreCmTtaU2BaZWIwLds788fRKItslZadK6haTAo7pZcjEO7snRL0/Ug4dFzCFvudX9Zj7Q==}
-    peerDependencies:
-      '@satorijs/core': ^4.6.0
-
   '@satorijs/core@4.6.0':
     resolution: {integrity: sha512-qckF668QfV3ifGLlyvmfyrghD7kTotgEbo3BBQsaOa4QTccBbvUhIayy2GgBQh1/scEkRuhTFlOgIdmCX8i2DQ==}
     peerDependencies:
@@ -2821,10 +2814,6 @@ packages:
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
-    engines: {node: '>= 0.4'}
-
-  call-bound@1.0.4:
-    resolution: {integrity: sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==}
     engines: {node: '>= 0.4'}
 
   caniuse-lite@1.0.30001788:
@@ -3499,17 +3488,8 @@ packages:
   lodash.defaults@4.2.0:
     resolution: {integrity: sha512-qjxPLHd3r5DnsdGacqOMU6pb/avJzdh9tFX2ymgoZE27BmjXrNy/y4LoaiTeAb+O3gL8AfpJGtqfX/ae2leYYQ==}
 
-  lodash.identity@3.0.0:
-    resolution: {integrity: sha512-AupTIzdLQxJS5wIYUQlgGyk2XRTfGXA+MCghDHqZk0pzUNYvd3EESS6dkChNauNYVIutcb0dfHw1ri9Q1yPV8Q==}
-
   lodash.isarguments@3.1.0:
     resolution: {integrity: sha512-chi4NHZlZqZD18a0imDHnZPrDeBbTtVN7GXMwuGdRH9qotxAjYs3aVLKc7zNOG9eddR5Ksd8rvFEBc9SsggPpg==}
-
-  lodash.merge@4.6.2:
-    resolution: {integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==}
-
-  lodash.pickby@4.6.0:
-    resolution: {integrity: sha512-AZV+GsS/6ckvPOVQPXSiFFacKvKB4kOQu6ynt9wz0F3LO4R9Ij4K1ddYsIytDpSgLz88JHd9P+oaLeej5/Sl7Q==}
 
   lodash@4.17.23:
     resolution: {integrity: sha512-LgVTMpQtIopCi79SJeDiP0TfWi5CNEc/L/aRdTh3yIvmZXTnheWpKjSZhnvMl8iXbC1tFg9gdHHDMLoV7CnG+w==}
@@ -3847,10 +3827,6 @@ packages:
     resolution: {integrity: sha512-dvpCIeLPbXZS/Ete7yLaO7RenOdken2NHKykBXbsaGxZT0UTltcarBciw+A78SRQs9iMAAVpsYA+l8b1hTePIA==}
     engines: {node: '>=12.0.0'}
 
-  protobufjs@8.3.0:
-    resolution: {integrity: sha512-JpJpFaR7yKNb6WqKvJJ1MLbiuIQWQnbUUb06nDtf2/i8YWYYLEfP6xf9BwSJoJQg1wAy61EQB8dssQg64oX4aA==}
-    engines: {node: '>=12.0.0'}
-
   proxy-agent@6.4.0:
     resolution: {integrity: sha512-u0piLU+nCOHMgGjRbimiXmA9kM/L9EHh3zL81xCdp7m+Y2pHIsnmbdDoEDoAz5geaonNR6q6+yOPQs6n4T6sBQ==}
     engines: {node: '>= 14'}
@@ -3864,10 +3840,6 @@ packages:
 
   qface@1.4.1:
     resolution: {integrity: sha512-52qX9qdiDFd53xnYAFitkXVldcSddd4ZQiFTV2IluM+2HdDiJph3CKtmPi7CTCA9QF7K2d2WUAH3E2Y4P6fEjQ==}
-
-  qs@6.15.1:
-    resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
-    engines: {node: '>=0.6'}
 
   radix-ui@1.6.7:
     resolution: {integrity: sha512-QBdhh1arIEUvPC0dQ5+nwWAxt7+N+oP/9jPwjJkGFoSk/sqxg32gJtSXGtFh8frAIcS6oC9cx2Q+7KYCQLOAeA==}
@@ -4067,22 +4039,6 @@ packages:
 
   shimmer@1.2.1:
     resolution: {integrity: sha512-sQTKC1Re/rM6XyFM6fIAGHRPVGvyXfgzIDvzoq608vM+jeyVD0Tu1E6Np0Kc2zAIFWIj963V2800iF/9LPieQw==}
-
-  side-channel-list@1.0.1:
-    resolution: {integrity: sha512-mjn/0bi/oUURjc5Xl7IaWi/OJJJumuoJFQJfDDyO46+hBWsfaVM65TBHq2eoZBhzl9EchxOijpkbRC8SVBQU0w==}
-    engines: {node: '>= 0.4'}
-
-  side-channel-map@1.0.1:
-    resolution: {integrity: sha512-VCjCNfgMsby3tTdo02nbjtM/ewra6jPHmpThenkTYh8pG9ucZ/1P8So4u4FGBek/BjpOVsDCMoLA/iuBKIFXRA==}
-    engines: {node: '>= 0.4'}
-
-  side-channel-weakmap@1.0.2:
-    resolution: {integrity: sha512-WPS/HvHQTYnHisLo9McqBHOJk2FkHO/tlpvldyrnem4aeQp4hai3gythswg6p01oSoTl58rcpiFAjF2br2Ak2A==}
-    engines: {node: '>= 0.4'}
-
-  side-channel@1.1.0:
-    resolution: {integrity: sha512-ZX99e6tRweoUXqR+VBrslhda51Nh5MTQwou5tnUDgbtyM0dBgmhEDtWGP/xbKn6hqfPRHujUNwz5fy/wbbhnpw==}
-    engines: {node: '>= 0.4'}
 
   sift@17.1.3:
     resolution: {integrity: sha512-Rtlj66/b0ICeFzYTuNvX/EF1igRbbnGSvEyT79McoZa/DeGhMyC5pWKOEsZKnpkqtSeovd5FL/bjHWC3CIIvCQ==}
@@ -5363,20 +5319,6 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
-  '@larksuiteoapi/node-sdk@1.64.0':
-    dependencies:
-      axios: 1.13.6
-      lodash.identity: 3.0.0
-      lodash.merge: 4.6.2
-      lodash.pickby: 4.6.0
-      protobufjs: 7.5.8
-      qs: 6.15.1
-      ws: 8.20.1
-    transitivePeerDependencies:
-      - bufferutil
-      - debug
-      - utf-8-validate
-
   '@monaco-editor/loader@1.7.0':
     dependencies:
       state-local: 1.0.7
@@ -6558,11 +6500,6 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.53.3':
     optional: true
 
-  '@satorijs/adapter-lark@3.12.5(@satorijs/core@4.6.0(cordis@3.18.1))':
-    dependencies:
-      '@satorijs/core': 4.6.0(cordis@3.18.1)
-      protobufjs: 8.3.0
-
   '@satorijs/core@4.6.0(cordis@3.18.1)':
     dependencies:
       '@cordisjs/plugin-http': 0.6.3(cordis@3.18.1)
@@ -7029,7 +6966,8 @@ snapshots:
 
   async@3.2.6: {}
 
-  asynckit@0.4.0: {}
+  asynckit@0.4.0:
+    optional: true
 
   axios@1.13.6:
     dependencies:
@@ -7038,6 +6976,7 @@ snapshots:
       proxy-from-env: 1.1.0
     transitivePeerDependencies:
       - debug
+    optional: true
 
   base64-js@1.5.1: {}
 
@@ -7080,11 +7019,7 @@ snapshots:
     dependencies:
       es-errors: 1.3.0
       function-bind: 1.1.2
-
-  call-bound@1.0.4:
-    dependencies:
-      call-bind-apply-helpers: 1.0.2
-      get-intrinsic: 1.3.0
+    optional: true
 
   caniuse-lite@1.0.30001788: {}
 
@@ -7172,6 +7107,7 @@ snapshots:
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
+    optional: true
 
   comma-separated-tokens@2.0.3: {}
 
@@ -7235,7 +7171,8 @@ snapshots:
       escodegen: 2.1.0
       esprima: 4.0.1
 
-  delayed-stream@1.0.0: {}
+  delayed-stream@1.0.0:
+    optional: true
 
   denque@2.1.0: {}
 
@@ -7260,6 +7197,7 @@ snapshots:
       call-bind-apply-helpers: 1.0.2
       es-errors: 1.3.0
       gopd: 1.2.0
+    optional: true
 
   emoji-regex-xs@1.0.0: {}
 
@@ -7282,9 +7220,11 @@ snapshots:
 
   environment@1.1.0: {}
 
-  es-define-property@1.0.1: {}
+  es-define-property@1.0.1:
+    optional: true
 
-  es-errors@1.3.0: {}
+  es-errors@1.3.0:
+    optional: true
 
   es-module-lexer@1.7.0: {}
 
@@ -7293,6 +7233,7 @@ snapshots:
   es-object-atoms@1.1.1:
     dependencies:
       es-errors: 1.3.0
+    optional: true
 
   es-set-tostringtag@2.1.0:
     dependencies:
@@ -7300,6 +7241,7 @@ snapshots:
       get-intrinsic: 1.3.0
       has-tostringtag: 1.0.2
       hasown: 2.0.2
+    optional: true
 
   esbuild@0.21.5:
     optionalDependencies:
@@ -7441,6 +7383,7 @@ snapshots:
       es-set-tostringtag: 2.1.0
       hasown: 2.0.2
       mime-types: 2.1.35
+    optional: true
 
   fsevents@2.3.3:
     optional: true
@@ -7463,6 +7406,7 @@ snapshots:
       has-symbols: 1.1.0
       hasown: 2.0.2
       math-intrinsics: 1.1.0
+    optional: true
 
   get-nonce@1.0.1: {}
 
@@ -7470,6 +7414,7 @@ snapshots:
     dependencies:
       dunder-proto: 1.0.1
       es-object-atoms: 1.1.1
+    optional: true
 
   get-tsconfig@4.13.0:
     dependencies:
@@ -7495,17 +7440,20 @@ snapshots:
 
   globrex@0.1.2: {}
 
-  gopd@1.2.0: {}
+  gopd@1.2.0:
+    optional: true
 
   graceful-fs@4.2.11: {}
 
   has-flag@4.0.0: {}
 
-  has-symbols@1.1.0: {}
+  has-symbols@1.1.0:
+    optional: true
 
   has-tostringtag@1.0.2:
     dependencies:
       has-symbols: 1.1.0
+    optional: true
 
   hasown@2.0.2:
     dependencies:
@@ -7716,13 +7664,7 @@ snapshots:
 
   lodash.defaults@4.2.0: {}
 
-  lodash.identity@3.0.0: {}
-
   lodash.isarguments@3.1.0: {}
-
-  lodash.merge@4.6.2: {}
-
-  lodash.pickby@4.6.0: {}
 
   lodash@4.17.23: {}
 
@@ -7765,7 +7707,8 @@ snapshots:
 
   marked@14.0.0: {}
 
-  math-intrinsics@1.1.0: {}
+  math-intrinsics@1.1.0:
+    optional: true
 
   mdast-util-to-hast@13.2.1:
     dependencies:
@@ -7803,6 +7746,7 @@ snapshots:
   mime-types@2.1.35:
     dependencies:
       mime-db: 1.52.0
+    optional: true
 
   mimic-function@5.0.1: {}
 
@@ -8123,10 +8067,6 @@ snapshots:
       '@types/node': 25.4.0
       long: 5.3.2
 
-  protobufjs@8.3.0:
-    dependencies:
-      long: 5.3.2
-
   proxy-agent@6.4.0:
     dependencies:
       agent-base: 7.1.4
@@ -8145,10 +8085,6 @@ snapshots:
   punycode@2.3.1: {}
 
   qface@1.4.1: {}
-
-  qs@6.15.1:
-    dependencies:
-      side-channel: 1.1.0
 
   radix-ui@1.6.7(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
@@ -8470,34 +8406,6 @@ snapshots:
       '@types/hast': 3.0.4
 
   shimmer@1.2.1: {}
-
-  side-channel-list@1.0.1:
-    dependencies:
-      es-errors: 1.3.0
-      object-inspect: 1.13.4
-
-  side-channel-map@1.0.1:
-    dependencies:
-      call-bound: 1.0.4
-      es-errors: 1.3.0
-      get-intrinsic: 1.3.0
-      object-inspect: 1.13.4
-
-  side-channel-weakmap@1.0.2:
-    dependencies:
-      call-bound: 1.0.4
-      es-errors: 1.3.0
-      get-intrinsic: 1.3.0
-      object-inspect: 1.13.4
-      side-channel-map: 1.0.1
-
-  side-channel@1.1.0:
-    dependencies:
-      es-errors: 1.3.0
-      object-inspect: 1.13.4
-      side-channel-list: 1.0.1
-      side-channel-map: 1.0.1
-      side-channel-weakmap: 1.0.2
 
   sift@17.1.3: {}
 

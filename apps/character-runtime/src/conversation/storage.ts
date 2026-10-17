@@ -166,22 +166,25 @@ export async function saveConversationState(
   }
 }
 
-/** 增量发现当前环境的积压，包含已经退出白名单的会话。 */
-export async function* pendingArchiveScopes(): AsyncGenerator<ConversationScope> {
+/** 增量发现当前角色在当前环境的积压，包含已经退出白名单的会话。 */
+export async function* pendingArchiveScopes(
+  characterId: string,
+): AsyncGenerator<ConversationScope> {
   const redis = await getRedis();
-  const prefix = `${redisKeyPrefix()}conversation:`;
+  const prefix = `${redisKeyPrefix()}conversation:${encodeURIComponent(characterId)}:`;
   let cursor = "0";
   do {
     const [nextCursor, keys] = await redis.scan(
       cursor,
       "MATCH",
-      `${prefix}*:*:*:archive`,
+      // encodeURIComponent 会保留 *，在 Redis MATCH 中需要按字面量匹配角色 ID。
+      `${prefix.replaceAll("*", "\\*")}*:*:archive`,
       "COUNT",
       100,
     );
     cursor = nextCursor;
     for (const key of keys) {
-      const [characterId, platform, channelId] = key
+      const [platform, channelId] = key
         .slice(prefix.length, -":archive".length)
         .split(":")
         .map(decodeURIComponent);

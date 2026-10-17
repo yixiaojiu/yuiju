@@ -1,10 +1,10 @@
 import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { measureInputBytes, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText, type ModelMessage, stepCountIs } from "ai";
 import { type ContextUnit, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";

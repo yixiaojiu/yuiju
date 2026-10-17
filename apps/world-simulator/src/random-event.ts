@@ -1,7 +1,7 @@
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { Output } from "ai";
 import { z } from "zod";
 

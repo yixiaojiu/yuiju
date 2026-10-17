@@ -1,7 +1,7 @@
 import { load_config } from "@yuiju/shared/config/load";
 import { redisKeyPrefix } from "@yuiju/shared/database/environment";
-import { getEnvironment } from "@yuiju/shared/env/environment";
 import { logger } from "@yuiju/shared/logger/logger";
+import { getEnvironment } from "@yuiju/shared/utils/environment";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
 import { Queue, UnrecoverableError, Worker } from "bullmq";
 import Redis from "ioredis";

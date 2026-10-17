@@ -1,4 +1,4 @@
-import { getEnvironment } from "../env/environment";
+import { getEnvironment } from "../utils/environment";
 
 export function mongoCollectionName(name: string): string {
   return getEnvironment() === "production" ? name : `${name}_dev`;

@@ -1,6 +1,6 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { get_data_dir } from "@yuiju/shared/paths/data";
+import { get_data_dir } from "@yuiju/shared/utils/path";
 
 /** 文件名来自角色或平台标识；编码点和路径分隔符，保持目录始终位于角色 memory 内。 */
 export async function memoryPath(characterId: string, ...parts: string[]): Promise<string> {

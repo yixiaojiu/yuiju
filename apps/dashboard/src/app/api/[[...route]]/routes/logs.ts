@@ -1,12 +1,18 @@
 import { open, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { get_data_dir } from "@yuiju/shared/paths/data";
+import { get_data_dir } from "@yuiju/shared/utils/path";
 import { Hono } from "hono";
 import { getDeployment } from "@/lib/deployment";
 
 const logApps = ["character-runtime", "world-simulator"] as const;
 const filePattern = /^app-\d{4}-\d{2}-\d{2}\.log(?:\.\d+)?$/;
 export type LogEntry = { timestamp: string; level: string; message: string; details: string };
+
+/** 角色日志读取当前展示角色的目录；世界服务继续共用应用日志目录。 */
+async function getLogDirectory(app: string): Promise<string> {
+  const root = resolve(await get_data_dir(), "..", "apps", app, "logs");
+  return app === "character-runtime" ? resolve(root, (await getDeployment()).characterId) : root;
+}
 
 export const logsApi = new Hono()
   .use("*", async (c, next) => {
@@ -19,7 +25,7 @@ export const logsApi = new Hono()
     await next();
   })
   .get("/files", async (c) => {
-    const root = resolve(await get_data_dir(), "..", "apps", c.req.query("app")!, "logs");
+    const root = await getLogDirectory(c.req.query("app")!);
     const files = (await readdir(root))
       .filter((name) => filePattern.test(name))
       .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
@@ -36,7 +42,7 @@ export const logsApi = new Hono()
     ) {
       return c.json({ error: "文件名或日志游标无效" }, 400);
     }
-    const path = resolve(await get_data_dir(), "..", "apps", c.req.query("app")!, "logs", file);
+    const path = resolve(await getLogDirectory(c.req.query("app")!), file);
     const handle = await open(path, "r");
     try {
       const size = (await handle.stat()).size;

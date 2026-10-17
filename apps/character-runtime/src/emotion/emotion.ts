@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { getRedis } from "@yuiju/shared/database/redis";
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
 import { generateStructuredOutput } from "@yuiju/shared/llm/generate-structured-output";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { Output } from "ai";
 import { z } from "zod";
 import type { CharacterEvent } from "../agent-loop/events";

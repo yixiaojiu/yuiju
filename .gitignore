@@ -154,6 +154,7 @@ packages/python/__pycache__/
 .devtools
 
 yuiju.config.json
+/ecosystem.config.js
 /memory/
 /data/
 /apps/character-runtime/evals/output/
@@ -162,3 +163,9 @@ CLAUDE.md
 .codex-pet-runs/
 
 packages/source/aigc/pixel/generate/
+
+# Extension import tables (generated from deployment config)
+/apps/character-runtime/src/extensions/generated.ts
+/apps/dashboard/src/extensions/generated-api.ts
+/apps/dashboard/src/extensions/generated-pages.ts
+/apps/dashboard/src/extensions/generated-sources.css

@@ -1,4 +1,4 @@
-import { getEnvironment } from "@yuiju/shared/env/environment";
+import { getEnvironment } from "@yuiju/shared/utils/environment";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {

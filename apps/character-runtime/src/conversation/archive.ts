@@ -11,12 +11,12 @@ const ARCHIVE_BATCH_SIZE = 100;
 const ARCHIVE_INTERVAL_MS = 5_000;
 
 /**
- * 应用只启动一个归档任务，覆盖当前环境的所有会话。
+ * 每个角色进程只归档自己的会话，不扫描其他角色的积压。
  * 每轮扫描后等待五秒；每批失败即丢弃，停止只等当前批次，不排空全部积压。
  */
-export function startConversationArchive() {
+export function startConversationArchive(characterId: string) {
   const stopping = new AbortController();
-  const task = runArchive(stopping.signal);
+  const task = runArchive(characterId, stopping.signal);
   return {
     async stop() {
       stopping.abort();
@@ -25,10 +25,10 @@ export function startConversationArchive() {
   };
 }
 
-async function runArchive(signal: AbortSignal): Promise<void> {
+async function runArchive(characterId: string, signal: AbortSignal): Promise<void> {
   while (!signal.aborted) {
     try {
-      for await (const scope of pendingArchiveScopes()) {
+      for await (const scope of pendingArchiveScopes(characterId)) {
         if (signal.aborted) {
           return;
         }

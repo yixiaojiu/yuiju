@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "NODE_ENV=production tsx src/main.ts",
-    "dev": "NODE_ENV=development tsx src/main.ts",
-    "dev:conversation": "NODE_ENV=development tsx src/main.ts --mode conversation",
-    "dev:agent": "NODE_ENV=development tsx src/main.ts --mode agent",
-    "type-check": "tsc --noEmit",
+    "start": "pnpm -w run generate:extensions && NODE_ENV=production tsx src/main.ts",
+    "dev": "pnpm -w run generate:extensions && NODE_ENV=development tsx src/main.ts",
+    "dev:conversation": "pnpm -w run generate:extensions && NODE_ENV=development tsx src/main.ts --mode conversation",
+    "dev:agent": "pnpm -w run generate:extensions && NODE_ENV=development tsx src/main.ts --mode agent",
+    "type-check": "pnpm -w run generate:extensions && tsc --noEmit",
     "test": "vitest run --reporter=verbose",
     "eval:agents": "vitest run --config evals/vitest.config.ts"
   },

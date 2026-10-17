@@ -4,7 +4,7 @@ import { mongoCollectionName, redisKeyPrefix } from "@yuiju/shared/database/envi
 import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { startSyncTask } from "@yuiju/shared/database/sync";
-import { getEnvironment } from "@yuiju/shared/env/environment";
+import { getEnvironment } from "@yuiju/shared/utils/environment";
 import type { Emotion } from "./emotion/emotion";
 import { memoryCollection } from "./memory/experiences";
 

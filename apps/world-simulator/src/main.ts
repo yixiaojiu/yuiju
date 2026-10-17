@@ -1,6 +1,6 @@
 import { load_config } from "@yuiju/shared/config/load";
-import { getEnvironment } from "@yuiju/shared/env/environment";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
+import { getEnvironment } from "@yuiju/shared/utils/environment";
 import { startWorldSimulator } from "./application";
 
 async function main(): Promise<void> {

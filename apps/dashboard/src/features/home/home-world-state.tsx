@@ -1,8 +1,8 @@
 "use client";
 
+import { Card } from "@yuiju/shared/ui/components/card";
 import type { WorldDashboardStatus } from "@/app/api/[[...route]]/routes/world";
 import { QueryState } from "@/components/query-state";
-import { Card } from "@/components/ui/card";
 import { HomeWorldInteraction } from "@/features/home/home-world-interaction";
 import { formatTime } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";

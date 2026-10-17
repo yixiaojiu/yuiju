@@ -1,5 +1,5 @@
 import { load_config } from "@yuiju/shared/config/load";
-import { formatLlmDateTime } from "@yuiju/shared/date/format";
+import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import type {
   InspectWorldResult,
   ObservationView,

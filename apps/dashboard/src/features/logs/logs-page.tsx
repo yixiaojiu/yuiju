@@ -1,11 +1,11 @@
 "use client";
 
+import { Button } from "@yuiju/shared/ui/components/button";
+import { Card } from "@yuiju/shared/ui/components/card";
 import { Pause, Play, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LogEntry } from "@/app/api/[[...route]]/routes/logs";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { type LogFileSelection, LogFileTree } from "@/features/logs/log-file-tree";
 import { formatTime } from "@/lib/date";
 

@@ -1,8 +1,8 @@
 "use client";
 
+import { Card } from "@yuiju/shared/ui/components/card";
 import { ChevronRight, FileText, Folder } from "lucide-react";
 import { useState } from "react";
-import { Card } from "@/components/ui/card";
 import { useQuery } from "@/lib/use-query";
 
 export type LogFileSelection = {

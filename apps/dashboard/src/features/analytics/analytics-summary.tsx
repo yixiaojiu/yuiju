@@ -1,9 +1,4 @@
-import type {
-  AnalyticsEventName,
-  AnalyticsSummary,
-  CompressionDaily,
-} from "@/app/api/[[...route]]/routes/analytics";
-import { Card } from "@/components/ui/card";
+import { Card } from "@yuiju/shared/ui/components/card";
 import {
   Table,
   TableBody,
@@ -11,7 +6,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@yuiju/shared/ui/components/table";
+import type {
+  AnalyticsEventName,
+  AnalyticsSummary,
+  CompressionDaily,
+} from "@/app/api/[[...route]]/routes/analytics";
 import { compressionSceneLabels, formatContextRatio, formatTokens } from "./format";
 
 export function AnalyticsSummaryCards({
