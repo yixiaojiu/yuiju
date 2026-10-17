@@ -11,7 +11,6 @@
   "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
-    "@yuiju/utils": "workspace:*",
     "sharp": "^0.35.3"
   }
 }

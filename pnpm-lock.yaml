@@ -251,14 +251,9 @@ importers:
 
   packages/source:
     dependencies:
-      '@yuiju/utils':
-        specifier: workspace:*
-        version: link:../utils
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.10.1)
-
-  packages/utils: {}
 
 packages:
 

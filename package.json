@@ -25,7 +25,6 @@
     "dev:character-runtime:conversation": "pnpm --filter @yuiju/character-runtime run dev:conversation",
     "dev:character-runtime:agent": "pnpm --filter @yuiju/character-runtime run dev:agent",
     "dev:world-simulator": "pnpm --filter @yuiju/world-simulator run dev",
-    "type-check:utils": "pnpm --filter @yuiju/utils run type-check",
     "type-check:dashboard": "pnpm --filter @yuiju/dashboard run type-check",
     "type-check:character-runtime": "pnpm --filter @yuiju/character-runtime run type-check",
     "type-check:world-simulator": "pnpm --filter @yuiju/world-simulator run type-check",
