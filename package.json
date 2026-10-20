@@ -64,7 +64,8 @@
     "vite": "^7.2.4",
     "vite-tsconfig-paths": "^5.1.4",
     "vitepress": "^1.6.4",
-    "vitest": "^4.0.13"
+    "vitest": "^4.0.13",
+    "@types/react": "catalog:"
   },
   "dependencies": {
     "@ai-sdk/devtools": "^1.0.4",
@@ -88,6 +89,8 @@
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.20.1",
-    "zod": "^4.1.13"
+    "zod": "^4.1.13",
+    "@yuiju/shared": "workspace:*",
+    "react": "catalog:"
   }
 }

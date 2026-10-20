@@ -2,31 +2,108 @@
 
 import { Button } from "@yuiju/shared/ui/components/button";
 import { useState } from "react";
-import type { PersonProfile } from "@/app/api/[[...route]]/routes/memories";
+import type { PersonMemoryFile } from "@/app/api/[[...route]]/routes/memories";
 import { type CharacterOption, CharacterSelect } from "@/components/character-select";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
 import { ExperiencesPanel } from "@/features/memories/experiences-panel";
-import { formatTime } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
 
 const panel = "rounded-2xl border border-border/80 bg-card p-6 shadow-sm";
 
+/** 两种记忆共用文件保存交互；正文原样提交，草稿由所属页面保留。 */
+function MemoryFileEditor({
+  value,
+  language,
+  onChange,
+  saveUrl,
+}: {
+  value: string;
+  language: "json" | "markdown";
+  onChange: (value: string) => void;
+  saveUrl: string;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null);
+
+  async function save() {
+    setFeedback(null);
+    if (language === "json") {
+      try {
+        JSON.parse(value);
+      } catch {
+        setFeedback({ text: "JSON 格式错误，未保存", error: true });
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(saveUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": language === "json" ? "application/json" : "text/plain; charset=utf-8",
+        },
+        body: value,
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error);
+      }
+      setFeedback({ text: "已保存", error: false });
+    } catch (error) {
+      setFeedback({ text: error instanceof Error ? error.message : String(error), error: true });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      <div className="flex items-center gap-3">
+        <Button onClick={save} disabled={saving}>
+          {saving ? "保存中…" : "保存"}
+        </Button>
+        {feedback && (
+          <p
+            role={feedback.error ? "alert" : "status"}
+            className={`text-sm ${feedback.error ? "text-destructive" : "text-muted-foreground"}`}
+          >
+            {feedback.text}
+          </p>
+        )}
+      </div>
+      <MonacoEditorPanel
+        language={language}
+        value={value}
+        onChange={
+          saving
+            ? undefined
+            : (content) => {
+                setFeedback(null);
+                onChange(content);
+              }
+        }
+      />
+    </div>
+  );
+}
+
 function People({ characterId }: { characterId: string }) {
-  const { data, error } = useQuery<{ people: PersonProfile[] }>(
+  const { data, error } = useQuery<{ people: PersonMemoryFile[] }>(
     `/api/memories/people?${new URLSearchParams({ characterId })}`,
   );
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   if (!data) {
     return <QueryState error={error} />;
   }
   const people = data.people.filter((person) =>
-    `${person.name} ${person.userId} ${person.facts} ${person.impressions}`
+    `${person.name} ${person.userId} ${person.content}`
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
-  const current = people.find((person) => `${person.platform}:${person.userId}` === selected);
+  const current = data.people.find((person) => `${person.platform}:${person.userId}` === selected);
   return (
     <div className="grid items-start gap-5 md:grid-cols-[240px_1fr]">
       <aside className={`${panel} space-y-3`}>
@@ -59,10 +136,12 @@ function People({ characterId }: { characterId: string }) {
         </div>
       </aside>
       {current ? (
-        <MonacoEditorPanel
+        <MemoryFileEditor
           key={`${current.platform}:${current.userId}`}
           language="json"
-          value={JSON.stringify(current, null, 2)}
+          value={drafts[selected!] ?? current.content}
+          onChange={(content) => setDrafts((previous) => ({ ...previous, [selected!]: content }))}
+          saveUrl={`/api/memories/people?${new URLSearchParams({ characterId, platform: current.platform, userId: current.userId })}`}
         />
       ) : (
         <div className={`${panel} py-20 text-center text-sm text-muted-foreground`}>选择人物</div>
@@ -72,19 +151,20 @@ function People({ characterId }: { characterId: string }) {
 }
 
 function SelfCognition({ characterId }: { characterId: string }) {
-  const { data, error } = useQuery<{ text: string; updatedAt: number | null }>(
+  const { data, error } = useQuery<{ text: string }>(
     `/api/memories/self-cognition?${new URLSearchParams({ characterId })}`,
   );
+  const [draft, setDraft] = useState<string>();
   if (!data) {
     return <QueryState error={error} />;
   }
   return (
-    <article className="space-y-3">
-      {data.updatedAt !== null && (
-        <p className="mb-4 text-xs text-muted-foreground">{formatTime(data.updatedAt, true)}</p>
-      )}
-      <MonacoEditorPanel language="markdown" value={data.text} />
-    </article>
+    <MemoryFileEditor
+      language="markdown"
+      value={draft ?? data.text}
+      onChange={setDraft}
+      saveUrl={`/api/memories/self-cognition?${new URLSearchParams({ characterId })}`}
+    />
   );
 }
 

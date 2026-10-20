@@ -10,20 +10,15 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText } from "ai";
+import { z } from "zod";
 import { formatLlmPlatform } from "../conversation/platform";
-import { recordExperience } from "../memory/experiences";
-import { formatPlans, nextPlanAttention, signalPlansDue } from "../plan/plan";
+import { formatPlans } from "../plan/plan";
 import { readPlans } from "../plan/storage";
 import { formatWorldEvent } from "../world/tools";
 import { agentMessages, prepareAgentContext } from "./context";
-import {
-  type CharacterEvent,
-  readActivityWait,
-  readCharacterEvents,
-  signalActivityDue,
-} from "./events";
+import { type CharacterEvent, type CharacterEventBatch, recordWorldExperiences } from "./events";
 import { type AgentState, finishAgentRound, loadAgentState, saveAgentState } from "./storage";
-import { type AgentToolContext, agentToolDescription, agentTools, createAgentTools } from "./tools";
+import { type AgentToolContext, createAgentTools } from "./tools";
 
 /** 一个角色的日常决策执行器；只串行自己的轮次，不占用世界推进或其他角色。 */
 export class MainAgentLoop {
@@ -33,11 +28,6 @@ export class MainAgentLoop {
   /** 正常模型步骤的输入用量，不跨重启保存，也不累计输出或压缩请求的消耗。 */
   private inputUsage: InputTokenUsage | undefined;
   private timezone = "";
-  private active = false;
-  /** 只表示待检查 inbox；事件正文与轮次进度以 Redis 为准。 */
-  private wakeRequested = false;
-  private task: Promise<void> | undefined;
-  private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly execution: AgentToolContext) {}
 
@@ -54,133 +44,98 @@ export class MainAgentLoop {
       renderPrompt("agent_loop.main"),
       renderPrompt(`agent_loop.main.${this.execution.characterId}`),
     ]);
-    this.instructions = `${persona}\n\n${rules}\n\n${characterPrompt}`;
-  }
-
-  start(): void {
-    this.active = true;
-    this.wake();
-  }
-
-  /** 接收方保存完事件后调用；不等待模型，也不把新输入插进正在执行的轮次。 */
-  wake(): void {
-    this.wakeRequested = true;
-    if (this.active && !this.task) {
-      clearTimeout(this.timer);
-      this.task = this.run();
+    const catalog = this.execution.extensions.describeAgents();
+    this.instructions = [
+      persona,
+      rules,
+      characterPrompt,
+      ...(catalog ? [`可用扩展 agent：\n${catalog}`] : []),
+    ].join("\n\n");
+    const state = await loadAgentState(this.execution.characterId);
+    if (state?.round) {
+      await finishAgentRound(this.execution.characterId, state);
+      logger.warn("已结束中断的主 agent 轮次，不再重试");
     }
   }
 
-  /** 先记录本批输入；失败结束本轮，只有新事件或正常日程才能再次唤醒。 */
-  private async run(): Promise<void> {
-    let failed = false;
+  /** 固定批次执行完再提交上下文；调度和场景切换由角色宿主负责。 */
+  async run(batch: CharacterEventBatch): Promise<void> {
+    const characterId = this.execution.characterId;
+    const state = (await loadAgentState(characterId)) ?? {
+      context: { summary: "", units: [] },
+      round: null,
+    };
+    if (state.round) {
+      // 上次提交失败后，新事件可能再次唤醒；先清理旧批次，由宿主重新读取剩余输入。
+      await finishAgentRound(characterId, state);
+      logger.warn("已结束中断的主 agent 轮次，不再重试");
+      return;
+    }
+    state.round = { id: randomUUID(), ...batch };
+    await saveAgentState(characterId, state);
     try {
-      while (this.active && this.wakeRequested) {
-        this.wakeRequested = false;
-        const characterId = this.execution.characterId;
-        await signalActivityDue(characterId, Date.now());
-        await signalPlansDue(characterId, Date.now());
-        const state = (await loadAgentState(characterId)) ?? {
-          context: { summary: "", units: [] },
-          round: null,
-        };
-        if (state.round) {
-          // 中断的旧轮次不重放，避免重复调用模型或再次执行已发生的操作。
-          await finishAgentRound(characterId, state);
-          logger.warn("已结束中断的主 agent 轮次，不再重试");
-          this.wakeRequested = true;
-          continue;
+      const hasIdleReminder = batch.events.some(
+        (event) => event.type === "world" && event.event.type === "idle_reminder",
+      );
+      if (hasIdleReminder) {
+        // 处理前确认活动仍相同；离线积攒的多次提醒只保留本批最新的一条。
+        const current = await this.execution.world.inspect({ type: "current" });
+        if (!current.ok) {
+          throw new Error(`无法确认空闲提醒对应的活动：${current.message}`);
         }
-        const batch = await readCharacterEvents(characterId);
-        if (!batch.events.length) {
-          continue;
-        }
-        state.round = { id: randomUUID(), ...batch };
-        // 先记录本批边界；失败会消费本批，进程中断后也只清理、不重放。
-        await saveAgentState(characterId, state);
-        try {
-          const hasIdleReminder = batch.events.some(
-            (event) => event.type === "world" && event.event.type === "idle_reminder",
-          );
-          if (hasIdleReminder) {
-            // 处理前确认活动仍相同；离线积攒的多次提醒只保留本批最新的一条。
-            const current = await this.execution.world.inspect({ type: "current" });
-            if (!current.ok) {
-              throw new Error(`无法确认空闲提醒对应的活动：${current.message}`);
-            }
-            if (current.value.type === "current") {
-              const activity = current.value.activity;
-              await this.execution.observeActivity(activity);
-              const latestReminder = [...batch.events]
-                .reverse()
-                .find(
-                  (event) =>
-                    event.type === "world" &&
-                    event.event.type === "idle_reminder" &&
-                    activity?.actionId === "空闲发呆" &&
-                    event.event.activity?.activityId === activity.activityId,
-                );
-              batch.events = batch.events.filter(
-                (event) =>
-                  event.type !== "world" ||
-                  event.event.type !== "idle_reminder" ||
-                  event === latestReminder,
-              );
-            }
-            if (!batch.events.length) {
-              // 只消费过期提醒，不向上下文追加空输入，也不调用模型。
-              this.wakeRequested = true;
-              continue;
-            }
-          }
-          let input = await this.describeInput(batch.events);
-          // 活动相关输入才同步现状，不能将迟到的事件快照当作当前活动。
-          if (
-            !hasIdleReminder &&
-            batch.events.some(
+        if (current.value.type === "current") {
+          const activity = current.value.activity;
+          await this.execution.observeActivity(activity);
+          const latestReminder = [...batch.events]
+            .reverse()
+            .find(
               (event) =>
-                event.type === "connected" ||
-                event.type === "activity_due" ||
-                (event.type === "world" &&
-                  (event.event.type === "activity_started" ||
-                    event.event.type === "activity_completed")),
-            )
-          ) {
-            const syncFailure = await this.execution.syncWorldActivity();
-            if (syncFailure !== null) {
-              input += `\n\n${syncFailure}`;
-            }
-          }
-          state.context.units.push([{ role: "user", content: input }]);
-          await this.runRound(state);
-        } catch (error) {
-          if (this.active) {
-            logger.error("主 agent 本轮执行失败，结束本批，不再重试", { error });
-          }
-        } finally {
-          // 保存完整步骤的上下文，并清理本轮工具操作记录；不重复执行副作用。
-          await finishAgentRound(characterId, state);
+                event.type === "world" &&
+                event.event.type === "idle_reminder" &&
+                activity?.actionId === "空闲发呆" &&
+                event.event.activity?.activityId === activity.activityId,
+            );
+          batch.events = batch.events.filter(
+            (event) =>
+              event.type !== "world" ||
+              event.event.type !== "idle_reminder" ||
+              event === latestReminder,
+          );
         }
-
-        // 再读一次，接住本轮执行期间保存的新事件。
-        this.wakeRequested = true;
+        if (!batch.events.length) {
+          // 只消费过期提醒，不向上下文追加空输入，也不调用模型。
+          return;
+        }
       }
+      await recordWorldExperiences(characterId, batch.events);
+      let input = await this.describeInput(batch.events);
+      // 活动相关输入才同步现状，不能将迟到的事件快照当作当前活动。
+      if (
+        !hasIdleReminder &&
+        batch.events.some(
+          (event) =>
+            event.type === "connected" ||
+            event.type === "activity_due" ||
+            (event.type === "world" &&
+              (event.event.type === "activity_started" ||
+                event.event.type === "activity_completed")),
+        )
+      ) {
+        const syncFailure = await this.execution.syncWorldActivity();
+        if (syncFailure !== null) {
+          input += `\n\n${syncFailure}`;
+        }
+      }
+      state.context.units.push([{ role: "user", content: input }]);
+      await this.runRound(state);
     } catch (error) {
-      failed = true;
-      if (this.active) {
-        logger.error("主 agent 状态读写失败，停止本次调度", { error });
+      await this.execution.control.rejectRequestedEntry("主 agent 本步执行失败，取消进入请求。");
+      if (!this.stopping.signal.aborted) {
+        logger.error("主 agent 本轮执行失败，结束本批，不再重试", { error });
       }
     } finally {
-      this.task = undefined;
-      if (this.active) {
-        if (failed) {
-          this.wakeRequested = false;
-        } else if (this.wakeRequested) {
-          this.wake();
-        } else {
-          await this.scheduleNextAttention();
-        }
-      }
+      // 包含完整工具结果后才能交接；持久化失败由宿主撤销进入意图。
+      await finishAgentRound(characterId, state);
     }
   }
 
@@ -191,23 +146,37 @@ export class MainAgentLoop {
     // 工具持久化失败必须终止 SDK，不能被转换为 tool-error 后继续产生新的副作用。
     const failed = new AbortController();
     const signal = AbortSignal.any([this.stopping.signal, failed.signal]);
+    const tools = createAgentTools(this.execution, round.id, signal, (error) =>
+      failed.abort(error),
+    );
+    const toolDescription = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(tools).map(([name, definition]) => [
+          name,
+          {
+            description: definition.description,
+            schema: z.toJSONSchema(definition.inputSchema as z.ZodType, { io: "input" }),
+          },
+        ]),
+      ),
+    );
     let requestBytes: number;
     const result = await generateText({
       model: strongModel,
-      tools: createAgentTools(this.execution, round.id, signal, (error) => failed.abort(error)),
+      tools,
       messages: agentMessages(state.context, this.instructions),
       allowSystemInMessages: true,
       maxRetries: 0,
       abortSignal: signal,
       // 覆盖 SDK 默认的一步限制；没有工具调用时 SDK 自然结束，不另设固定步数。
-      stopWhen: () => signal.aborted,
+      stopWhen: () => signal.aborted || this.execution.control.entryRequested,
       prepareStep: async () => {
         signal.throwIfAborted();
         const context = await prepareAgentContext(
           state.context,
           this.instructions,
-          agentTools,
-          agentToolDescription,
+          tools,
+          toolDescription,
           this.windowTokens,
           signal,
           this.execution.characterId,
@@ -218,7 +187,7 @@ export class MainAgentLoop {
         }
         state.context = context;
         const messages = agentMessages(context, this.instructions);
-        requestBytes = measureInputBytes(messages, agentToolDescription);
+        requestBytes = measureInputBytes(messages, toolDescription);
         return { messages };
       },
       onToolExecutionStart: ({ toolCall }) => {
@@ -252,7 +221,10 @@ export class MainAgentLoop {
       },
     });
     signal.throwIfAborted();
-    if (result.finishReason !== "stop") {
+    if (
+      result.finishReason !== "stop" &&
+      !(result.finishReason === "tool-calls" && this.execution.control.entryRequested)
+    ) {
       throw new Error(`主 loop 本轮未正常结束：${result.finishReason}`);
     }
   }
@@ -264,18 +236,6 @@ export class MainAgentLoop {
       if (event.type === "world") {
         const content = await formatWorldEvent(event.event);
         lines.push(content);
-        // 行动回执与开始通知仍参与决策；经历只在结算完成后记录一次。
-        if (event.event.type === "activity_completed" || event.event.type === "weather_changed") {
-          await recordExperience(characterId, {
-            id: event.id,
-            occurredAt: event.occurredAt,
-            source: "world",
-            content,
-            ...(event.event.type === "activity_completed" && { activity: event.event.activity! }),
-            position: event.event.position,
-            people: [],
-          });
-        }
       } else if (event.type === "connected") {
         lines.push("世界连接已建立，需要了解现状时可以查询。");
       } else if (event.type === "emotion_result") {
@@ -296,6 +256,16 @@ export class MainAgentLoop {
             `${event.type === "plan_review" ? "这项计划已过计划日期或长期未更新，需要确认后续安排" : "这项计划到了关注时间"}：${await formatPlans([plan])}`,
           );
         }
+      } else if (event.type === "extension_task_result") {
+        const result = event.result;
+        lines.push(
+          `扩展任务 ${result.agentId}（${result.taskId}）${result.status === "completed" ? `完成：${JSON.stringify(result.result)}` : `失败：${result.error}`}`,
+        );
+      } else if (event.type === "extension_scene_result") {
+        const result = event.result;
+        lines.push(
+          `场景 ${result.agentId} ${result.status === "failed" ? "未能进入" : "已结束"}：${result.reason}${result.context ? `\n场景交回的上下文：${result.context}` : ""}`,
+        );
       } else {
         lines.push(
           [
@@ -310,30 +280,7 @@ export class MainAgentLoop {
     return lines.join("\n\n");
   }
 
-  /** 只有活动和计划有截止时间；空闲时不设置循环唤醒。 */
-  private async scheduleNextAttention(): Promise<void> {
-    try {
-      const [activity, planAt] = await Promise.all([
-        readActivityWait(this.execution.characterId),
-        nextPlanAttention(this.execution.characterId),
-      ]);
-      const times = [activity?.checkAt, planAt].filter((time): time is number => time != null);
-      if (this.active && !this.task && times.length) {
-        // Node timer 最大约 24 天；远期安排分段等待，但到期前不执行模型。
-        this.timer = setTimeout(
-          () => this.wake(),
-          Math.min(2_147_483_647, Math.max(0, Math.min(...times) - Date.now())),
-        );
-      }
-    } catch (error) {
-      logger.error("恢复角色关注时间失败", { error });
-    }
-  }
-
-  async stop(): Promise<void> {
-    this.active = false;
-    clearTimeout(this.timer);
+  stop(): void {
     this.stopping.abort();
-    await this.task;
   }
 }

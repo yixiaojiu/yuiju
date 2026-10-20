@@ -36,7 +36,7 @@ export class WorldClient {
     private readonly onReady: (
       current: Extract<InspectWorldResult, { type: "current" }>,
     ) => Promise<void>,
-    private readonly onEvent: () => Promise<void>,
+    private readonly events: { observe(event: WorldEvent): Promise<void>; wake(): void },
     private readonly options: { queueAgentEvents: boolean },
   ) {
     this.characterId = characterId;
@@ -134,6 +134,8 @@ export class WorldClient {
             type: message.event.type,
             description: message.event.description,
           });
+          // 实际活动与聊天权限同步后，事件才对决策调度器可见。
+          await this.events.observe(message.event);
           if (this.options.queueAgentEvents) {
             if (message.event.type === "activity_completed" && message.event.activity) {
               // 接收时撤销对应等待与未处理的超时输入，不等主 loop 完成当前思考。
@@ -141,8 +143,7 @@ export class WorldClient {
             }
             await this.storeEvent(message.deliveryId, message.event);
           }
-          // 聊天模式同步成功后才确认；主 agent 这里只唤醒，不等待模型执行。
-          await this.onEvent();
+          this.events.wake();
           socket.send(JSON.stringify({ type: "ack", deliveryId: message.deliveryId }));
         }
       } catch (error) {

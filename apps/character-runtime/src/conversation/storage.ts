@@ -25,7 +25,7 @@ export type ConversationRuntime = {
   failedThroughSequence?: number;
   silentRounds: number;
   silenceCooldownUntil: number;
-  /** 暂停期原文只用于摘要；恢复后直接推进消费边界，不补跑回复。 */
+  /** 暂停期消息只作为背景；少于 30 条保留原文，否则分批摘要，恢复后不补跑回复。 */
   paused?: { summary: string; coveredThrough: number };
   /** 主 loop 的输入；consumed 表示已注入 Planner 上下文，不代表已对外发送。 */
   agentEvents?: (ConversationAgentEvent & { consumed: boolean })[];

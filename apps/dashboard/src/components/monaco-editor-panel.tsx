@@ -4,15 +4,17 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
 
-/** 人物 JSON、记忆正文与日志共用只读编辑器，搜索、选择和复制交给 Monaco。 */
+/** 默认只读；需要编辑时由调用方传入 onChange，保存行为留在业务页面。 */
 export function MonacoEditorPanel({
   value,
   language,
   follow = false,
+  onChange,
 }: {
   value: string;
   language: "json" | "markdown" | "log";
   follow?: boolean;
+  onChange?: (value: string) => void;
 }) {
   const editor = useRef<Parameters<OnMount>[0] | null>(null);
   useEffect(() => {
@@ -42,6 +44,11 @@ export function MonacoEditorPanel({
         theme="vs"
         language={language}
         value={value}
+        onChange={(value) => {
+          if (value !== undefined) {
+            onChange?.(value);
+          }
+        }}
         beforeMount={registerLogLanguage}
         onMount={(instance) => {
           editor.current = instance;
@@ -51,8 +58,8 @@ export function MonacoEditorPanel({
         }}
         loading={<span className="text-sm text-muted-foreground">加载中…</span>}
         options={{
-          readOnly: true,
-          domReadOnly: true,
+          readOnly: !onChange,
+          domReadOnly: !onChange,
           fontSize: 13,
           minimap: { enabled: false },
           wordWrap: "on",

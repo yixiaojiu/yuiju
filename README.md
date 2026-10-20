@@ -10,8 +10,7 @@
 
 > [!IMPORTANT]
 > 项目已启用重构后的新应用：`apps/character-runtime` 负责角色运行与聊天，`apps/world-simulator` 负责虚拟世界。
-> 新应用使用 `data/config/config.json` 配置，覆盖 `packages/shared/src/config/defaults.json` 中的默认值，修改后重启生效。
-> 旧应用代码暂时保留作参考，不再作为当前运行入口。
+> 目前正在重构中...
 
 <p align="center">
   <strong>让角色拥有自己的生活</strong>

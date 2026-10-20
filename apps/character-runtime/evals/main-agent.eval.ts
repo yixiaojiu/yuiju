@@ -1,7 +1,9 @@
 import { test, vi } from "vitest";
+import { AgentControl } from "../src/agent-loop/control";
 import { MainAgentLoop } from "../src/agent-loop/main";
 import type { AgentToolContext } from "../src/agent-loop/tools";
 import { Emotion } from "../src/emotion/emotion";
+import { ExtensionRuntime } from "../src/extensions/runtime";
 import { WorldClient } from "../src/world/client";
 import { mainAgentCases } from "./cases/main-agent";
 import { fixture, runEvaluation } from "./fixtures";
@@ -28,7 +30,7 @@ for (const scenario of mainAgentCases) {
         const world = new WorldClient(
           "yuuno",
           async () => {},
-          async () => {},
+          { observe: async () => {}, wake: () => {} },
           { queueAgentEvents: true },
         );
         // 测评仅模拟感受提交，不启动后台情绪处理或唤醒主 loop。
@@ -69,7 +71,18 @@ for (const scenario of mainAgentCases) {
         vi.spyOn(emotion, "submit").mockImplementation(async (id, content, occurredAt) => {
           record("effect", "提交感受（内存，不运行情绪 sub agent）", { id, content, occurredAt });
         });
+        const extensions = new ExtensionRuntime({ agents: new Map(), prompts: [] }, async () => {});
+        const control = new AgentControl(
+          extensions,
+          1,
+          async () => {},
+          async () => {},
+          () => {},
+        );
         const execution: AgentToolContext = {
+          extensions,
+          control,
+          scheduleAttention: () => {},
           characterId: "yuuno",
           world,
           emotion,
@@ -105,19 +118,23 @@ for (const scenario of mainAgentCases) {
         };
         const loop = new MainAgentLoop(execution);
         await loop.initialize();
-        let complete!: (result: { error?: unknown }) => void;
-        const completed = new Promise<{ error?: unknown }>((resolve) => {
-          complete = resolve;
-        });
-        fixture.complete = (error) => complete({ error });
-        const abort = () => complete({ error: signal.reason });
+        let failure: unknown;
+        fixture.complete = (error) => {
+          if (error) {
+            failure = error;
+          }
+        };
+        const abort = () => loop.stop();
         signal.addEventListener("abort", abort, { once: true });
         try {
           signal.throwIfAborted();
-          loop.start();
-          const result = await completed;
-          if (result.error) {
-            throw result.error;
+          await loop.run({
+            events: fixture.events,
+            eventIds: fixture.events.map((event) => event.id),
+            worldEventIds: [],
+          });
+          if (failure) {
+            throw failure;
           }
         } finally {
           signal.removeEventListener("abort", abort);

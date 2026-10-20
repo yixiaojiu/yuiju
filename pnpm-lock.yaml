@@ -50,6 +50,9 @@ importers:
       '@types/mongoose':
         specifier: ^5.11.97
         version: 5.11.97(socks@2.8.7)
+      '@yuiju/shared':
+        specifier: workspace:*
+        version: link:packages/shared
       ai:
         specifier: ^7.0.118
         version: 7.0.118(zod@4.1.13)
@@ -80,6 +83,9 @@ importers:
       node-napcat-ts:
         specifier: ^0.4.23
         version: 0.4.23
+      react:
+        specifier: 'catalog:'
+        version: 19.2.4
       winston:
         specifier: ^3.18.3
         version: 3.18.3
@@ -102,6 +108,9 @@ importers:
       '@types/node':
         specifier: ^24.10.0
         version: 24.10.1
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.14
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
@@ -131,7 +140,7 @@ importers:
         version: 5.1.4(typescript@5.9.3)(vite@7.2.4(@types/node@24.10.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.20.6)(yaml@2.8.3))
       vitepress:
         specifier: ^1.6.4
-        version: 1.6.4(@algolia/client-search@5.51.0)(@types/node@24.10.1)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(search-insights@2.17.3)(typescript@5.9.3)
+        version: 1.6.4(@algolia/client-search@5.51.0)(@types/node@24.10.1)(@types/react@19.2.14)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(react@19.2.4)(search-insights@2.17.3)(typescript@5.9.3)
       vitest:
         specifier: ^4.0.13
         version: 4.0.13(@opentelemetry/api@1.9.1)(@types/node@24.10.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.20.6)(yaml@2.8.3)
@@ -195,7 +204,7 @@ importers:
     devDependencies:
       vitepress:
         specifier: ^1.6.4
-        version: 1.6.4(@algolia/client-search@5.51.0)(@types/node@25.4.0)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(search-insights@2.17.3)(typescript@5.9.3)
+        version: 1.6.4(@algolia/client-search@5.51.0)(@types/node@25.4.0)(@types/react@19.2.14)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(react@19.2.4)(search-insights@2.17.3)(typescript@5.9.3)
 
   apps/world-simulator:
     dependencies:
@@ -4848,9 +4857,9 @@ snapshots:
 
   '@docsearch/css@3.8.2': {}
 
-  '@docsearch/js@3.8.2(@algolia/client-search@5.51.0)(search-insights@2.17.3)':
+  '@docsearch/js@3.8.2(@algolia/client-search@5.51.0)(@types/react@19.2.14)(react@19.2.4)(search-insights@2.17.3)':
     dependencies:
-      '@docsearch/react': 3.8.2(@algolia/client-search@5.51.0)(search-insights@2.17.3)
+      '@docsearch/react': 3.8.2(@algolia/client-search@5.51.0)(@types/react@19.2.14)(react@19.2.4)(search-insights@2.17.3)
       preact: 10.29.1
     transitivePeerDependencies:
       - '@algolia/client-search'
@@ -4859,13 +4868,15 @@ snapshots:
       - react-dom
       - search-insights
 
-  '@docsearch/react@3.8.2(@algolia/client-search@5.51.0)(search-insights@2.17.3)':
+  '@docsearch/react@3.8.2(@algolia/client-search@5.51.0)(@types/react@19.2.14)(react@19.2.4)(search-insights@2.17.3)':
     dependencies:
       '@algolia/autocomplete-core': 1.17.7(@algolia/client-search@5.51.0)(algoliasearch@5.51.0)(search-insights@2.17.3)
       '@algolia/autocomplete-preset-algolia': 1.17.7(@algolia/client-search@5.51.0)(algoliasearch@5.51.0)
       '@docsearch/css': 3.8.2
       algoliasearch: 5.51.0
     optionalDependencies:
+      '@types/react': 19.2.14
+      react: 19.2.4
       search-insights: 2.17.3
     transitivePeerDependencies:
       - '@algolia/client-search'
@@ -8706,10 +8717,10 @@ snapshots:
       tsx: 4.20.6
       yaml: 2.8.3
 
-  vitepress@1.6.4(@algolia/client-search@5.51.0)(@types/node@24.10.1)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(search-insights@2.17.3)(typescript@5.9.3):
+  vitepress@1.6.4(@algolia/client-search@5.51.0)(@types/node@24.10.1)(@types/react@19.2.14)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(react@19.2.4)(search-insights@2.17.3)(typescript@5.9.3):
     dependencies:
       '@docsearch/css': 3.8.2
-      '@docsearch/js': 3.8.2(@algolia/client-search@5.51.0)(search-insights@2.17.3)
+      '@docsearch/js': 3.8.2(@algolia/client-search@5.51.0)(@types/react@19.2.14)(react@19.2.4)(search-insights@2.17.3)
       '@iconify-json/simple-icons': 1.2.79
       '@shikijs/core': 2.5.0
       '@shikijs/transformers': 2.5.0
@@ -8755,10 +8766,10 @@ snapshots:
       - typescript
       - universal-cookie
 
-  vitepress@1.6.4(@algolia/client-search@5.51.0)(@types/node@25.4.0)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(search-insights@2.17.3)(typescript@5.9.3):
+  vitepress@1.6.4(@algolia/client-search@5.51.0)(@types/node@25.4.0)(@types/react@19.2.14)(axios@1.13.6)(lightningcss@1.32.0)(postcss@8.5.28)(react@19.2.4)(search-insights@2.17.3)(typescript@5.9.3):
     dependencies:
       '@docsearch/css': 3.8.2
-      '@docsearch/js': 3.8.2(@algolia/client-search@5.51.0)(search-insights@2.17.3)
+      '@docsearch/js': 3.8.2(@algolia/client-search@5.51.0)(@types/react@19.2.14)(react@19.2.4)(search-insights@2.17.3)
       '@iconify-json/simple-icons': 1.2.79
       '@shikijs/core': 2.5.0
       '@shikijs/transformers': 2.5.0

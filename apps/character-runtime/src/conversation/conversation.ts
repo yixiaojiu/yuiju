@@ -14,6 +14,8 @@ export class Conversation {
   private readonly sessions = new Map<string, ConversationLoop>();
   /** 世界活动许可与人工开关独立；世界通知可能早于会话初始化。 */
   private participationAllowed: boolean | undefined;
+  /** 场景独立控制新轮次，不覆盖世界活动许可与每个群的人工开关。 */
+  private sceneAllowed = true;
   private stopSettingsSubscription: (() => void) | undefined;
   private stopped = false;
 
@@ -81,18 +83,31 @@ export class Conversation {
     await this.connection.stop();
     this.sessions.clear();
     const failures = results.filter((result) => result.status === "rejected");
-    if (failures.length)
+    if (failures.length) {
       throw new AggregateError(
         failures.map((result) => result.reason),
         "群会话停止失败",
       );
+    }
   }
 
   /** 各群独立整理暂停期背景；一个群的模型调用不占用另一个群的执行队列。 */
   async setParticipationAllowed(allowed: boolean): Promise<void> {
     this.participationAllowed = allowed;
     await Promise.all(
-      [...this.sessions.values()].map((session) => session.setParticipationAllowed(allowed)),
+      [...this.sessions.values()].map((session) =>
+        session.setParticipationAllowed(allowed && this.sceneAllowed),
+      ),
+    );
+  }
+
+  /** 进入与退出场景只修改自己的限制，不解除睡眠或用户关闭。 */
+  async setSceneParticipationAllowed(allowed: boolean): Promise<void> {
+    this.sceneAllowed = allowed;
+    await Promise.all(
+      [...this.sessions.values()].map((session) =>
+        session.setParticipationAllowed(allowed && this.participationAllowed === true),
+      ),
     );
   }
 

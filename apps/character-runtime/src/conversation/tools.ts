@@ -99,12 +99,12 @@ export const plannerTools = {
   }),
   recall: tool({
     description:
-      "你可以回忆已经整理的生活经历。每日记忆在零点整理前一天，今天未整理的内容不在其中；久远记忆可能只剩周、月、年概括。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。记忆属于你，表达时结合当前聊天语境。",
+      "你可以回忆已经整理的生活经历；这里不查询人物画像，了解某个人请使用 readPerson。每日记忆在零点整理前一天，今天未整理的内容不在其中；久远记忆可能只剩周、月、年概括。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。搜索未命中只代表没有找到相关经历，不能据此判断你不认识某个人。",
     inputSchema: recallSchema,
   }),
   readPerson: tool({
     description:
-      "你可以读取对这个人的已有认识。同一平台身份跨群共用画像，并联合读取手动关联的其他平台身份。",
+      "你可以按消息中的 sender-id 读取对这个人的已有认识，包括称呼、已知事实、过去互动及关系感受。需要判断是否认识对方、记得对方什么时使用，不按昵称搜索。同一平台身份跨群共用画像，并联合读取手动关联的其他平台身份；没有画像也不代表从未认识。",
     inputSchema: personSchema,
   }),
   updatePersonMemory: tool({
@@ -160,7 +160,6 @@ export type ReplyInput = ReplyTarget & { replyContext?: string };
 
 /** 一轮工具执行使用的会话依赖与进度；由 loop 持有，模型调用失败后仍可判断是否已发送。 */
 export type ConversationToolContext = {
-  canParticipate: () => boolean;
   readCharacter: () => Promise<string>;
   notifyCharacter: (
     description: string,
@@ -201,9 +200,6 @@ export function createPlannerTools(
       ...plannerTools.notifyCharacter,
       async execute({ description, messageIds, relatedEventId }) {
         try {
-          if (!context.canParticipate()) {
-            return "角色已经暂停群聊，不唤醒角色处理这段交流。";
-          }
           if (!relatedEventId && !messageIds.length) {
             return "未投递：独立的群聊信息需要提供来源消息 id；反馈主 loop 事件时请提供 relatedEventId。";
           }

@@ -1,9 +1,12 @@
 import { getRedis } from "@yuiju/shared/database/redis";
+import type { ExtensionSceneResult, ExtensionTaskResult } from "@yuiju/shared/extension/agent";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { ActivityView, WorldEvent } from "@yuiju/shared/world/protocol";
 import type { ConversationScope } from "../conversation/message";
 import type { EmotionResult } from "../emotion/emotion";
-import { characterKey } from "../storage";
+import { recordExperience } from "../memory/experiences";
+import { characterKey, commitCharacterTransaction } from "../storage";
+import { formatWorldEvent } from "../world/tools";
 
 export type CharacterEvent = {
   id: string;
@@ -11,6 +14,8 @@ export type CharacterEvent = {
 } & (
   | { type: "world"; event: WorldEvent }
   | { type: "connected" }
+  | { type: "extension_task_result"; result: ExtensionTaskResult }
+  | { type: "extension_scene_result"; result: ExtensionSceneResult }
   | { type: "emotion_result"; result: EmotionResult }
   | { type: "activity_due"; activityId: string; endsAt: number }
   | { type: "plan_attention"; planId: string; attentionAt: number; revision: number }
@@ -79,6 +84,48 @@ export async function readCharacterEvents(characterId: string) {
   // 同一时间的世界事件保留服务端提交顺序，不要求先收到的事件已经完成决策。
   events.sort((a, b) => a.occurredAt - b.occurredAt);
   return { events, eventIds, worldEventIds: worldRecords.map(({ event }) => event.eventId) };
+}
+
+export type CharacterEventBatch = Awaited<ReturnType<typeof readCharacterEvents>>;
+
+/** 场景只消费自己处理或忽略的宿主事件，main 的专属结果仍留在原收件箱。 */
+export async function consumeCharacterEvents(
+  characterId: string,
+  batch: CharacterEventBatch,
+): Promise<void> {
+  const transaction = (await getRedis()).multi();
+  const key = characterKey(characterId);
+  if (batch.eventIds.length) {
+    transaction.hdel(`${key}:agent:inbox`, ...batch.eventIds);
+  }
+  if (batch.worldEventIds.length) {
+    transaction.hdel(`${key}:world-inbox`, ...batch.worldEventIds);
+  }
+  await commitCharacterTransaction(transaction);
+}
+
+/** 生活经历记录不依赖哪个 agent 掌握控制权，仍只记录完成活动与天气变化。 */
+export async function recordWorldExperiences(
+  characterId: string,
+  events: CharacterEvent[],
+): Promise<void> {
+  for (const event of events) {
+    if (
+      event.type !== "world" ||
+      (event.event.type !== "activity_completed" && event.event.type !== "weather_changed")
+    ) {
+      continue;
+    }
+    await recordExperience(characterId, {
+      id: event.id,
+      occurredAt: event.occurredAt,
+      source: "world",
+      content: await formatWorldEvent(event.event),
+      ...(event.event.type === "activity_completed" && { activity: event.event.activity! }),
+      position: event.event.position,
+      people: [],
+    });
+  }
 }
 
 export type ActivityWait = {

@@ -8,6 +8,8 @@ import { init_logger, logger } from "@yuiju/shared/logger/logger";
 import { initializePrompts } from "@yuiju/shared/prompt/template";
 import { Character } from "./character";
 import { startConversationArchive } from "./conversation/archive";
+import { extensionAgents } from "./extensions/generated";
+import { loadExtensions } from "./extensions/load";
 
 async function main() {
   const { values } = parseArgs({
@@ -33,8 +35,14 @@ async function main() {
     log_dir: join(fileURLToPath(new URL("../logs/", import.meta.url)), characterId),
     level: "info",
   });
-  await initializePrompts();
-  const character = new Character(characterId, config.characters[characterId], mode);
+  const characterConfig = config.characters[characterId];
+  const extensions = await loadExtensions(
+    { id: characterId, name: characterConfig.name },
+    characterConfig.extensions,
+    extensionAgents,
+  );
+  await initializePrompts(extensions.prompts);
+  const character = new Character(characterId, characterConfig, mode, extensions, 30 * 60_000);
   const archive = mode !== "agent" ? startConversationArchive(characterId) : undefined;
   const startup = character.start();
 

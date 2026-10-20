@@ -6,6 +6,7 @@ import { activitiesApi } from "./routes/activities";
 import { analyticsApi } from "./routes/analytics";
 import { charactersApi } from "./routes/characters";
 import { conversationSettingsApi } from "./routes/conversation-settings";
+import { extensionsApi } from "./routes/extensions";
 import { logsApi } from "./routes/logs";
 import { memoriesApi } from "./routes/memories";
 import { worldApi } from "./routes/world";
@@ -25,6 +26,7 @@ app.onError((error, c) => {
   logger.error("Dashboard 请求失败", { path: c.req.path, error });
   return c.json({ error: "请求失败，请检查服务日志" }, 500);
 });
+app.route("/extensions", extensionsApi);
 app.route("/character", charactersApi);
 app.route("/activities", activitiesApi);
 app.route("/analytics", analyticsApi);

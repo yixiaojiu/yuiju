@@ -19,7 +19,8 @@ export const decodeUser = (user: OneBot.AccountInfo): Universal.User => ({
 
 export const decodeGuildMember = (user: OneBot.SenderInfo): Universal.GuildMember => ({
   user: decodeUser(user),
-  name: user.card,
+  // 空群名片表示未设置；省略字段，避免 Session.author 合并时覆盖 QQ 昵称。
+  ...(user.card ? { name: user.card } : {}),
   roles: user.role ? [{ id: user.role, name: user.role }] : [],
 });
 

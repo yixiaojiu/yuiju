@@ -207,7 +207,9 @@ vi.mock("../src/plan/storage", () => ({
     return true;
   },
 }));
-vi.mock("../src/agent-loop/events", () => ({
+vi.mock("../src/agent-loop/events", async (importOriginal) => ({
+  recordWorldExperiences: (await importOriginal<typeof import("../src/agent-loop/events")>())
+    .recordWorldExperiences,
   signalActivityDue: async () => {},
   readActivityWait: async () => null,
   readCharacterEvents: async () => ({

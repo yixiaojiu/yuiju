@@ -78,7 +78,6 @@ for (const scenario of conversationCases) {
               continue;
             }
             const execution: ConversationToolContext = {
-              canParticipate: () => true,
               readCharacter: async () => conversationState,
               notifyCharacter: async (description, messageIds, relatedEventId) => {
                 if (relatedEventId) {

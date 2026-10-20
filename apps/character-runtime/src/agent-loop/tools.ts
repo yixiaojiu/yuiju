@@ -14,6 +14,8 @@ import {
 import { tool } from "ai";
 import { z } from "zod";
 import { describeEmotion, type Emotion } from "../emotion/emotion";
+import type { ExtensionRuntime } from "../extensions/runtime";
+import { createExtensionTools } from "../extensions/tools";
 import { formatPeople, readPeople } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
 import { readSelfCognition } from "../memory/self-cognition";
@@ -28,6 +30,7 @@ import {
 import { readPlans } from "../plan/storage";
 import type { WorldClient } from "../world/client";
 import { formatWorldView } from "../world/tools";
+import type { AgentControl } from "./control";
 import { type AgentAction, appendAgentAction, saveAgentAction } from "./storage";
 
 const feelingSchema = z.strictObject({
@@ -152,20 +155,11 @@ export const agentTools = {
   }),
 };
 
-export const agentToolDescription = JSON.stringify(
-  Object.fromEntries(
-    Object.entries(agentTools).map(([name, definition]) => [
-      name,
-      {
-        description: definition.description,
-        schema: z.toJSONSchema(definition.inputSchema as z.ZodType, { io: "input" }),
-      },
-    ]),
-  ),
-);
-
 export type AgentToolContext = {
   characterId: string;
+  extensions: ExtensionRuntime;
+  control: AgentControl;
+  scheduleAttention: () => void;
   world: WorldClient;
   emotion: Emotion;
   share: (requestId: string, text: string, occurredAt: number) => Promise<string>;
@@ -217,6 +211,7 @@ export function createAgentTools(
   }
 
   return {
+    ...createExtensionTools(context.extensions, context.control, signal),
     inspect_character: tool({
       ...agentTools.inspect_character,
       async execute({ type }) {
@@ -335,6 +330,9 @@ async function executeAgentAction(context: AgentToolContext, call: AgentAction):
     return await context.respondConversation(requestId, input.eventId, input.content, createdAt);
   }
   if (call.name === "execute_action") {
+    if (context.control.phase !== "main") {
+      return "主 agent 当前没有行动决策权，不能提交世界行动。";
+    }
     let result: WorldResult<ExecuteActionResult>;
     try {
       result = await world.execute(executeActionSchema.parse(call.input), requestId);
@@ -379,5 +377,6 @@ async function executeAgentAction(context: AgentToolContext, call: AgentAction):
     return `计划未保存：${error instanceof Error ? error.message : String(error)}`;
   }
   const plan = await savePlan(characterId, id, fields, requestId, call.name === "create_plan");
+  context.scheduleAttention();
   return await formatPlans([plan]);
 }

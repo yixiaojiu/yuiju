@@ -19,6 +19,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Puzzle,
   ScrollText,
   Settings,
 } from "lucide-react";
@@ -48,19 +49,24 @@ const menuItems: MenuItem[] = [
 function MenuLinks({
   pathname,
   publicDeployment,
+  extensionLinks,
   collapsed = false,
   onNavigate,
   onExpand,
 }: {
   pathname: string;
   publicDeployment: boolean;
+  extensionLinks: { label: string; href: string }[];
   collapsed?: boolean;
   onNavigate?: () => void;
   onExpand?: () => void;
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
-  return menuItems
+  const items: MenuItem[] = extensionLinks.length
+    ? [...menuItems, { label: "扩展", icon: Puzzle, children: extensionLinks }]
+    : menuItems;
+  return items
     .filter((item) => !publicDeployment || !item.privateOnly)
     .map((item) => {
       const Icon = item.icon;
@@ -157,9 +163,11 @@ function MenuLinks({
 export function DashboardNavigation({
   children,
   publicDeployment,
+  extensionLinks,
 }: {
   children: ReactNode;
   publicDeployment: boolean;
+  extensionLinks: { label: string; href: string }[];
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -197,6 +205,7 @@ export function DashboardNavigation({
           <nav aria-label="移动端主导航" className="grid gap-1.5 overflow-y-auto p-3">
             <MenuLinks
               publicDeployment={publicDeployment}
+              extensionLinks={extensionLinks}
               key={pathname}
               pathname={pathname}
               onNavigate={() => setDrawerOpen(false)}
@@ -240,6 +249,7 @@ export function DashboardNavigation({
         >
           <MenuLinks
             publicDeployment={publicDeployment}
+            extensionLinks={extensionLinks}
             key={pathname}
             pathname={pathname}
             collapsed={collapsed}

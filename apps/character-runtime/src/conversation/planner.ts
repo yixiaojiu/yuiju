@@ -107,9 +107,6 @@ export class Planner {
         maxRetries: 0,
         stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
         prepareStep: async () => {
-          if (!execution.canParticipate()) {
-            throw new Error("角色已暂停群聊，结束当前聊天思考");
-          }
           if (stepSaveError) throw stepSaveError;
           // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
           const previousSummary = this.context.summary;

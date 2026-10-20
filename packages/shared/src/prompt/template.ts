@@ -12,12 +12,28 @@ export type PromptTemplate = {
 
 let prompts = new Map<string, PromptTemplate>();
 
-/** 启动时加载默认模板；data/prompt 中的 .txt、.md 文件去掉扩展名后覆盖或新增 key。 */
-export async function initializePrompts(): Promise<void> {
+/** 汇集 shared 和启用扩展的默认模板，再由 data/prompt 的 .txt、.md 覆盖或新增。 */
+export async function initializePrompts(
+  extensionPrompts: readonly PromptTemplate[] = [],
+): Promise<void> {
   const loaded = new Map<string, PromptTemplate>();
   for (const definition of promptDefinitions) {
     if (loaded.has(definition.key)) {
       throw new Error(`提示词重复注册：${definition.key}`);
+    }
+    loaded.set(definition.key, definition);
+  }
+
+  for (const definition of extensionPrompts) {
+    const previous = loaded.get(definition.key);
+    if (previous) {
+      if (
+        previous.template !== definition.template ||
+        previous.description !== definition.description
+      ) {
+        throw new Error(`提示词定义冲突：${definition.key}`);
+      }
+      continue;
     }
     loaded.set(definition.key, definition);
   }

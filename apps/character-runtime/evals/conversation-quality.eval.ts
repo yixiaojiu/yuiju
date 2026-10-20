@@ -135,7 +135,6 @@ for (const scenario of [
             waitedSeconds,
           });
           const execution: ConversationToolContext = {
-            canParticipate: () => true,
             readCharacter: async () => scenario.characterState,
             notifyCharacter: async (description, messageIds, relatedEventId) => {
               if (relatedEventId && !receivedEvents.some((event) => event.id === relatedEventId)) {

@@ -3,12 +3,15 @@ import type { Config } from "@yuiju/shared/config/schema";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { ActivityView } from "@yuiju/shared/world/protocol";
+import { AgentControl } from "./agent-loop/control";
 import { receiveCharacterEvent, trackWorldActivity } from "./agent-loop/events";
-import { MainAgentLoop } from "./agent-loop/main";
+import { AgentRuntime } from "./agent-loop/runtime";
 import { readCommunicationSource, saveCommunicationSource } from "./communication";
 import { Conversation } from "./conversation/conversation";
 import type { ConversationScope } from "./conversation/message";
 import { describeEmotion, Emotion } from "./emotion/emotion";
+import type { LoadedExtensions } from "./extensions/load";
+import { ExtensionRuntime } from "./extensions/runtime";
 import { DailyMemory } from "./memory/daily";
 import { characterKey } from "./storage";
 import { startCharacterSync } from "./sync";
@@ -23,7 +26,9 @@ export class Character {
   readonly nicknames: readonly string[];
   readonly world: WorldClient;
   private readonly conversation: Conversation | undefined;
-  private readonly agent: MainAgentLoop | undefined;
+  private readonly agent: AgentRuntime | undefined;
+  private readonly extensions: ExtensionRuntime | undefined;
+  private readonly control: AgentControl | undefined;
   readonly emotion: Emotion;
   private readonly memory: DailyMemory;
   private stopSync: (() => Promise<void>) | undefined;
@@ -32,6 +37,8 @@ export class Character {
     readonly id: string,
     config: CharacterConfig,
     private readonly mode: CharacterMode,
+    loadedExtensions: LoadedExtensions,
+    sceneEntryTimeoutMs: number,
   ) {
     this.name = config.name;
     this.emotion = new Emotion(id, () => this.agent?.wake());
@@ -40,8 +47,8 @@ export class Character {
     this.world = new WorldClient(
       id,
       async (current) => {
+        await this.observeActivity(current.activity);
         if (!this.agent) {
-          await this.observeActivity(current.activity);
           return;
         }
         await receiveCharacterEvent(id, {
@@ -51,16 +58,17 @@ export class Character {
         });
         this.agent.wake();
       },
-      async () => {
-        if (this.agent) {
-          this.agent.wake();
-        } else {
-          // 重发的通知可能属于旧活动，始终查询世界当前状态。
-          const error = await this.syncWorldActivity();
-          if (error !== null) {
-            throw new Error(error);
+      {
+        observe: async (event) => {
+          if (event.type !== "weather_changed") {
+            // 即使 main 暂停也同步当前活动，不能用迟到的事件快照覆盖现状。
+            const error = await this.syncWorldActivity();
+            if (error !== null) {
+              throw new Error(error);
+            }
           }
-        }
+        },
+        wake: () => this.agent?.wake(),
       },
       { queueAgentEvents: mode !== "conversation" },
     );
@@ -70,7 +78,33 @@ export class Character {
     if (mode === "conversation") {
       return;
     }
-    this.agent = new MainAgentLoop({
+    this.extensions = new ExtensionRuntime(loadedExtensions, async (result) => {
+      await receiveCharacterEvent(id, {
+        id: randomUUID(),
+        occurredAt: Date.now(),
+        type: "extension_task_result",
+        result,
+      });
+      this.agent?.wake();
+    });
+    this.control = new AgentControl(
+      this.extensions,
+      sceneEntryTimeoutMs,
+      async (paused) => await this.conversation?.setSceneParticipationAllowed(!paused),
+      async (result) => {
+        await receiveCharacterEvent(id, {
+          id: randomUUID(),
+          occurredAt: Date.now(),
+          type: "extension_scene_result",
+          result,
+        });
+      },
+      () => this.agent?.wake(),
+    );
+    this.agent = new AgentRuntime({
+      extensions: this.extensions,
+      control: this.control,
+      scheduleAttention: () => this.agent?.scheduleAttention(),
       characterId: id,
       world: this.world,
       emotion: this.emotion,
@@ -115,6 +149,7 @@ export class Character {
   }
 
   async start() {
+    this.extensions?.initialize();
     await this.memory.initialize();
     await this.emotion.initialize();
     this.stopSync = await startCharacterSync(this.id, this.emotion);
@@ -168,6 +203,7 @@ export class Character {
   private async observeActivity(activity: ActivityView | null): Promise<void> {
     if (this.agent) {
       await trackWorldActivity(this.id, activity);
+      this.agent.scheduleAttention();
     }
     await (await getRedis()).set(
       `${characterKey(this.id)}:observed-activity`,
@@ -230,15 +266,25 @@ export class Character {
     return `已投递给主 loop，事件 ID：${eventId}。尚不代表已作出决定。`;
   }
 
+  /** 扩展接入层提交自定义场景事件；当前阶段不提供网络路由。 */
+  receiveSceneEvent(sessionId: string, input: unknown): void {
+    if (!this.control) {
+      throw new Error("当前模式未启用场景 agent");
+    }
+    this.control.receiveEvent(sessionId, input);
+  }
+
   async stop() {
-    await this.agent?.stop();
-    const results = await Promise.allSettled([
-      this.conversation?.stop(),
-      this.world.stop(),
-      this.emotion.stop(),
-      this.memory.stop(),
-      this.stopSync?.(),
-    ]);
+    const results = await Promise.allSettled([this.agent?.stop()]);
+    results.push(
+      ...(await Promise.allSettled([
+        this.conversation?.stop(),
+        this.world.stop(),
+        this.emotion.stop(),
+        this.memory.stop(),
+        this.stopSync?.(),
+      ])),
+    );
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length) {
       throw new AggregateError(

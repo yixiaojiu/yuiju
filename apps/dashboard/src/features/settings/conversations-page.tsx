@@ -19,7 +19,6 @@ export function ConversationsPage() {
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">会话设置</h1>
-      <p className="text-sm text-muted-foreground">关闭后继续接收消息，不回复或主动分享。</p>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
