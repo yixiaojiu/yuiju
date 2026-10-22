@@ -230,15 +230,14 @@ export async function nextPlanAttention(characterId: string): Promise<number | n
   return times.length ? Math.min(...times) : null;
 }
 
-/** 仅由每日任务清理；维护提醒至少保留 24 小时，结束记录保留 30 天。 */
+/** 每日任务直接清理已结束计划；未结束的计划在维护提醒发出 24 小时后清理。 */
 export async function cleanupPlans(characterId: string, now: number): Promise<number> {
   let removed = 0;
   for (const plan of await readPlans(characterId)) {
     const ended = plan.status === "completed" || plan.status === "cancelled";
-    const expired = ended
-      ? plan.updatedAt < now - 30 * 86_400_000
-      : plan.reviewRequestedAt !== undefined && plan.reviewRequestedAt <= now - 86_400_000;
-    if (!expired) {
+    const shouldRemove =
+      ended || (plan.reviewRequestedAt !== undefined && plan.reviewRequestedAt <= now - 86_400_000);
+    if (!shouldRemove) {
       continue;
     }
     if (await deletePlan(characterId, plan)) {

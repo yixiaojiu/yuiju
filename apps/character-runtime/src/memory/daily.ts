@@ -77,7 +77,7 @@ export class DailyMemory {
       try {
         const removed = await cleanupPlans(this.characterId, Date.now());
         if (removed) {
-          logger.info("已清理无人处理或过期的计划", { count: removed });
+          logger.info("已清理结束或提醒后未处理的计划", { count: removed });
         }
       } catch (error) {
         if (this.stopping.signal.aborted) {
