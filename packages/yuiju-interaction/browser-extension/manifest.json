@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "minimum_chrome_version": "118",
+  "name": "Yuiju Interaction",
+  "version": "0.1.0",
+  "description": "将你选择的标签页连接到角色的互动节目。",
+  "permissions": ["debugger", "activeTab", "storage"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html" }
+}

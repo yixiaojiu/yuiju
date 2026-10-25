@@ -37,6 +37,8 @@ export function activityView(activity: RunningActivity): ActivityView {
     actionId: activity.actionId,
     startedAt: activity.startedAt,
     endsAt: activity.endsAt,
+    ...(activity.pause && { pause: activity.pause }),
+    ...(activity.resumedAt !== undefined && { resumedAt: activity.resumedAt }),
   };
 }
 
@@ -105,7 +107,11 @@ export function actionConditions(
   const conditions: ConditionView[] = [
     {
       description: "当前没有其他进行中的活动",
-      status: context.character.currentActivity?.actionId === "空闲发呆" ? "met" : "unmet",
+      status:
+        context.character.currentActivity?.actionId === "空闲发呆" &&
+        !context.character.currentActivity.pause
+          ? "met"
+          : "unmet",
     },
   ];
   const placeIds = getActionPlaceIds(action, context);
@@ -400,6 +406,7 @@ export function inspectWorld(
     value: {
       type: "current",
       now: context.now,
+      home: placeRef(context.map.placesById.get(getHomePlaceIds(character.characterId).homeId)!),
       position: positionView(character, context.map),
       activity: character.currentActivity ? activityView(character.currentActivity) : null,
       body: { stamina: character.stamina, satiety: character.satiety },

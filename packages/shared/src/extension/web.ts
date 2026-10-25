@@ -11,6 +11,8 @@ export type ExtensionWebDefinition = {
     id: string;
     title: string;
     access: "public" | "private";
+    /** standalone 使用独立透明页面，不渲染后台导航，也不加入菜单；省略时使用后台布局。 */
+    layout?: "standalone";
     component: ComponentType<ExtensionPageProps>;
   }[];
 };

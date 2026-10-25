@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { logger } from "@yuiju/shared/logger/logger";
 import type {
+  ActivityControlInput,
+  ActivityView,
   ExecuteActionInput,
   ExecuteActionResult,
   InspectWorldInput,
@@ -271,6 +273,81 @@ export class World {
     return response;
   }
 
+  /** 只改变当前活动的计时，不重跑 start/complete，也不改动付款、库存和移动位置。 */
+  async controlActivity(
+    characterId: string,
+    input: ActivityControlInput,
+  ): Promise<WorldResult<ActivityView>> {
+    return await this.enqueueStateChange(async () => {
+      await this.restoreAfterFailedCommit();
+      if (!this.committedState!.characters[characterId]) {
+        return { ok: false, code: "character_not_found", message: "角色尚未加入世界" };
+      }
+      const now = Date.now();
+      await this.advanceWorldTo(now);
+      const draft = structuredClone(this.committedState!);
+      const character = draft.characters[characterId];
+      const activity = character.currentActivity!;
+      if (input.type === "pause") {
+        if (activity.actionId === "睡觉" || activity.actionId === "再睡一会") {
+          return {
+            ok: false,
+            code: "conditions_not_met",
+            message: "角色正在睡觉，不能暂停睡眠进入场景",
+          };
+        }
+        if (activity.pause?.sessionId === input.sessionId) {
+          return { ok: true, value: activityView(activity) };
+        }
+        if (
+          activity.pause ||
+          activity.activityId !== input.activityId ||
+          (activity.endsAt !== null && activity.endsAt <= now)
+        ) {
+          return {
+            ok: false,
+            code: "conditions_not_met",
+            message: "活动已变化、正在结算或已被其他场景占用，请重新确认后再进入",
+          };
+        }
+        activity.pause = {
+          sessionId: input.sessionId,
+          pausedAt: now,
+          remainingMs: activity.endsAt === null ? null : activity.endsAt - now,
+        };
+      } else {
+        // 同一场景的恢复可重复确认，不重复推迟结束时间。
+        if (!activity.pause) {
+          return { ok: true, value: activityView(activity) };
+        }
+        if (activity.pause.sessionId !== input.sessionId) {
+          return { ok: false, code: "request_conflict", message: "当前活动由其他场景暂停" };
+        }
+        activity.endsAt =
+          activity.pause.remainingMs === null ? null : now + activity.pause.remainingMs;
+        activity.resumedAt = now;
+        if (activity.actionId === "空闲发呆") {
+          activity.lastReminderAt = now;
+        }
+        delete activity.pause;
+      }
+      const event: WorldEvent = {
+        eventId: randomUUID(),
+        occurredAt: now,
+        characterId,
+        type: input.type === "pause" ? "activity_paused" : "activity_resumed",
+        description:
+          input.type === "pause"
+            ? `进入场景，暂停${activity.actionId}`
+            : `场景结束，继续${activity.actionId}`,
+        activity: activityView(activity),
+        position: positionView(character, this.map),
+      };
+      await this.commitStateAndFacts(draft, [], undefined, [event]);
+      return { ok: true, value: activityView(activity) };
+    });
+  }
+
   /** 持续驱动世界推进；一轮结束后等待 1 秒，不叠加 tick。 */
   private async runWorldLoop(): Promise<void> {
     const signal = this.stopController.signal;
@@ -301,6 +378,7 @@ export class World {
           (character) =>
             character.currentActivity !== null &&
             character.currentActivity.endsAt !== null &&
+            !character.currentActivity.pause &&
             !this.activityCompletionTasks.has(character.currentActivity.activityId),
         )
         .sort((a, b) =>
@@ -373,7 +451,7 @@ export class World {
       if (stepTime === targetTime) {
         for (const character of Object.values(draftState.characters)) {
           const activity = character.currentActivity!;
-          if (activity.actionId !== "空闲发呆") {
+          if (activity.actionId !== "空闲发呆" || activity.pause) {
             continue;
           }
           const lastAttentionAt = activity.lastReminderAt ?? activity.startedAt;
@@ -535,7 +613,8 @@ export class World {
       }
     }
     for (const event of notifications) {
-      logger.info("角色空闲提醒已提交", {
+      logger.info("角色世界通知已提交", {
+        type: event.type,
         characterId: event.characterId,
         eventId: event.eventId,
         activityId: event.activity?.activityId,

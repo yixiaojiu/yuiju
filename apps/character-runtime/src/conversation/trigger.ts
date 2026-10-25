@@ -34,21 +34,42 @@ export function isDirectedMessage(message: ConversationMessage, selfId: string, 
 export function evaluateTrigger(input: {
   pending: ConversationMessage[];
   history: ConversationMessage[];
-  directed: boolean;
+  selfId: string;
+  names: string[];
+  botIds: readonly string[];
   nextEligibleAt: number;
   now: number;
 }) {
-  const { pending, history, now } = input;
-  // 被直接呼叫，或刚发言后的 15 秒内继续交流，不受评分和沉默退避限制。
+  const { history, now, botIds } = input;
+  // 混合输入按普通用户的消息独立判断；bot 仍保留在交给模型的完整上下文中。
+  const userMessages = input.pending.filter((message) => !botIds.includes(message.senderId));
+  const pending = userMessages.length ? userMessages : input.pending;
+  const botOnly = pending.length > 0 && userMessages.length === 0;
+  const directed = pending.some((message) => isDirectedMessage(message, input.selfId, input.names));
+  const threshold = botOnly ? 100 : 80;
+  const triggerDetails = {
+    threshold,
+    botOnly,
+    scoredMessageCount: pending.length,
+    /** 只有普通用户直接呼叫可以提前结束 Planner 的主动等待。 */
+    interruptsWait: !botOnly && directed,
+  };
+  // bot 不走直接呼叫和发言后 15 秒的快速通道，避免双方持续接话刷新放行窗口。
   const latestSelf = [...history]
     .reverse()
     .find((message) => message.isSelf && message.kind === "message");
-  if (input.directed || (latestSelf && now - latestSelf.timestamp <= 15_000)) {
+  if (
+    !botOnly &&
+    pending.length > 0 &&
+    (directed || (latestSelf && now - latestSelf.timestamp <= 15_000))
+  ) {
     return {
+      ...triggerDetails,
       shouldRun: true,
       shouldRecheck: false,
       score: 0,
-      reason: input.directed ? "被直接呼叫" : "继续刚才的交流",
+      scoreDetails: undefined,
+      reason: directed ? "被直接呼叫" : "继续刚才的交流",
     };
   }
 
@@ -98,7 +119,10 @@ export function evaluateTrigger(input: {
 
   // 近五分钟发言占比超过 25% 后逐渐扣分，达到 60% 时扣满 25 分，避免持续抢话。
   const recent = history.filter(
-    (message) => message.kind === "message" && now - message.timestamp <= 300_000,
+    (message) =>
+      message.kind === "message" &&
+      now - message.timestamp <= 300_000 &&
+      (botOnly || message.isSelf || !botIds.includes(message.senderId)),
   );
   const selfMessageRatio = recent.length
     ? recent.filter((message) => message.isSelf).length / recent.length
@@ -110,14 +134,16 @@ export function evaluateTrigger(input: {
     penalty = Math.round(((selfMessageRatio - 0.25) / 0.35) * 25);
   }
 
-  // 六条积压解除退避，但仍需达到 80 分；等待加分封顶且退避结束后无需继续空转复查。
-  const score = contentScore + pressure + ageBonus - penalty;
+  // bot 的直接呼叫只加分；六条参与评分的消息可解除退避，但仍需达到对应阈值。
+  const directedBonus = botOnly && directed ? 20 : 0;
+  const score = contentScore + pressure + ageBonus + directedBonus - penalty;
   const eligible = pending.length >= 6 || now >= input.nextEligibleAt;
   return {
-    shouldRun: eligible && score >= 80,
+    ...triggerDetails,
+    shouldRun: eligible && score >= threshold,
     shouldRecheck: pending.length > 0 && (ageBonus < 30 || !eligible),
     score,
-    scoreDetails: { contentScore, pressure, ageBonus, penalty },
-    reason: !eligible ? "沉默冷却中" : score >= 80 ? "触发评分达标" : "触发评分不足",
+    scoreDetails: { contentScore, pressure, ageBonus, directedBonus, penalty },
+    reason: !eligible ? "沉默冷却中" : score >= threshold ? "触发评分达标" : "触发评分不足",
   };
 }

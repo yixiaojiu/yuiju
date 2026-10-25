@@ -3,21 +3,27 @@ import type {
   ExtensionContext,
   ExtensionSceneResult,
   SceneAgentDefinition,
-  SceneEvent,
+  SceneExecution,
   SceneInstance,
 } from "@yuiju/shared/extension/agent";
+import type { SceneStatus } from "@yuiju/shared/extension/scene-requests";
 import { logger } from "@yuiju/shared/logger/logger";
+import type { ActivityView, CurrentWorldView } from "@yuiju/shared/world/protocol";
 import { type ExtensionRuntime, waitForExecution } from "../extensions/runtime";
+import type { WorldClient } from "../world/client";
 
 type SceneSession = {
   id: string;
   agentId: string;
-  definition: SceneAgentDefinition<unknown>;
-  context: ExtensionContext<unknown>;
+  definition: SceneAgentDefinition;
+  context: ExtensionContext;
   entryContext?: string;
+  source: "main" | "user";
+  ready: boolean;
+  /** 发出暂停请求即记录；响应丢失时仍需要向世界确认恢复。 */
+  pauseAttempted: boolean;
   cancellation: AbortController;
   instance?: SceneInstance;
-  events: SceneEvent[];
   closing?: Promise<void>;
 };
 
@@ -28,12 +34,14 @@ type ControlState =
 /** 只管理一个角色的控制权；进入意图在完整主 agent 步骤结束后才转为等待。 */
 export class AgentControl {
   private state: ControlState = { type: "main" };
-  private entryTask: Promise<void> | undefined;
+  private lifecycleTask: Promise<void> | undefined;
   private stopped = false;
 
   constructor(
     private readonly extensions: ExtensionRuntime,
     private readonly entryTimeoutMs: number,
+    private readonly world: WorldClient,
+    private readonly observeActivity: (activity: ActivityView) => Promise<void>,
     private readonly changeConversationPause: (paused: boolean) => Promise<void>,
     private readonly publishResult: (result: ExtensionSceneResult) => Promise<void>,
     private readonly wake: () => void,
@@ -47,8 +55,29 @@ export class AgentControl {
     return this.state.type === "main" && this.state.requested !== undefined;
   }
 
-  /** 请求只登记意图；同一步仍在执行的其他工具可以正常完成。 */
-  requestEntry(agentId: string, context?: string) {
+  /** 模型只能走带条件检查的入口，不能指定用户来源。 */
+  async requestEntry(agentId: string, context?: string) {
+    const loaded = this.extensions.loaded.agents.get(agentId);
+    if (!loaded || loaded.definition.type !== "scene") {
+      throw new Error(`未启用的场景 agent：${agentId}`);
+    }
+    const current = await this.inspectAwakeWorld();
+    const reason = loaded.definition.checkEntry?.(current);
+    if (reason) {
+      throw new Error(reason);
+    }
+    return this.registerEntry(agentId, "main", context);
+  }
+
+  /** 用户可以跳过扩展的地点条件，但不能打断睡眠；仍等待当前主步骤结束。 */
+  async requestUserEntry(agentId: string, context?: string): Promise<SceneStatus> {
+    await this.inspectAwakeWorld();
+    const result = this.registerEntry(agentId, "user", context);
+    this.wake();
+    return result;
+  }
+
+  private registerEntry(agentId: string, source: "main" | "user", context?: string): SceneStatus {
     if (this.stopped || this.state.type !== "main" || this.state.requested) {
       throw new Error("当前已有场景准备或执行中，不能重复申请进入");
     }
@@ -62,15 +91,42 @@ export class AgentControl {
       definition: loaded.definition,
       context: loaded.context,
       entryContext: context,
+      source,
+      ready: false,
+      pauseAttempted: false,
       cancellation: new AbortController(),
-      events: [],
     };
     this.state.requested = session;
+    return this.readStatus(agentId, session.id);
+  }
+
+  readStatus(agentId: string, sessionId: string): SceneStatus {
+    const session = this.state.type === "main" ? this.state.requested : this.state.session;
+    if (!session || session.id !== sessionId || session.agentId !== agentId) {
+      throw new Error("场景会话不存在或已结束");
+    }
     return {
-      status: "waiting_entry",
-      sessionId: session.id,
-      message: "已登记准备请求，完成当前步骤后等待扩展确认用户进入。",
+      sessionId,
+      agentId,
+      phase: this.state.type === "main" ? "requested" : this.state.type,
+      ready: this.state.type === "waiting_entry" && session.ready,
     };
+  }
+
+  /** 睡眠属于角色宿主的统一限制，不由扩展或请求来源决定。 */
+  private async inspectAwakeWorld(): Promise<CurrentWorldView> {
+    const result = await this.world.inspect({ type: "current" });
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    if (result.value.type !== "current") {
+      throw new Error("世界 current 查询返回了其他类型");
+    }
+    const activity = result.value.activity;
+    if (activity?.actionId === "睡觉" || activity?.actionId === "再睡一会") {
+      throw new Error("角色正在睡觉，醒来后才能进入场景。");
+    }
+    return result.value;
   }
 
   /** 主轮次已保存完整工具结果后调用；等待用户的 Promise 不占用事件调度。 */
@@ -80,21 +136,21 @@ export class AgentControl {
     }
     const session = this.state.requested;
     this.state = { type: "waiting_entry", session };
-    this.entryTask = this.waitForEntry(session);
+    this.lifecycleTask = this.runSession(session);
   }
 
-  private async waitForEntry(session: SceneSession): Promise<void> {
+  private async runSession(session: SceneSession): Promise<void> {
     const { signal } = session.cancellation;
     const timer = setTimeout(
       () => session.cancellation.abort(new Error("等待用户进入场景超时")),
       this.entryTimeoutMs,
     );
+    let entered = false;
     try {
       session.instance = session.definition.create(session.context);
-      await this.changeConversationPause(session.definition.pauseConversation === true);
       signal.throwIfAborted();
       const result = await waitForExecution(
-        session.instance.waitForEntry(session.entryContext, { sessionId: session.id, signal }),
+        session.instance.waitForEntry(session.entryContext, this.execution(session, signal)),
         signal,
       );
       signal.throwIfAborted();
@@ -102,86 +158,66 @@ export class AgentControl {
         await this.finish(session, { status: "failed", reason: result.reason });
         return;
       }
-      this.state = { type: "scene", session };
-      session.events.push({
-        id: randomUUID(),
-        occurredAt: Date.now(),
-        type: "scene_entered",
-        payload: { context: session.entryContext },
+      // 等待用户期间世界仍在运行；正式交接重新查询，按活动 ID 原子暂停。
+      const current = await this.inspectAwakeWorld();
+      signal.throwIfAborted();
+      if (session.source === "main") {
+        const reason = session.definition.checkEntry?.(current);
+        if (reason) {
+          throw new Error(reason);
+        }
+      }
+      if (!current.activity) {
+        throw new Error("世界尚未提供当前活动，不能交接场景");
+      }
+      await this.changeConversationPause(session.definition.pauseConversation === true);
+      signal.throwIfAborted();
+      session.pauseAttempted = true;
+      const activity = await this.world.controlActivity({
+        type: "pause",
+        sessionId: session.id,
+        activityId: current.activity.activityId,
       });
-      this.wake();
+      await this.observeActivity(activity);
+      signal.throwIfAborted();
+      this.state = { type: "scene", session };
+      entered = true;
+      clearTimeout(timer);
+      // 扩展拥有完整 loop；这里一直等待到场景退出，不参与其事件与轮次调度。
+      const outcome = await session.instance.run(this.execution(session, signal));
+      await this.finish(session, { status: "ended", ...outcome });
     } catch (error) {
+      if (entered && !this.stopped) {
+        logger.error("扩展场景执行失败，结束场景", { agent: session.agentId, error });
+      }
       await this.finish(session, {
-        status: "failed",
+        status: entered ? "ended" : "failed",
         reason: error instanceof Error ? error.message : String(error),
       });
     } finally {
       clearTimeout(timer);
-      this.entryTask = undefined;
+      this.lifecycleTask = undefined;
     }
   }
 
   /** 主步骤失败时撤销尚未开始的准备，避免工具结果不完整却转移控制权。 */
   async rejectRequestedEntry(reason: string): Promise<void> {
-    if (this.state.type === "main" && this.state.requested) {
+    if (this.state.type === "main" && this.state.requested?.source === "main") {
       await this.finish(this.state.requested, { status: "failed", reason });
     }
   }
 
-  /** 本期只提供程序入口；页面或其他进程如何调用由后续接入层负责。 */
-  receiveEvent(sessionId: string, input: unknown): void {
-    if (this.state.type !== "scene" || this.state.session.id !== sessionId) {
-      throw new Error("场景会话不存在或已结束");
-    }
-    const session = this.state.session;
-    if (!session.definition.eventSchema) {
-      throw new Error("该场景没有声明自定义事件");
-    }
-    const payload = session.definition.eventSchema.parse(input);
-    session.events.push({ id: randomUUID(), occurredAt: Date.now(), type: "extension", payload });
-    this.wake();
-  }
-
-  /** 只收窄模型输入；世界连接与活动同步不受此列表影响。 */
-  acceptsWorldEvent(type: Extract<SceneEvent, { type: "world" }>["payload"]["type"]): boolean {
-    return (
-      this.state.type === "scene" &&
-      this.state.session.definition.worldEvents?.includes(type) === true
-    );
-  }
-
-  async runScene(events: SceneEvent[]): Promise<boolean> {
-    if (this.state.type !== "scene") {
-      throw new Error("当前没有掌握控制权的场景");
-    }
-    const session = this.state.session;
-    const batch = [...session.events.splice(0), ...events];
-    if (!batch.length) {
-      return false;
-    }
-    const signal = session.cancellation.signal;
-    try {
-      signal.throwIfAborted();
-      const result = await waitForExecution(
-        session.instance!.handleEvents(batch, { sessionId: session.id, signal }),
-        signal,
-      );
-      signal.throwIfAborted();
-      if (result.status === "exit") {
-        await this.finish(session, {
-          status: "ended",
-          reason: result.reason,
-          context: result.context,
-        });
-      }
-    } catch (error) {
-      logger.error("扩展场景执行失败，结束场景", { agent: session.agentId, error });
-      await this.finish(session, {
-        status: "ended",
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return true;
+  /** 连接在进入阶段建立，回调始终绑定该会话，不能影响后来创建的场景。 */
+  private execution(session: SceneSession, signal: AbortSignal): SceneExecution {
+    return {
+      sessionId: session.id,
+      signal,
+      ready: () => {
+        if (this.state.type === "waiting_entry" && this.state.session === session) {
+          session.ready = true;
+        }
+      },
+    };
   }
 
   /** 多个结束来源共享一次清理；不会释放两次实例或重复投递结束事件。 */
@@ -203,6 +239,19 @@ export class AgentControl {
       await session.instance?.dispose();
     } catch (error) {
       logger.error("扩展场景资源释放失败", { agent: session.agentId, error });
+    }
+    if (session.pauseAttempted) {
+      try {
+        const activity = await this.world.controlActivity({
+          type: "resume",
+          sessionId: session.id,
+        });
+        await this.observeActivity(activity);
+      } catch (error) {
+        // 保持 exiting，不能在世界仍暂停时恢复 main。重启时由角色恢复遗留暂停。
+        logger.error("场景退出后活动恢复失败，停止交接，不再重试", { error });
+        return;
+      }
     }
     try {
       if (!this.stopped) {
@@ -229,11 +278,12 @@ export class AgentControl {
     const session = this.state.type === "main" ? this.state.requested : this.state.session;
     if (session) {
       session.cancellation.abort(new Error("角色停止"));
+      // 先等扩展停止在途操作，再释放资源和恢复世界活动。
+      await this.lifecycleTask;
       await this.finish(session, {
         status: this.state.type === "waiting_entry" ? "failed" : "ended",
         reason: "角色停止",
       });
     }
-    await this.entryTask;
   }
 }

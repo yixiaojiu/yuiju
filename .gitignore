@@ -169,3 +169,6 @@ packages/source/aigc/pixel/generate/
 /apps/dashboard/src/extensions/generated-api.ts
 /apps/dashboard/src/extensions/generated-pages.ts
 /apps/dashboard/src/extensions/generated-sources.css
+/apps/dashboard/public/extensions/
+/packages/yuiju-interaction/public/live2dcubismcore.min.js
+packages/yuiju-interaction/public/live2dcubismcore.min.js

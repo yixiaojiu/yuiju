@@ -8,10 +8,12 @@ export const dynamic = "force-dynamic";
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const { publicDeployment } = await getDeployment();
   const pages = await getExtensionPages();
-  const extensionLinks = pages.map((page) => ({
-    label: `${page.title} · ${page.character.name}`,
-    href: page.href,
-  }));
+  const extensionLinks = pages
+    .filter((page) => !page.standalone)
+    .map((page) => ({
+      label: `${page.title} · ${page.character.name}`,
+      href: page.href,
+    }));
   return (
     <DashboardNavigation publicDeployment={publicDeployment} extensionLinks={extensionLinks}>
       {children}

@@ -9,6 +9,8 @@ type AnalyticsEvent = {
 };
 
 let collectionTask: Promise<mongo.Collection<AnalyticsEvent>> | undefined;
+/** 只跟踪当前进程中的写入，用于正常退出时等待，不保存或重试失败事件。 */
+const pendingReports = new Set<Promise<void>>();
 
 async function initializeCollection(): Promise<mongo.Collection<AnalyticsEvent>> {
   const collection = (await getMongoDatabase()).collection<AnalyticsEvent>(
@@ -23,11 +25,26 @@ async function initializeCollection(): Promise<mongo.Collection<AnalyticsEvent>>
 
 /**
  * 调用处直接异步上报，不等待写入；写入失败只输出到控制台，不改变业务结果。
- * 不做可靠投递，进程退出可能丢失在途埋点；事件按发生时间保留 30 天。
+ * 不做可靠投递；正常退出可等待在途写入，强制退出仍可能丢失。事件保留 30 天。
  */
 export async function reportAnalyticsEvent(
   input: Omit<AnalyticsEvent, "eventTime">,
 ): Promise<void> {
+  const writing = writeAnalyticsEvent(input);
+  pendingReports.add(writing);
+  try {
+    await writing;
+  } finally {
+    pendingReports.delete(writing);
+  }
+}
+
+/** 业务停止产生事件后调用，等待在途写入完成，再关闭 MongoDB。 */
+export async function flushAnalyticsEvents(): Promise<void> {
+  await Promise.all(pendingReports);
+}
+
+async function writeAnalyticsEvent(input: Omit<AnalyticsEvent, "eventTime">): Promise<void> {
   const event: AnalyticsEvent = { ...input, eventTime: new Date() };
   try {
     collectionTask ??= initializeCollection();

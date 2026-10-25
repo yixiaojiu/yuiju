@@ -8,7 +8,8 @@ import type { WorldState } from "./state";
 export type WorldFact = {
   eventId: string;
   occurredAt: number;
-  type: Exclude<WorldEvent["type"], "idle_reminder">;
+  /** 暂停、恢复和空闲提醒只通知角色，不作为活动归档。 */
+  type: "activity_started" | "activity_completed" | "weather_changed";
   characterId: string | null;
   placeId: string | null;
   activity: ActivityView | null;

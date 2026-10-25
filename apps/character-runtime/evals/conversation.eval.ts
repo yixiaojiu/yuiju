@@ -5,7 +5,7 @@ import { OneBotConnection } from "../src/conversation/onebot";
 import { Planner } from "../src/conversation/planner";
 import { Replyer } from "../src/conversation/replyer";
 import type { ConversationToolContext } from "../src/conversation/tools";
-import { evaluateTrigger, isDirectedMessage } from "../src/conversation/trigger";
+import { evaluateTrigger } from "../src/conversation/trigger";
 import { conversationCases, conversationState } from "./cases/conversation";
 import { runEvaluation } from "./fixtures";
 import { record } from "./report";
@@ -67,9 +67,9 @@ for (const scenario of conversationCases) {
             const trigger = evaluateTrigger({
               pending: messages,
               history,
-              directed: messages.some((message) =>
-                isDirectedMessage(message, "90001", ["悠乃", "悠酱"]),
-              ),
+              selfId: "90001",
+              names: ["悠乃", "悠酱"],
+              botIds: [],
               nextEligibleAt: 0,
               now: Date.now(),
             });

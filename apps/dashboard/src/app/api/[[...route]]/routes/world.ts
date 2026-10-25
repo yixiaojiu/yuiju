@@ -2,7 +2,7 @@ import type { WorldEnvironmentStatus } from "@yuiju/shared/dashboard/types";
 import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
-import type { WorldEvent } from "@yuiju/shared/world/protocol";
+import type { ActivityView, WorldEvent } from "@yuiju/shared/world/protocol";
 import { Queue } from "bullmq";
 import { Hono } from "hono";
 import { getDeployment } from "@/lib/deployment";
@@ -25,7 +25,7 @@ export type WorldInteraction = {
     roundCount: number;
     events: (EventSummary & { inRound: boolean })[];
   };
-  activity: { actionId: string; startedAt: number; endsAt: number | null } | null;
+  activity: Pick<ActivityView, "actionId" | "startedAt" | "endsAt" | "pause"> | null;
   activityWait: { endsAt: number; checkAt: number | null } | null;
 };
 export type WorldDashboardStatus = {
@@ -127,6 +127,7 @@ return {
               actionId: activity.actionId,
               startedAt: activity.startedAt,
               endsAt: activity.endsAt,
+              pause: activity.pause,
             },
       activityWait: wait === null ? null : { endsAt: wait.endsAt, checkAt: wait.checkAt },
     };

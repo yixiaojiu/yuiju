@@ -75,6 +75,10 @@ for (const scenario of mainAgentCases) {
         const control = new AgentControl(
           extensions,
           1,
+          world,
+          async (activity) => {
+            record("effect", "同步场景活动（内存）", activity);
+          },
           async () => {},
           async () => {},
           () => {},

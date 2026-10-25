@@ -1,6 +1,6 @@
 import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
-import { measureInputBytes, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
+import { estimateInputTokens, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
@@ -98,7 +98,7 @@ export class Planner {
       // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
       let stepSaveError: Error | undefined;
       // prepareStep 在每次请求前取快照，onStepEnd 使用对应的单步用量校准。
-      let requestBytes: number;
+      let requestEstimate: number;
       const result = await generateText({
         model: flashModel,
         messages: this.history.flatMap((unit) => unit.messages),
@@ -112,7 +112,7 @@ export class Planner {
           const previousSummary = this.context.summary;
           try {
             const messages = await this.context.prepare(this.history, []);
-            requestBytes = measureInputBytes(messages, plannerToolDescription);
+            requestEstimate = estimateInputTokens(messages, plannerToolDescription);
             return { messages };
           } finally {
             // prepare 可能已应用一份摘要，再因窗口仍不足而失败；已应用的状态也要成对保存。
@@ -144,7 +144,7 @@ export class Planner {
           }
         },
         onStepEnd: async ({ response, content, usage }) => {
-          this.context.inputUsage = readInputTokenUsage(requestBytes, usage);
+          this.context.inputUsage = readInputTokenUsage(requestEstimate, usage);
           // SDK 在本步工具全部结束后提供该步消息；多工具调用与结果作为一个单位记录。
           this.history.push({ sequence: ++this.sequence, messages: response.messages });
           try {

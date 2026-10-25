@@ -28,13 +28,14 @@
     "type-check:dashboard": "pnpm --filter @yuiju/dashboard run type-check",
     "type-check:character-runtime": "pnpm --filter @yuiju/character-runtime run type-check",
     "type-check:world-simulator": "pnpm --filter @yuiju/world-simulator run type-check",
-    "type-check": "pnpm run type-check:dashboard && pnpm run type-check:character-runtime && pnpm run type-check:world-simulator && pnpm run type-check:shared",
+    "type-check": "pnpm run type-check:dashboard && pnpm run type-check:character-runtime && pnpm run type-check:world-simulator && pnpm run type-check:shared && pnpm run type-check:interaction",
     "docs:dev": "pnpm --filter @yuiju/site run dev",
     "docs:build": "pnpm --filter @yuiju/site run build",
     "docs:preview": "pnpm --filter @yuiju/site run preview",
     "image": "node --use-env-proxy packages/source/aigc/pixel/generate/generate-image.js",
     "generate:extensions": "pnpm --filter @yuiju/shared run generate:extensions",
-    "type-check:shared": "pnpm --filter @yuiju/shared run type-check"
+    "type-check:shared": "pnpm --filter @yuiju/shared run type-check",
+    "type-check:interaction": "pnpm --filter yuiju-interaction run type-check"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json,jsonc,css,md}": "biome check --write --no-errors-on-unmatched"
@@ -80,7 +81,7 @@
     "bullmq": "^6.3.11",
     "dayjs": "^1.11.19",
     "dotenv": "^16.6.1",
-    "hono": "^4.12.2",
+    "hono": "catalog:",
     "ioredis": "^5.8.2",
     "lodash-es": "^4.17.21",
     "mongoose": "^8.20.0",
@@ -91,6 +92,7 @@
     "ws": "^8.20.1",
     "zod": "^4.1.13",
     "@yuiju/shared": "workspace:*",
-    "react": "catalog:"
+    "react": "catalog:",
+    "yuiju-interaction": "workspace:*"
   }
 }

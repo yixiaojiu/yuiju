@@ -5,6 +5,8 @@ import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
 import type {
+  ActivityControlInput,
+  ActivityView,
   ExecuteActionInput,
   ExecuteActionResult,
   InspectWorldInput,
@@ -19,6 +21,8 @@ import { finishWorldActivityWait } from "../agent-loop/events";
 const allEventTypes: WorldEvent["type"][] = [
   "activity_started",
   "activity_completed",
+  "activity_paused",
+  "activity_resumed",
   "weather_changed",
   "idle_reminder",
 ];
@@ -91,6 +95,24 @@ export class WorldClient {
     const result = (await response.json()) as WorldResult<ExecuteActionResult>;
 
     return result;
+  }
+
+  async controlActivity(command: ActivityControlInput): Promise<ActivityView> {
+    const config = await load_config();
+    const response = await fetch(
+      new URL("/activity-control", config.app!.world_simulator!.base_url!),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ characterId: this.characterId, command }),
+        signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
+      },
+    );
+    const result = (await response.json()) as WorldResult<ActivityView>;
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+    return result.value;
   }
 
   private inboxKey(): string {

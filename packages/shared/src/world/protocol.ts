@@ -82,8 +82,12 @@ export type ActivityView = {
   activityId: string;
   actionId: string;
   startedAt: number;
-  /** 空闲发呆没有结束时间；其余行动均有明确的结束时间。 */
+  /** 空闲发呆为 null；暂停时保留原值，恢复时按剩余时长更新。 */
   endsAt: number | null;
+  /** 场景占用期间保留原活动，世界不结算；剩余时长不随世界时钟减少。 */
+  pause?: { sessionId: string; pausedAt: number; remainingMs: number | null };
+  /** 最近一次恢复时刻；角色的超时检查从这里按剩余时长重新计算。 */
+  resumedAt?: number;
 };
 export type ItemView = { itemId: string; name: string; quantity: number };
 export type ObservationView =
@@ -103,6 +107,7 @@ export type InspectWorldResult =
   | {
       type: "current";
       now: number;
+      home: PlaceRef;
       position: PositionView;
       activity: ActivityView | null;
       body: { stamina: number; satiety: number };
@@ -175,7 +180,13 @@ export type WorldEvent = {
   eventId: string;
   occurredAt: number;
   characterId: string;
-  type: "activity_started" | "activity_completed" | "weather_changed" | "idle_reminder";
+  type:
+    | "activity_started"
+    | "activity_completed"
+    | "activity_paused"
+    | "activity_resumed"
+    | "weather_changed"
+    | "idle_reminder";
   description: string;
   activity: ActivityView | null;
   position: PositionView;
@@ -191,8 +202,26 @@ export const worldClientMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("subscribe"),
     characterId: z.string().min(1),
     eventTypes: z.array(
-      z.enum(["activity_started", "activity_completed", "weather_changed", "idle_reminder"]),
+      z.enum([
+        "activity_started",
+        "activity_completed",
+        "activity_paused",
+        "activity_resumed",
+        "weather_changed",
+        "idle_reminder",
+      ]),
     ),
   }),
   z.strictObject({ type: z.literal("ack"), deliveryId: z.string().regex(/^\d+$/) }),
 ]);
+
+export const activityControlSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("pause"),
+    sessionId: z.string().min(1),
+    activityId: z.string().min(1),
+  }),
+  z.strictObject({ type: z.literal("resume"), sessionId: z.string().min(1) }),
+]);
+export type ActivityControlInput = z.infer<typeof activityControlSchema>;
+export type CurrentWorldView = Extract<InspectWorldResult, { type: "current" }>;

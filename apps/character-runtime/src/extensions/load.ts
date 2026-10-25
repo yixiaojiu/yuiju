@@ -7,15 +7,15 @@ import type {
 import type { PromptTemplate } from "@yuiju/shared/prompt/template";
 
 export type LoadedAgent = {
-  definition: AgentDefinition<unknown>;
-  context: ExtensionContext<unknown>;
+  definition: AgentDefinition;
+  context: ExtensionContext;
 };
 export type LoadedExtensions = {
   agents: Map<string, LoadedAgent>;
   prompts: PromptTemplate[];
 };
 
-/** 先校验配置、绑定角色；提示词初始化完成前不调用任何 create 工厂。 */
+/** 按启用配置绑定角色身份；提示词初始化完成前不调用任何 create 工厂。 */
 export async function loadExtensions(
   character: { id: string; name: string },
   configuration: NonNullable<Config["characters"]>[string]["extensions"],
@@ -29,16 +29,8 @@ export async function loadExtensions(
       continue;
     }
     const { default: extension } = await entry.load();
-    const { enabled, ...parameters } = settings;
-    const parsed = extension.configSchema.safeParse(parameters);
-    if (!parsed.success) {
-      throw new Error(
-        `角色 ${character.id} 的扩展 ${entry.extension} 配置错误：${parsed.error.message}`,
-      );
-    }
-    const context: ExtensionContext<unknown> = {
+    const context: ExtensionContext = {
       character: { id: character.id, name: character.name },
-      config: parsed.data,
     };
     for (const definition of extension.agents) {
       if (!definition.id || definition.id.includes("/")) {

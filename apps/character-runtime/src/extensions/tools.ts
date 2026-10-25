@@ -59,7 +59,7 @@ export function createExtensionTools(
       async execute({ agentId, context }) {
         try {
           signal.throwIfAborted();
-          return JSON.stringify(control.requestEntry(agentId, context));
+          return JSON.stringify(await control.requestEntry(agentId, context));
         } catch (error) {
           return `进入请求未提交：${error instanceof Error ? error.message : String(error)}`;
         }

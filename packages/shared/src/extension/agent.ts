@@ -1,11 +1,10 @@
 import type { z } from "zod";
 import type { PromptTemplate } from "../prompt/template";
-import type { JsonValue, WorldEvent } from "../world/protocol";
+import type { CurrentWorldView, JsonValue } from "../world/protocol";
 
-/** 每角色、每扩展独立装配；只提供身份与该扩展校验后的配置。 */
-export type ExtensionContext<Config> = {
+/** 每角色、每扩展独立装配；宿主只提供角色身份，配置由扩展自行管理。 */
+export type ExtensionContext = {
   readonly character: Readonly<{ id: string; name: string }>;
-  readonly config: Readonly<Config>;
 };
 
 export type TaskExecution = { taskId: string; signal: AbortSignal };
@@ -14,57 +13,57 @@ export type TaskInstance<Input> = {
   dispose?(): Promise<void>;
 };
 
-export type SceneExecution = { sessionId: string; signal: AbortSignal };
+export type SceneExecution = {
+  sessionId: string;
+  signal: AbortSignal;
+  /** 扩展的页面连接入口已就绪，可以让用户连接并确认进入。 */
+  ready(): void;
+};
 export type SceneEntryResult = { status: "confirmed" } | { status: "rejected"; reason: string };
-export type SceneRoundResult =
-  | { status: "continue" }
-  | { status: "exit"; reason: string; context?: string };
-
-/** 自定义输入包在 extension 事件内，不能冒充世界通知或宿主生命周期。 */
-export type SceneEvent = { id: string; occurredAt: number } & (
-  | { type: "scene_entered"; payload: { context?: string } }
-  | { type: "world"; payload: WorldEvent }
-  | { type: "activity_due"; payload: { activityId: string; endsAt: number } }
-  | { type: "plan_attention"; payload: { planId: string; revision: number; attentionAt: number } }
-  | { type: "plan_review"; payload: { planId: string; revision: number } }
-  | { type: "extension"; payload: JsonValue }
-);
+export type SceneResult = { reason: string; context?: string };
 
 export type SceneInstance = {
   /** 只有用户主动进入且扩展准备完成才确认；取消信号同时覆盖等待用户的时间。 */
   waitForEntry(context: string | undefined, execution: SceneExecution): Promise<SceneEntryResult>;
-  /** 宿主串行交付固定批次；普通工具不代表结束，退出时显式返回 exit。 */
-  handleEvents(events: SceneEvent[], execution: SceneExecution): Promise<SceneRoundResult>;
+  /** 自行管理输入和完整 loop，直到场景结束才返回；signal 取消时须结束在途操作并退出。 */
+  run(execution: SceneExecution): Promise<SceneResult>;
   dispose(): Promise<void>;
 };
 
 type AgentDescription = {
   id: string;
+  /**
+   * 能力简介：加入主 agent 的固定提示词目录，每次请求都会携带，帮助判断何时使用。
+   * inspect_agent 也会返回此字段；不会自动注入扩展自身模型的提示词。
+   */
   description: string;
+  /**
+   * 详细使用说明：主 agent 调用 inspect_agent 时通过工具结果按需读取，不加入固定提示词。
+   * 说明适用场景、进入条件和准备步骤；不会自动注入扩展自身模型的提示词。
+   */
   instructions?: string;
 };
 
-export type TaskAgentDefinition<Config, Input = unknown> = AgentDescription & {
+export type TaskAgentDefinition<Input = unknown> = AgentDescription & {
   type: "task";
   inputSchema: z.ZodType<Input>;
   resultDescription: string;
-  create(context: ExtensionContext<Config>): TaskInstance<Input>;
+  create(context: ExtensionContext): TaskInstance<Input>;
 };
 
-export type SceneAgentDefinition<Config> = AgentDescription & {
+export type SceneAgentDefinition = AgentDescription & {
   type: "scene";
+  /** 主 agent 申请及正式交接时检查；返回不能进入的原因，null 表示允许。 */
+  checkEntry?(world: CurrentWorldView): string | null;
   pauseConversation?: boolean;
-  worldEvents?: WorldEvent["type"][];
-  eventSchema?: z.ZodType<JsonValue>;
-  create(context: ExtensionContext<Config>): SceneInstance;
+  create(context: ExtensionContext): SceneInstance;
 };
 
-export type AgentDefinition<Config> = TaskAgentDefinition<Config> | SceneAgentDefinition<Config>;
+export type AgentDefinition = TaskAgentDefinition | SceneAgentDefinition;
 
 /** agent.ts 的默认导出；声明加载阶段不创建实例、不调用模型。 */
-export type ExtensionDefinition<Config = unknown> = {
-  configSchema: z.ZodType<Readonly<Config>>;
-  agents: AgentDefinition<Config>[];
+export type ExtensionDefinition = {
+  agents: AgentDefinition[];
   prompts?: readonly PromptTemplate[];
 };
 

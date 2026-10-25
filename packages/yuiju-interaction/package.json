@@ -1,0 +1,26 @@
+{
+  "name": "yuiju-interaction",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx src/dev.ts",
+    "download:core": "node --import tsx scripts/download-cubism-core.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pixi.js": "6.5.10",
+    "pixi-live2d-display": "0.4.0",
+    "@yuiju/shared": "workspace:*",
+    "ws": "^8.20.1"
+  },
+  "peerDependencies": {
+    "react": "catalog:",
+    "ai": "^7.0.118",
+    "hono": "catalog:",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:"
+  }
+}

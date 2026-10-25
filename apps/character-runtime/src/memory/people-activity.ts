@@ -4,7 +4,7 @@ import type { ArchivedConversationMessage } from "../conversation/storage";
 import { lockMemoryFile, memoryPath, writeMemoryFile } from "./files";
 
 const activitySchema = z.strictObject({
-  /** 每个整理日只统计一次，失败重跑不能重复累计热度。 */
+  /** 最近一次统计日期；素材区间的去重由 memory:through 节点负责。 */
   countedDate: z.string().nullable(),
   people: z.array(
     z.strictObject({
@@ -53,9 +53,6 @@ export async function updatePeopleActivity(
   const release = await lockMemoryFile(await memoryPath(characterId, "people", "activity.json"));
   try {
     const activity = await readPeopleActivity(characterId);
-    if (activity.countedDate === date) {
-      return;
-    }
     for (const message of messages) {
       if (message.isSelf || message.kind !== "message") {
         continue;
@@ -80,7 +77,7 @@ export async function updatePeopleActivity(
         person.name = message.senderName;
       }
     }
-    // 统计和去重标记写在同一份原子快照中，模型失败不回滚实际发言。
+    // 同一天可以整理多个不重叠的入睡区间，模型失败不回滚实际发言。
     activity.countedDate = date;
     await writePeopleActivity(characterId, activity);
   } finally {

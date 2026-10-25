@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import {
+  estimateInputTokens,
   type InputTokenUsage,
-  measureInputBytes,
   readInputTokenUsage,
 } from "@yuiju/shared/llm/context-usage";
 import { strongModel } from "@yuiju/shared/llm/models";
@@ -160,7 +160,7 @@ export class MainAgentLoop {
         ]),
       ),
     );
-    let requestBytes: number;
+    let requestEstimate: number;
     const result = await generateText({
       model: strongModel,
       tools,
@@ -187,7 +187,7 @@ export class MainAgentLoop {
         }
         state.context = context;
         const messages = agentMessages(context, this.instructions);
-        requestBytes = measureInputBytes(messages, toolDescription);
+        requestEstimate = estimateInputTokens(messages, toolDescription);
         return { messages };
       },
       onToolExecutionStart: ({ toolCall }) => {
@@ -210,7 +210,7 @@ export class MainAgentLoop {
         }
       },
       onStepEnd: ({ response, finishReason, usage }) => {
-        this.inputUsage = readInputTokenUsage(requestBytes, usage);
+        this.inputUsage = readInputTokenUsage(requestEstimate, usage);
         if (finishReason !== "stop" && finishReason !== "tool-calls") {
           // 生命周期通知会吞掉回调异常，通过 abort 阻止下一步并在返回后再次检查。
           failed.abort(new Error(`主 loop 模型步骤未完整结束：${finishReason}`));

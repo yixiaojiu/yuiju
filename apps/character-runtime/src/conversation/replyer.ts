@@ -1,7 +1,7 @@
 import { h } from "@satorijs/core";
 import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
-import { measureInputBytes, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
+import { estimateInputTokens, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
 import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
@@ -162,14 +162,14 @@ export class Replyer {
 
       if (previousSummary !== this.context.summary) await saveSummary();
 
-      const requestBytes = measureInputBytes(messages);
+      const requestEstimate = estimateInputTokens(messages);
       const result = await generateText({
         model: chatModel,
         messages,
         allowSystemInMessages: true,
         maxRetries: 0,
       });
-      this.context.inputUsage = readInputTokenUsage(requestBytes, result.finalStep.usage);
+      this.context.inputUsage = readInputTokenUsage(requestEstimate, result.finalStep.usage);
       const text = result.text.trim();
       if (result.finishReason !== "stop" || !text) {
         throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);

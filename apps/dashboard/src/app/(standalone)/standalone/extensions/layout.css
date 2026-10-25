@@ -1,0 +1,8 @@
+html:has([data-extension-standalone]),
+body:has([data-extension-standalone]) {
+  background: transparent;
+}
+
+[data-extension-standalone] {
+  min-height: 100dvh;
+}

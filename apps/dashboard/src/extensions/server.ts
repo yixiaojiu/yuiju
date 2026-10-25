@@ -34,9 +34,10 @@ export const getExtensionPages = cache(async () => {
           extension: entry.extension,
           pageId: page.id,
           title: page.title,
+          standalone: page.layout === "standalone",
           character: { id, name: character.name },
-          href: `/extensions/${path}/${encodeURIComponent(page.id)}`,
-          apiBasePath: `/api/extensions/${path}`,
+          href: `${page.layout === "standalone" ? "/standalone" : ""}/extensions/${path}/${encodeURIComponent(page.id)}`,
+          apiBasePath: `/api/extensions/${encodeURIComponent(entry.extension)}`,
           component: page.component,
         });
       }

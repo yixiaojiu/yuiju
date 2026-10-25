@@ -9,7 +9,10 @@ export default async function ExtensionPage({
   const { extension, characterId, pageId } = await params;
   const page = (await getExtensionPages()).find(
     (page) =>
-      page.extension === extension && page.character.id === characterId && page.pageId === pageId,
+      !page.standalone &&
+      page.extension === extension &&
+      page.character.id === characterId &&
+      page.pageId === pageId,
   );
   if (!page) {
     notFound();

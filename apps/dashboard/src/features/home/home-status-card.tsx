@@ -20,7 +20,9 @@ export function HomeStatusCard({
     [
       "当前活动",
       activity
-        ? `${activity.actionId}${remaining === null ? "" : remaining === 0 ? " · 等待结算" : ` · ${remaining}分钟`}`
+        ? activity.pause
+          ? `${activity.actionId} · 已暂停`
+          : `${activity.actionId}${remaining === null ? "" : remaining === 0 ? " · 等待结算" : ` · ${remaining}分钟`}`
         : "—",
     ],
     [

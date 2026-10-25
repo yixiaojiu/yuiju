@@ -1,5 +1,9 @@
 import { logger } from "@yuiju/shared/logger/logger";
-import { executeActionSchema, inspectWorldSchema } from "@yuiju/shared/world/protocol";
+import {
+  activityControlSchema,
+  executeActionSchema,
+  inspectWorldSchema,
+} from "@yuiju/shared/world/protocol";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { World } from "../world";
@@ -38,6 +42,16 @@ export function createWorldHttpApp(world: World) {
     const { characterId, requestId, ...input } = parsed.data;
     const result = await world.execute(characterId, requestId, input);
     return context.json(result, result.ok ? 200 : 400);
+  });
+  app.post("/activity-control", async (c) => {
+    const parsed = z
+      .object({ characterId: z.string().min(1), command: activityControlSchema })
+      .safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, code: "invalid_request", message: parsed.error.message }, 400);
+    }
+    const result = await world.controlActivity(parsed.data.characterId, parsed.data.command);
+    return c.json(result, result.ok ? 200 : 400);
   });
   app.onError((error, context) => {
     if (error instanceof SyntaxError) {

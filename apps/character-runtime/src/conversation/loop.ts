@@ -22,14 +22,9 @@ import {
   saveConversationState,
 } from "./storage";
 import type { ConversationToolContext } from "./tools";
-import {
-  BACKOFF_DELAYS_MS,
-  evaluateTrigger,
-  isDirectedMessage,
-  RECHECK_INTERVAL_MS,
-} from "./trigger";
+import { BACKOFF_DELAYS_MS, evaluateTrigger, RECHECK_INTERVAL_MS } from "./trigger";
 
-/** Planner 主动等待的 Unix 毫秒起止时间；定向消息可提前结束等待。 */
+/** Planner 主动等待的 Unix 毫秒起止时间；普通用户的定向消息可提前结束等待。 */
 export type ConversationWait = { startedAt: number; until: number };
 
 /** 判断阶段只给出输入快照或下次检查时间，不创建定时器、不修改状态。 */
@@ -478,10 +473,18 @@ export class ConversationLoop {
     const pending = this.pending;
     const agentEvents = (this.runtime.agentEvents ?? []).filter((event) => !event.consumed);
     const { waiting, failedThroughSequence, currentRound } = this.runtime;
-    const directed = pending.some((message) => isDirectedMessage(message, this.selfId, this.names));
+    const trigger = evaluateTrigger({
+      pending,
+      history: this.history,
+      selfId: this.selfId,
+      names: this.names,
+      botIds: this.botIds,
+      nextEligibleAt: this.runtime.silenceCooldownUntil,
+      now,
+    });
     let waitedSeconds: number | undefined;
     if (waiting) {
-      if (now < waiting.until && !directed && !agentEvents.length) {
+      if (now < waiting.until && !trigger.interruptsWait && !agentEvents.length) {
         logger.info("Planner 继续等待", {
           pendingCount: pending.length,
           recheckAfterSeconds: Math.ceil((waiting.until - now) / 1000),
@@ -504,21 +507,15 @@ export class ConversationLoop {
       });
       return { waitedSeconds };
     }
-    const trigger = evaluateTrigger({
-      pending,
-      history: this.history,
-      directed,
-      nextEligibleAt: this.runtime.silenceCooldownUntil,
-      now,
-    });
-
     if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
       logger.info("Planner 触发判断", {
         shouldRun: false,
         reason: trigger.reason,
         pendingCount: pending.length,
         score: trigger.score,
-        threshold: 80,
+        threshold: trigger.threshold,
+        botOnly: trigger.botOnly,
+        scoredMessageCount: trigger.scoredMessageCount,
         ...trigger.scoreDetails,
         cooldownSeconds: Math.max(0, Math.ceil((this.runtime.silenceCooldownUntil - now) / 1000)),
         recheckAfterSeconds: trigger.shouldRecheck ? RECHECK_INTERVAL_MS / 1000 : null,
@@ -540,7 +537,13 @@ export class ConversationLoop {
       !agentEvents.length &&
       waitedSeconds === undefined &&
       trigger.scoreDetails
-        ? { score: trigger.score, threshold: 80, ...trigger.scoreDetails }
+        ? {
+            score: trigger.score,
+            threshold: trigger.threshold,
+            botOnly: trigger.botOnly,
+            scoredMessageCount: trigger.scoredMessageCount,
+            ...trigger.scoreDetails,
+          }
         : {}),
     });
     const throughSequence = pending.at(-1)?.sequence ?? this.runtime.processedThrough;
@@ -578,7 +581,11 @@ export class ConversationLoop {
           return;
         }
         const { messages, throughSequence } = next.input;
-        if (messages.length >= 6) this.runtime.silenceCooldownUntil = 0;
+        // 混合输入中 bot 的积压不能替普通用户解除退避，与 Trigger 评分口径一致。
+        const userMessages = messages.filter((message) => !this.botIds.includes(message.senderId));
+        if ((userMessages.length || messages.length) >= 6) {
+          this.runtime.silenceCooldownUntil = 0;
+        }
         this.runtime.currentRound = { throughSequence, sendAttempted: false };
         const newMessages = messages.filter(
           (message) => message.sequence > this.runtime.plannerInputThrough,

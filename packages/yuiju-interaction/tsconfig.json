@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "erasableSyntaxOnly": false,
+    "baseUrl": ".",
+    "paths": {}
+  },
+  "include": ["*.ts", "src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts"],
+  "exclude": ["node_modules"]
+}

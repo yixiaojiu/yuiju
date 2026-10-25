@@ -11,6 +11,7 @@ import { Conversation } from "./conversation/conversation";
 import type { ConversationScope } from "./conversation/message";
 import { describeEmotion, Emotion } from "./emotion/emotion";
 import type { LoadedExtensions } from "./extensions/load";
+import { listenSceneRequests } from "./extensions/requests";
 import { ExtensionRuntime } from "./extensions/runtime";
 import { DailyMemory } from "./memory/daily";
 import { characterKey } from "./storage";
@@ -32,6 +33,7 @@ export class Character {
   readonly emotion: Emotion;
   private readonly memory: DailyMemory;
   private stopSync: (() => Promise<void>) | undefined;
+  private stopSceneRequests: (() => void) | undefined;
 
   constructor(
     readonly id: string,
@@ -90,6 +92,8 @@ export class Character {
     this.control = new AgentControl(
       this.extensions,
       sceneEntryTimeoutMs,
+      this.world,
+      async (activity) => await this.observeActivity(activity),
       async (paused) => await this.conversation?.setSceneParticipationAllowed(!paused),
       async (result) => {
         await receiveCharacterEvent(id, {
@@ -154,6 +158,24 @@ export class Character {
     await this.emotion.initialize();
     this.stopSync = await startCharacterSync(this.id, this.emotion);
     await this.agent?.initialize();
+    if (this.agent) {
+      // 场景实例不跨进程恢复；先解除上次进程留下的暂停，再接收新场景请求。
+      const current = await this.world.inspect({ type: "current" });
+      if (!current.ok) {
+        throw new Error(current.message);
+      }
+      if (current.value.type !== "current") {
+        throw new Error("世界 current 查询返回了其他类型");
+      }
+      const activity = current.value.activity;
+      if (activity?.pause) {
+        await this.observeActivity(
+          await this.world.controlActivity({ type: "resume", sessionId: activity.pause.sessionId }),
+        );
+      } else {
+        await this.observeActivity(activity);
+      }
+    }
     // 聊天独立运行时，先确认活动和睡眠权限，再恢复群会话。
     if (this.mode === "conversation") {
       const current = await this.world.inspect({ type: "current" });
@@ -165,14 +187,18 @@ export class Character {
       }
       await this.observeActivity(current.value.activity);
       const sleeping =
-        current.value.activity?.actionId === "睡觉" ||
-        current.value.activity?.actionId === "再睡一会";
+        !current.value.activity?.pause &&
+        (current.value.activity?.actionId === "睡觉" ||
+          current.value.activity?.actionId === "再睡一会");
       await this.conversation?.start(!sleeping);
     } else {
       await this.conversation?.start();
     }
     await this.world.start();
     this.agent?.start();
+    if (this.control) {
+      this.stopSceneRequests = await listenSceneRequests(this.id, this.control);
+    }
     if (this.agent) {
       this.emotion.start();
     }
@@ -209,8 +235,12 @@ export class Character {
       `${characterKey(this.id)}:observed-activity`,
       JSON.stringify(activity),
     );
-    const sleeping = activity?.actionId === "睡觉" || activity?.actionId === "再睡一会";
+    const sleeping =
+      !activity?.pause && (activity?.actionId === "睡觉" || activity?.actionId === "再睡一会");
     await this.conversation?.setParticipationAllowed(!sleeping);
+    if (this.mode === "all" && sleeping) {
+      this.memory.organizeAfterSleep(activity!.startedAt);
+    }
   }
 
   /** 群聊只获得可表达的状态；情绪原因和主 loop 的完整上下文不自动跨群带入。 */
@@ -223,8 +253,9 @@ export class Character {
       throw new Error("角色尚未确认世界活动状态");
     }
     const activity: ActivityView | null = JSON.parse(stored);
-    const description =
-      activity?.actionId === "空闲发呆"
+    const description = activity?.pause
+      ? `最近世界确认${activity.actionId}已暂停，当前正在参与互动场景。`
+      : activity?.actionId === "空闲发呆"
         ? "最近世界确认正在发呆，暂时没有安排。"
         : activity
           ? `最近世界确认正在${activity.actionId}。`
@@ -266,15 +297,8 @@ export class Character {
     return `已投递给主 loop，事件 ID：${eventId}。尚不代表已作出决定。`;
   }
 
-  /** 扩展接入层提交自定义场景事件；当前阶段不提供网络路由。 */
-  receiveSceneEvent(sessionId: string, input: unknown): void {
-    if (!this.control) {
-      throw new Error("当前模式未启用场景 agent");
-    }
-    this.control.receiveEvent(sessionId, input);
-  }
-
   async stop() {
+    this.stopSceneRequests?.();
     const results = await Promise.allSettled([this.agent?.stop()]);
     results.push(
       ...(await Promise.allSettled([

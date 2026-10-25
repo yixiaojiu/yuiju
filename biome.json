@@ -40,6 +40,8 @@
     "includes": [
       "**",
       "!!data",
+      "!!apps/dashboard/public/extensions",
+      "!!packages/yuiju-interaction/public/live2dcubismcore.min.js",
       "!!**/dist",
       "!!**/node_modules",
       "!!**/.venv",

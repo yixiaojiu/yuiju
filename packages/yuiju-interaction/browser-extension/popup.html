@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Yuiju Interaction</title><style>
+body{width:300px;padding:12px;font:14px system-ui}textarea{box-sizing:border-box;width:100%;height:90px;margin:8px 0}button{padding:6px 12px;margin-right:8px}p{overflow-wrap:anywhere}
+</style></head><body>
+<label for="connection">粘贴互动页面的连接信息</label><textarea id="connection"></textarea>
+<button id="connect">连接当前标签页</button><button id="disconnect">断开</button>
+<p>标签页：<span id="tab-status"></span></p>
+<p>后端：<span id="backend-status"></span></p>
+<p id="error" role="alert"></p>
+<script src="popup.js"></script></body></html>

@@ -32,11 +32,14 @@ import { generateMemoryChunks, indexExperienceMemory } from "./vector-index";
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
 
-/** 每日整理只持久化素材截止时间，摘要和草稿留在内存，失败不自动补录。 */
+/** 入睡后整理记忆，只持久化素材截止时间；原始归档和每日计划清理独立运行。 */
 export class DailyMemory {
   private readonly stopping = new AbortController();
   private archiveTask: Promise<void> | undefined;
-  private dailyTask: Promise<void> | undefined;
+  private planCleanupTask: Promise<void> | undefined;
+  private organizeTask: Promise<void> | undefined;
+  /** 合并重复的活动观察；即使领取节点失败，本进程也不重复尝试同一次入睡。 */
+  private latestSleepAt = 0;
 
   constructor(private readonly characterId: string) {}
 
@@ -49,7 +52,29 @@ export class DailyMemory {
 
   start(): void {
     this.archiveTask = this.runArchive();
-    this.dailyTask = this.runDaily();
+    this.planCleanupTask = this.runPlanCleanup();
+  }
+
+  /** 由角色确认睡眠后调用；串行整理不同入睡区间，不阻塞世界通知和角色调度。 */
+  organizeAfterSleep(startedAt: number): void {
+    if (this.stopping.signal.aborted || startedAt <= this.latestSleepAt) {
+      return;
+    }
+    this.latestSleepAt = startedAt;
+    this.organizeTask = this.runSleepOrganization(startedAt, this.organizeTask);
+  }
+
+  private async runSleepOrganization(through: number, previous?: Promise<void>): Promise<void> {
+    try {
+      await previous;
+      this.stopping.signal.throwIfAborted();
+      const timezone = (await load_config()).app!.timezone!;
+      await this.organizeThrough(through, timezone);
+    } catch (error) {
+      if (!this.stopping.signal.aborted) {
+        logger.error("睡后记忆整理失败，本次跳过且不再自动重试", { error });
+      }
+    }
   }
 
   private async runArchive(): Promise<void> {
@@ -69,7 +94,7 @@ export class DailyMemory {
     }
   }
 
-  private async runDaily(): Promise<void> {
+  private async runPlanCleanup(): Promise<void> {
     const timezone = (await load_config()).app!.timezone!;
     while (!this.stopping.signal.aborted) {
       const date = dayjs().tz(timezone).format("YYYY-MM-DD");
@@ -85,15 +110,7 @@ export class DailyMemory {
         }
         logger.error("每日计划清理失败，本次跳过", { error });
       }
-      try {
-        await this.organizeThrough(dayjs.tz(date, timezone).valueOf(), timezone);
-      } catch (error) {
-        if (this.stopping.signal.aborted) {
-          return;
-        }
-        logger.error("每日记忆素材读取或时间节点保存失败，本次未开始生成", { error });
-      }
-      // 处理积压可能跨过零点；下一轮补齐新的区间，不跳过已到达的整理日。
+      // 清理仍在启动及每天零点执行，不依赖角色是否入睡。
       const nextAt = dayjs
         .tz(dayjs.utc(date).add(1, "day").format("YYYY-MM-DD"), timezone)
         .valueOf();
@@ -109,7 +126,7 @@ export class DailyMemory {
     }
   }
 
-  /** 查询成功后先推进节点，再执行模型调用；即使停机，已尝试区间也不会重新生成。 */
+  /** 先领取区间并推进节点，再读取素材和生成；失败或停机均不重试已领取区间。 */
   private async organizeThrough(through: number, timezone: string): Promise<void> {
     const redis = await getRedis();
     const key = `${characterKey(this.characterId)}:memory:through`;
@@ -121,6 +138,9 @@ export class DailyMemory {
     if (from >= through) {
       return;
     }
+    this.stopping.signal.throwIfAborted();
+    await redis.set(key, String(through));
+    logger.info("开始睡后记忆整理", { from, through });
     await archiveExperiences(this.characterId);
     const materials: ExperienceMaterial[] = await (await materialCollection())
       .find({
@@ -131,7 +151,6 @@ export class DailyMemory {
       .toArray();
     const messages = await queryMemoryMessages(this.characterId, from, through);
     this.stopping.signal.throwIfAborted();
-    await redis.set(key, String(through));
 
     const date = dayjs(through).tz(timezone).format("YYYY-MM-DD");
     try {
@@ -270,6 +289,6 @@ export class DailyMemory {
 
   async stop(): Promise<void> {
     this.stopping.abort();
-    await Promise.all([this.archiveTask, this.dailyTask]);
+    await Promise.all([this.archiveTask, this.planCleanupTask, this.organizeTask]);
   }
 }

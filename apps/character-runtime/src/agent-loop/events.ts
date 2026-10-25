@@ -5,7 +5,7 @@ import type { ActivityView, WorldEvent } from "@yuiju/shared/world/protocol";
 import type { ConversationScope } from "../conversation/message";
 import type { EmotionResult } from "../emotion/emotion";
 import { recordExperience } from "../memory/experiences";
-import { characterKey, commitCharacterTransaction } from "../storage";
+import { characterKey } from "../storage";
 import { formatWorldEvent } from "../world/tools";
 
 export type CharacterEvent = {
@@ -88,22 +88,6 @@ export async function readCharacterEvents(characterId: string) {
 
 export type CharacterEventBatch = Awaited<ReturnType<typeof readCharacterEvents>>;
 
-/** 场景只消费自己处理或忽略的宿主事件，main 的专属结果仍留在原收件箱。 */
-export async function consumeCharacterEvents(
-  characterId: string,
-  batch: CharacterEventBatch,
-): Promise<void> {
-  const transaction = (await getRedis()).multi();
-  const key = characterKey(characterId);
-  if (batch.eventIds.length) {
-    transaction.hdel(`${key}:agent:inbox`, ...batch.eventIds);
-  }
-  if (batch.worldEventIds.length) {
-    transaction.hdel(`${key}:world-inbox`, ...batch.worldEventIds);
-  }
-  await commitCharacterTransaction(transaction);
-}
-
 /** 生活经历记录不依赖哪个 agent 掌握控制权，仍只记录完成活动与天气变化。 */
 export async function recordWorldExperiences(
   characterId: string,
@@ -142,6 +126,10 @@ export async function trackWorldActivity(
 ): Promise<void> {
   const redis = await getRedis();
   const key = `${characterKey(characterId)}:agent:activity`;
+  if (activity?.pause) {
+    await finishWorldActivityWait(characterId, activity.activityId);
+    return;
+  }
   if (activity === null || activity.endsAt === null) {
     await redis.del(key);
 
@@ -150,7 +138,9 @@ export async function trackWorldActivity(
   const waiting: ActivityWait = {
     activityId: activity.activityId,
     endsAt: activity.endsAt,
-    checkAt: activity.startedAt + (activity.endsAt - activity.startedAt) * 1.5,
+    checkAt:
+      (activity.resumedAt ?? activity.startedAt) +
+      (activity.endsAt - (activity.resumedAt ?? activity.startedAt)) * 1.5,
   };
   await redis.eval(
     `

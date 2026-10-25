@@ -1,4 +1,4 @@
-import { glob, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, glob, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { z } from "zod";
@@ -14,6 +14,7 @@ async function main() {
     .parse(await readConfigFile());
   const runtimeDirectory = join(root, "apps/character-runtime/src/extensions");
   const dashboardDirectory = join(root, "apps/dashboard/src/extensions");
+  const publicDirectory = join(root, "apps/dashboard/public/extensions");
   const projectRequire = createRequire(join(root, "package.json"));
 
   // 目录名可以与包名不同；只登记配置需要的本地包，不执行其中的代码。
@@ -36,6 +37,7 @@ async function main() {
   const apis: string[] = [];
   const pages: string[] = [];
   const sources: string[] = [];
+  const assets: { name: string; directory: string }[] = [];
   for (const name of config.extensions ?? []) {
     const localPackagePath = localPackages.get(name);
     const packageJsonPath = localPackagePath ?? projectRequire.resolve(`${name}/package.json`);
@@ -62,6 +64,14 @@ async function main() {
       pages.push(renderEntry(name, `${dashboardPrefix}/web.ts`));
       sources.push(`@source ${JSON.stringify(relative(dashboardDirectory, packageDirectory))};`);
     }
+    // 扩展的 public 是可选静态目录；不读取配置、不执行插件入口。
+    for await (const path of glob("public", { cwd: packageDirectory })) {
+      const directory = join(packageDirectory, path);
+      if (!(await stat(directory)).isDirectory()) {
+        throw new Error(`扩展 ${name} 的 public 必须是目录`);
+      }
+      assets.push({ name, directory });
+    }
   }
 
   // 全部包与配置文件检查通过后才写入，生成物不包含完整配置或密钥。
@@ -77,8 +87,14 @@ async function main() {
     join(dashboardDirectory, "generated-sources.css"),
     `/* 由 pnpm run generate:extensions 生成，请勿手改。 */\n${sources.join("\n")}\n`,
   );
+  // 整个目录都是生成物；移除未引入扩展的旧资源，避免公开部署残留私有资源。
+  await rm(publicDirectory, { recursive: true, force: true });
+  await mkdir(publicDirectory, { recursive: true });
+  for (const asset of assets) {
+    await cp(asset.directory, join(publicDirectory, asset.name), { recursive: true });
+  }
   console.info(
-    `扩展导入表已生成：${agents.length} 个 agent 配置，${apis.length} 个 API 配置，${pages.length} 个页面配置`,
+    `扩展导入表已生成：${agents.length} 个 agent 配置，${apis.length} 个 API 配置，${pages.length} 个页面配置，${assets.length} 个静态目录`,
   );
 }
 

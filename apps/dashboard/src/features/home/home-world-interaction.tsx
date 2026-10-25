@@ -14,6 +14,8 @@ const notificationLabels: Record<NotificationState, string> = {
 const eventLabels: Record<WorldEvent["type"], string> = {
   activity_started: "活动开始",
   activity_completed: "活动完成",
+  activity_paused: "活动暂停",
+  activity_resumed: "活动继续",
   weather_changed: "天气变化",
   idle_reminder: "空闲提醒",
 };
@@ -145,15 +147,23 @@ export function HomeWorldInteraction({ data, now }: { data: WorldInteraction; no
             ["开始时间", activity === null ? "—" : formatTime(activity.startedAt, true)],
             [
               "预计结束",
-              activity?.endsAt == null ? "无固定结束时间" : formatTime(activity.endsAt, true),
+              activity?.pause
+                ? "恢复后重新计时"
+                : activity?.endsAt == null
+                  ? "无固定结束时间"
+                  : formatTime(activity.endsAt, true),
             ],
             [
               "活动计时",
-              activity?.endsAt == null
-                ? "—"
-                : activity.endsAt > now
-                  ? `剩余 ${Math.ceil((activity.endsAt - now) / 60000)} 分钟`
-                  : `超时 ${Math.floor((now - activity.endsAt) / 60000)} 分钟`,
+              activity?.pause
+                ? activity.pause.remainingMs === null
+                  ? "已暂停"
+                  : `已暂停 · 剩余 ${Math.ceil(activity.pause.remainingMs / 60000)} 分钟`
+                : activity?.endsAt == null
+                  ? "—"
+                  : activity.endsAt > now
+                    ? `剩余 ${Math.ceil((activity.endsAt - now) / 60000)} 分钟`
+                    : `超时 ${Math.floor((now - activity.endsAt) / 60000)} 分钟`,
             ],
             [
               "兜底状态",
