@@ -9,15 +9,15 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "pixi.js": "6.5.10",
-    "pixi-live2d-display": "0.4.0",
     "@yuiju/shared": "workspace:*",
+    "pixi-live2d-display": "0.4.0",
+    "pixi.js": "6.5.10",
     "ws": "^8.20.1"
   },
   "peerDependencies": {
-    "react": "catalog:",
-    "ai": "^7.0.118",
+    "ai": "^7.0.157",
     "hono": "catalog:",
+    "react": "catalog:",
     "zod": "^4.1.13"
   },
   "devDependencies": {

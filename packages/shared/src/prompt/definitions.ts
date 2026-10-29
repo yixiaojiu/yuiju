@@ -5,6 +5,11 @@ import { plannerPrompt } from "./conversation/planner";
 import { plannerCompressionPrompt } from "./conversation/planner-compression";
 import { replyerPrompt } from "./conversation/replyer";
 import { replyerCompressionPrompt } from "./conversation/replyer-compression";
+import {
+  replyerGenericEmpathyPrompt,
+  replyerOverexplainingPrompt,
+  replyerUnwantedAdvicePrompt,
+} from "./conversation/replyer-quality";
 import { emotionReviewPrompt } from "./emotion/review";
 import { emotionUpdatePrompt } from "./emotion/update";
 import {
@@ -42,5 +47,8 @@ export const promptDefinitions: readonly PromptTemplate[] = [
   replyerPrompt,
   plannerCompressionPrompt,
   replyerCompressionPrompt,
+  replyerUnwantedAdvicePrompt,
+  replyerGenericEmpathyPrompt,
+  replyerOverexplainingPrompt,
   worldRandomEventPrompt,
 ];

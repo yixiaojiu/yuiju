@@ -11,12 +11,14 @@ const groupWhitelistSchema = z
         z.looseObject({
           group_id: z.string().min(1),
           collect_training_data: z.boolean().optional(),
+          check_reply_quality: z.boolean().optional(),
         }),
       ])
       .transform((group) => ({
         ...(typeof group === "string" ? {} : group),
         group_id: typeof group === "string" ? group : group.group_id,
         collect_training_data: typeof group !== "string" && group.collect_training_data === true,
+        check_reply_quality: typeof group !== "string" && group.check_reply_quality === true,
       })),
   )
   .superRefine((groups, context) => {
@@ -82,6 +84,13 @@ export const config_schema = z
       .looseObject({
         models: z
           .looseObject({
+            decision: z
+              .looseObject({
+                base_url: z.url({ protocol: /^https?$/ }),
+                api_key: z.string().min(1),
+                model: z.string().min(1),
+              })
+              .optional(),
             chat: model_group_schema.optional(),
             strong: model_group_schema.optional(),
             flash: model_group_schema.optional(),

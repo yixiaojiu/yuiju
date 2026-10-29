@@ -330,20 +330,23 @@ export function createPlannerTools(
         try {
           const replyInput = { ...input, senderId };
           const generationStartedAt = performance.now();
-          const text = await context.replyer.reply(
+          const reply = await context.replyer.reply(
             replyInput,
             [...context.history],
             context.historyThrough,
             context.saveReplyerSummary,
             await context.readCharacter(),
           );
-          if (text === null) {
+          if (reply.status === "no_reply") {
             return "本次未发送：Replyer 判断当前无需回复。";
+          }
+          if (reply.status === "quality_rejected") {
+            return "本次未发送：Replyer 回复质量检查三次未通过。";
           }
           for await (const events of sendReply(
             context.connection,
             scope.channelId,
-            text,
+            reply.text,
             replyInput,
             generationStartedAt,
             async () => {

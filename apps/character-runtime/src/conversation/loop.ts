@@ -80,9 +80,10 @@ export class ConversationLoop {
     private readonly character: Character,
     collectTrainingData: boolean,
     private readonly botIds: readonly string[],
+    checkReplyQuality: boolean,
   ) {
     this.planner = new Planner(scope, botIds);
-    this.replyer = new Replyer(scope, collectTrainingData, botIds);
+    this.replyer = new Replyer(scope, collectTrainingData, botIds, checkReplyQuality);
   }
 
   /** 待处理输入由历史与消费边界派生，避免维护另一份可漂移的队列。 */

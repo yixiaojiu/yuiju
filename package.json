@@ -55,6 +55,7 @@
     "@biomejs/biome": "^2.3.5",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^24.10.0",
+    "@types/react": "catalog:",
     "@types/ws": "^8.18.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
@@ -65,19 +66,20 @@
     "vite": "^7.2.4",
     "vite-tsconfig-paths": "^5.1.4",
     "vitepress": "^1.6.4",
-    "vitest": "^4.0.13",
-    "@types/react": "catalog:"
+    "vitest": "^4.0.13"
   },
   "dependencies": {
     "@ai-sdk/devtools": "^1.0.4",
     "@ai-sdk/openai-compatible": "^3.0.57",
+    "@ai-sdk/typesafe-ai": "3.0.30",
     "@hono/node-server": "1.19.11",
     "@langfuse/otel": "^5.10.0",
     "@langfuse/vercel-ai-sdk": "^5.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@qdrant/js-client-rest": "~1.16.0",
     "@types/mongoose": "^5.11.97",
-    "ai": "^7.0.118",
+    "@yuiju/shared": "workspace:*",
+    "ai": "7.0.157",
     "bullmq": "^6.3.11",
     "dayjs": "^1.11.19",
     "dotenv": "^16.6.1",
@@ -87,12 +89,11 @@
     "mongoose": "^8.20.0",
     "node-cron": "^4.2.1",
     "node-napcat-ts": "^0.4.23",
+    "react": "catalog:",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",
     "ws": "^8.20.1",
-    "zod": "^4.1.13",
-    "@yuiju/shared": "workspace:*",
-    "react": "catalog:",
-    "yuiju-interaction": "workspace:*"
+    "yuiju-interaction": "workspace:*",
+    "zod": "^4.1.13"
   }
 }

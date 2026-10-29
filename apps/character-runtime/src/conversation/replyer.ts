@@ -1,3 +1,4 @@
+import { createTypeSafeAi } from "@ai-sdk/typesafe-ai";
 import { h } from "@satorijs/core";
 import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
@@ -5,7 +6,7 @@ import { estimateInputTokens, readInputTokenUsage } from "@yuiju/shared/llm/cont
 import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
-import { generateText, type ModelMessage } from "ai";
+import { experimental_decide, generateText, type ModelMessage } from "ai";
 import { type ContextSummary, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
 import type { ReplyInput } from "./tools";
@@ -18,16 +19,28 @@ export class Replyer {
   private systemPrompts!: ReplyerSystemPrompt[];
   /** 初始化时从合并默认值后的项目配置读取，与消息发生时间使用同一展示时区。 */
   private timezone!: string;
+  private qualityModel?: ReturnType<ReturnType<typeof createTypeSafeAi>["decisionModel"]>;
 
   constructor(
     private readonly scope: ConversationScope,
     private readonly collectTrainingData: boolean,
     private readonly botIds: readonly string[],
+    private readonly checkReplyQuality: boolean,
   ) {}
 
   async initialize(summary: Readonly<ContextSummary>) {
     const config = await load_config();
     this.timezone = config.app!.timezone!;
+    if (this.checkReplyQuality) {
+      const decision = config.llm?.models?.decision;
+      if (!decision) {
+        throw new Error("启用回复质量检查需要配置 llm.models.decision");
+      }
+      this.qualityModel = createTypeSafeAi({
+        baseURL: decision.base_url,
+        apiKey: decision.api_key,
+      }).decisionModel(decision.model);
+    }
     const windowTokens = config.llm?.models?.chat?.context_window_tokens;
     if (!windowTokens) {
       throw new Error("群聊需要配置 chat.context_window_tokens");
@@ -87,7 +100,7 @@ export class Replyer {
 
   /**
    * historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。
-   * 返回 null 表示模型明确选择本次不回复；空输出和格式错误仍抛出异常。
+   * 返回原因区分模型主动不回复与质量检查未通过；空输出和格式错误仍抛出异常。
    */
   async reply(
     input: ReplyInput,
@@ -95,7 +108,9 @@ export class Replyer {
     historyThrough: number,
     saveSummary: () => Promise<void>,
     characterContext: string,
-  ): Promise<string | null> {
+  ): Promise<
+    { status: "reply"; text: string } | { status: "no_reply" } | { status: "quality_rejected" }
+  > {
     const startedAt = performance.now();
     try {
       const previousSummary = this.context.summary;
@@ -162,48 +177,108 @@ export class Replyer {
 
       if (previousSummary !== this.context.summary) await saveSummary();
 
-      const requestEstimate = estimateInputTokens(messages);
-      const result = await generateText({
-        model: chatModel,
-        messages,
-        allowSystemInMessages: true,
-        maxRetries: 0,
-      });
-      this.context.inputUsage = readInputTokenUsage(requestEstimate, result.finalStep.usage);
-      const text = result.text.trim();
-      if (result.finishReason !== "stop" || !text) {
-        throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
-      }
-      if (this.collectTrainingData) {
-        // 先保留原始生成，包含主动沉默和待纠正的格式错误，供后续标注；不代表已发送。
-        collectReplyerGeneration(
-          this.scope,
-          this.systemPrompts,
-          // Context 首条是由上述提示词合并的 system message，采集时只保存一份。
-          messages.slice(1),
-          text,
-          result.finalStep.response.modelId,
-          result.finalStep.reasoningText,
-        );
-      }
-      if (text === "[[NO_REPLY]]") {
-        logger.info("Replyer 本次不回复", {
+      const questions = this.qualityModel
+        ? {
+            unwantedAdvice: {
+              type: "boolean" as const,
+              instructions: await renderPrompt("conversation.replyer_quality.unwanted_advice"),
+            },
+            genericEmpathy: {
+              type: "boolean" as const,
+              instructions: await renderPrompt("conversation.replyer_quality.generic_empathy"),
+            },
+            overexplaining: {
+              type: "boolean" as const,
+              instructions: await renderPrompt("conversation.replyer_quality.overexplaining"),
+            },
+          }
+        : undefined;
+      const retries: ModelMessage[] = [];
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const generationMessages = [...messages, ...retries];
+        const requestEstimate = estimateInputTokens(generationMessages);
+        const result = await generateText({
+          model: chatModel,
+          messages: generationMessages,
+          allowSystemInMessages: true,
+          maxRetries: 0,
+        });
+        this.context.inputUsage = readInputTokenUsage(requestEstimate, result.finalStep.usage);
+        const text = result.text.trim();
+        if (result.finishReason !== "stop" || !text) {
+          throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
+        }
+        if (this.collectTrainingData) {
+          // 原始生成包含尚未发送的草稿；采集记录使用本次实际输入。
+          collectReplyerGeneration(
+            this.scope,
+            this.systemPrompts,
+            generationMessages.slice(1),
+            text,
+            result.finalStep.response.modelId,
+            result.finalStep.reasoningText,
+          );
+        }
+        if (text === "[[NO_REPLY]]") {
+          logger.info("Replyer 本次不回复", {
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return { status: "no_reply" };
+        }
+        // 消息协议只用于输入和平台发送；模型生成的协议标签不能成为待发送正文。
+        if (
+          /<\/?(?:at|message|quote|poke|img|image|audio|video|file)(?=[\s/>])[^>]*>/i.test(text)
+        ) {
+          throw new Error(
+            "Replyer 输出包含消息协议标签，未发送；正文只能是普通文字，@ 和引用由程序附加",
+          );
+        }
+        if (this.qualityModel && questions) {
+          const evaluation = await experimental_decide({
+            model: this.qualityModel,
+            state: { context: JSON.stringify(messages), reply: text },
+            questions,
+            maxRetries: 0,
+          });
+          const probabilities = {
+            unwantedAdvice: evaluation.answers.unwantedAdvice.probability,
+            genericEmpathy: evaluation.answers.genericEmpathy.probability,
+            overexplaining: evaluation.answers.overexplaining.probability,
+          };
+          const issues = [
+            ...(probabilities.unwantedAdvice >= 0.8
+              ? ["对方未请求建议，却给出不合时宜的建议或说教。"]
+              : []),
+            ...(probabilities.genericEmpathy >= 0.8
+              ? ["使用脱离具体处境的套话式共情或鼓励。"]
+              : []),
+            ...(probabilities.overexplaining >= 0.8 ? ["解释玩笑或过度复述对方刚说的内容。"] : []),
+          ];
+          logger.info("Replyer 回复质量检查", {
+            model: evaluation.response.modelId,
+            attempt,
+            probabilities,
+            passed: issues.length === 0,
+            usage: evaluation.usage,
+          });
+          if (issues.length) {
+            if (attempt === 3) {
+              return { status: "quality_rejected" };
+            }
+            retries.push({
+              role: "user",
+              content: `上一版回复未通过：\n${text}\n\n问题：\n${issues.join("\n")}`,
+            });
+            continue;
+          }
+        }
+        logger.info("Replyer 生成完成", {
+          content: text,
           durationMs: Math.round(performance.now() - startedAt),
         });
-        return null;
+        return { status: "reply", text };
       }
-      // 消息协议只用于输入和平台发送；模型生成的协议标签不能成为待发送正文。
-      if (/<\/?(?:at|message|quote|poke|img|image|audio|video|file)(?=[\s/>])[^>]*>/i.test(text)) {
-        throw new Error(
-          "Replyer 输出包含消息协议标签，未发送；正文只能是普通文字，@ 和引用由程序附加",
-        );
-      }
-      logger.info("Replyer 生成完成", {
-        content: text,
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-
-      return text;
+      throw new Error("Replyer 回复质量检查未正常结束");
     } finally {
       reportAnalyticsEvent({
         eventName: "conversation.replyer",

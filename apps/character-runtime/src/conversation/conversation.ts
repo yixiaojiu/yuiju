@@ -42,6 +42,7 @@ export class Conversation {
         this.character,
         group.collect_training_data,
         this.onebot.bot_ids ?? [],
+        group.check_reply_quality,
       );
       await session.initialize();
       this.sessions.set(channelId, session);
