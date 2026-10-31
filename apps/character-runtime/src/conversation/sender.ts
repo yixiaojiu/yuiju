@@ -1,21 +1,28 @@
 import { setTimeout as delay } from "node:timers/promises";
-import type { ReplyTarget } from "./message";
+import type { IncomingMessage, ReplyTarget } from "./message";
 import type { OneBotConnection } from "./onebot";
 import { splitChatReply } from "./split-reply";
+import { parseStickerReply, type StickerCollection } from "./sticker";
 
 /**
- * 逐段发送并交还平台确认结果，调用方记录当前段后才继续发送下一段。
+ * 逐段发送并等待调用方记录当前段，再继续下一段；最后发送表情。
  * generationStartedAt 使用 performance.now()，首段从打字耗时中扣除已用的生成时间。
  */
-export async function* sendReply(
+export async function sendReply(
   connection: OneBotConnection,
+  stickers: StickerCollection,
   channelId: string,
   text: string,
   target: ReplyTarget,
   generationStartedAt: number,
   beforeSend: () => Promise<void>,
-) {
-  const segments = splitChatReply(text);
+  recordSent: (messages: IncomingMessage[]) => Promise<void>,
+): Promise<void> {
+  const reply = parseStickerReply(
+    text,
+    stickers.list().flatMap((sticker) => sticker.tags),
+  );
+  const segments = splitChatReply(reply.text);
   for (const [index, segment] of segments.entries()) {
     // 沿用旧规则：基础 1 秒 + 每字 200ms，抖动 ±180ms，限制在 400ms～10 秒。
     const typingMs = Math.round(
@@ -30,6 +37,9 @@ export async function* sendReply(
     }
     // 只有第一段携带引用 / @，后续段只发正文，避免重复提醒。
     await beforeSend();
-    yield await connection.sendText(channelId, segment, index === 0 ? target : {});
+    await recordSent(await connection.sendText(channelId, segment, index === 0 ? target : {}));
+  }
+  if (reply.tag !== undefined) {
+    await stickers.send(channelId, { tag: reply.tag }, beforeSend, recordSent);
   }
 }

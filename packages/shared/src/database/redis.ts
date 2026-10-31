@@ -17,6 +17,7 @@ export async function getRedis(source: "primary" | "sync" = "primary"): Promise<
   if (!client) {
     client = new Redis(url, {
       ...(source === "sync" ? { commandTimeout: 10_000 } : {}),
+      socketTimeout: 30_000,
       lazyConnect: true,
       enableOfflineQueue: false,
       autoResendUnfulfilledCommands: false,

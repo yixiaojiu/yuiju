@@ -5,8 +5,9 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { modelMessageSchema } from "ai";
 import type { mongo } from "mongoose";
 import { z } from "zod";
-import { type ConversationAgentEvent, conversationAgentEventSchema } from "../communication";
+import { conversationAgentEventSchema } from "../communication";
 import type { ContextSummary, ContextUnit } from "./context";
+import { type ConversationInputEvent, stickerAnnotationEventSchema } from "./events";
 import type { ConversationWait } from "./loop";
 import type { ConversationMessage, ConversationScope } from "./message";
 
@@ -27,8 +28,8 @@ export type ConversationRuntime = {
   silenceCooldownUntil: number;
   /** 暂停期消息只作为背景；少于 30 条保留原文，否则分批摘要，恢复后不补跑回复。 */
   paused?: { summary: string; coveredThrough: number };
-  /** 主 loop 的输入；consumed 表示已注入 Planner 上下文，不代表已对外发送。 */
-  agentEvents?: (ConversationAgentEvent & { consumed: boolean })[];
+  /** 内部输入；consumed 表示已注入 Planner 上下文，不代表已执行或对外发送。 */
+  agentEvents?: (ConversationInputEvent & { consumed: boolean })[];
 };
 
 /** Redis Hash 的四个字段；调用方只提交本次变更涉及的字段。 */
@@ -94,6 +95,7 @@ const stateSchema: z.ZodType<ConversationState> = z.strictObject({
         z.discriminatedUnion("type", [
           conversationAgentEventSchema.options[0].extend({ consumed: z.boolean() }),
           conversationAgentEventSchema.options[1].extend({ consumed: z.boolean() }),
+          stickerAnnotationEventSchema.extend({ consumed: z.boolean() }),
         ]),
       )
       .optional(),

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { load_config } from "@yuiju/shared/config/load";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { test, vi } from "vitest";
@@ -11,6 +13,7 @@ import {
 import { OneBotConnection } from "../src/conversation/onebot";
 import { Planner } from "../src/conversation/planner";
 import { Replyer } from "../src/conversation/replyer";
+import { StickerCollection } from "../src/conversation/sticker";
 import type { ConversationToolContext } from "../src/conversation/tools";
 import { isDirectedMessage } from "../src/conversation/trigger";
 import { participants } from "./cases/conversation-quality";
@@ -150,6 +153,11 @@ for (const scenario of [
               return `已投递给主 loop，事件 ID：${id}。尚不代表已作出决定。`;
             },
             connection,
+            stickers: new StickerCollection(
+              join(tmpdir(), `yuiju-stickers-eval-${randomUUID()}.json`),
+              connection,
+            ),
+            annotationResIds: [],
             replyer,
             history,
             historyThrough: history.length,

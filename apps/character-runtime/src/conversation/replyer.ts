@@ -9,6 +9,7 @@ import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { experimental_decide, generateText, type ModelMessage } from "ai";
 import { type ContextSummary, ConversationContext } from "./context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
+import { parseStickerReply } from "./sticker";
 import type { ReplyInput } from "./tools";
 import { collectReplyerGeneration, type ReplyerSystemPrompt } from "./training-data";
 
@@ -100,7 +101,7 @@ export class Replyer {
 
   /**
    * historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。
-   * 返回原因区分模型主动不回复与质量检查未通过；空输出和格式错误仍抛出异常。
+   * 清理表情标记后无内容时不回复，质量检查未通过单独返回。
    */
   async reply(
     input: ReplyInput,
@@ -108,6 +109,7 @@ export class Replyer {
     historyThrough: number,
     saveSummary: () => Promise<void>,
     characterContext: string,
+    availableStickerTags: readonly string[],
   ): Promise<
     { status: "reply"; text: string } | { status: "no_reply" } | { status: "quality_rejected" }
   > {
@@ -181,15 +183,18 @@ export class Replyer {
         ? {
             unwantedAdvice: {
               type: "boolean" as const,
-              instructions: await renderPrompt("conversation.replyer_quality.unwanted_advice"),
+              instructions:
+                "结合聊天上下文和待检查的回复，判断回复是否把对方的闲聊、吐槽或玩笑当作求助，在对方没有请求建议的情况下，给出不合时宜的指导、解决步骤或说教。对方确实寻求建议或帮助时，回应请求不算命中；顺着聊天表达自己的看法、简短关心或角色自然的反应也不算命中。",
             },
             genericEmpathy: {
               type: "boolean" as const,
-              instructions: await renderPrompt("conversation.replyer_quality.generic_empathy"),
+              instructions:
+                "结合聊天上下文和待检查的回复，判断回复是否用脱离具体处境的套话式共情、鼓励或强行正能量代替回应，例如把普通吐槽变成情绪疏导，或用几乎适用于任何人的励志话收尾。自然的关心、回应具体处境的安慰，以及对方明确希望得到安慰时真诚的鼓励都不算命中。",
             },
             overexplaining: {
               type: "boolean" as const,
-              instructions: await renderPrompt("conversation.replyer_quality.overexplaining"),
+              instructions:
+                "结合聊天上下文和待检查的回复，判断回复是否不参与当下交流，而是分析或解释对方玩笑的笑点，或者把对方刚说过的内容逐项复述、总结后再作回应。自然地引用少量内容、确认有歧义的信息、接梗或回应对方提到的具体细节都不算命中。",
             },
           }
         : undefined;
@@ -205,7 +210,7 @@ export class Replyer {
         });
         this.context.inputUsage = readInputTokenUsage(requestEstimate, result.finalStep.usage);
         const text = result.text.trim();
-        if (result.finishReason !== "stop" || !text) {
+        if (result.finishReason !== "stop") {
           throw new Error(`Replyer 未正常生成文字：${result.finishReason}`);
         }
         if (this.collectTrainingData) {
@@ -219,24 +224,27 @@ export class Replyer {
             result.finalStep.reasoningText,
           );
         }
-        if (text === "[[NO_REPLY]]") {
-          logger.info("Replyer 本次不回复", {
+        const parsed = parseStickerReply(text, availableStickerTags);
+        if (!parsed.text && parsed.tag === undefined) {
+          logger.info("Replyer 本次没有可发送内容", {
             durationMs: Math.round(performance.now() - startedAt),
           });
           return { status: "no_reply" };
         }
         // 消息协议只用于输入和平台发送；模型生成的协议标签不能成为待发送正文。
         if (
-          /<\/?(?:at|message|quote|poke|img|image|audio|video|file)(?=[\s/>])[^>]*>/i.test(text)
+          /<\/?(?:at|message|quote|poke|img|image|audio|video|file)(?=[\s/>])[^>]*>/i.test(
+            parsed.text,
+          )
         ) {
           throw new Error(
             "Replyer 输出包含消息协议标签，未发送；正文只能是普通文字，@ 和引用由程序附加",
           );
         }
-        if (this.qualityModel && questions) {
+        if (this.qualityModel && questions && parsed.text) {
           const evaluation = await experimental_decide({
             model: this.qualityModel,
-            state: { context: JSON.stringify(messages), reply: text },
+            state: { context: JSON.stringify(messages), reply: parsed.text },
             questions,
             maxRetries: 0,
           });
@@ -246,13 +254,13 @@ export class Replyer {
             overexplaining: evaluation.answers.overexplaining.probability,
           };
           const issues = [
-            ...(probabilities.unwantedAdvice >= 0.8
+            ...(probabilities.unwantedAdvice >= 0.85
               ? ["对方未请求建议，却给出不合时宜的建议或说教。"]
               : []),
-            ...(probabilities.genericEmpathy >= 0.8
+            ...(probabilities.genericEmpathy >= 0.85
               ? ["使用脱离具体处境的套话式共情或鼓励。"]
               : []),
-            ...(probabilities.overexplaining >= 0.8 ? ["解释玩笑或过度复述对方刚说的内容。"] : []),
+            ...(probabilities.overexplaining >= 0.85 ? ["解释玩笑或过度复述对方刚说的内容。"] : []),
           ];
           logger.info("Replyer 回复质量检查", {
             model: evaluation.response.modelId,
@@ -276,7 +284,10 @@ export class Replyer {
           content: text,
           durationMs: Math.round(performance.now() - startedAt),
         });
-        return { status: "reply", text };
+        return {
+          status: "reply",
+          text: parsed.tag === undefined ? parsed.text : `${parsed.text}[[${parsed.tag}]]`,
+        };
       }
       throw new Error("Replyer 回复质量检查未正常结束");
     } finally {

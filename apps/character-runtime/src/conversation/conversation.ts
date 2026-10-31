@@ -1,17 +1,21 @@
+import { join } from "node:path";
 import {
   readConversationSettings,
   subscribeConversationSettings,
 } from "@yuiju/shared/dashboard/conversation-settings";
 import { logger } from "@yuiju/shared/logger/logger";
+import { get_data_dir } from "@yuiju/shared/utils/path";
 import type { Character } from "../character";
 import type { ConversationAgentEvent } from "../communication";
 import { ConversationLoop } from "./loop";
 import type { ConversationScope } from "./message";
 import { type OneBotConfig, OneBotConnection } from "./onebot";
+import { StickerCollection } from "./sticker";
 
 export class Conversation {
   private readonly connection: OneBotConnection;
   private readonly sessions = new Map<string, ConversationLoop>();
+  private stickers!: StickerCollection;
   /** 世界活动许可与人工开关独立；世界通知可能早于会话初始化。 */
   private participationAllowed: boolean | undefined;
   /** 场景独立控制新轮次，不覆盖世界活动许可与每个群的人工开关。 */
@@ -31,6 +35,17 @@ export class Conversation {
     if (participationAllowed !== undefined) {
       this.participationAllowed = participationAllowed;
     }
+    this.stickers = new StickerCollection(
+      join(
+        await get_data_dir(),
+        "characters",
+        encodeURIComponent(this.character.id),
+        "conversation",
+        "stickers",
+        `${encodeURIComponent(this.onebot.self_id)}.json`,
+      ),
+      this.connection,
+    );
     // 主动恢复白名单中的会话；不能等第一条新消息才重建 wait。
     for (const group of this.onebot.group_white_list ?? []) {
       const channelId = group.group_id;
@@ -43,6 +58,7 @@ export class Conversation {
         group.collect_training_data,
         this.onebot.bot_ids ?? [],
         group.check_reply_quality,
+        this.stickers,
       );
       await session.initialize();
       this.sessions.set(channelId, session);
@@ -65,6 +81,16 @@ export class Conversation {
       // 入口已严格校验白名单；连接建立期间先记录，resume 后再执行模型。
       await this.sessions.get(channelId)!.receive(message);
     });
+    await this.stickers.initialize();
+    for (const session of this.sessions.values()) {
+      await session.restoreStickerKeys();
+    }
+    const firstGroup = this.onebot.group_white_list?.[0];
+    if (firstGroup) {
+      await this.sessions
+        .get(firstGroup.group_id)!
+        .receiveStickerAnnotations(this.stickers.pending());
+    }
     if (this.participationAllowed !== undefined) {
       await this.setParticipationAllowed(this.participationAllowed);
     }

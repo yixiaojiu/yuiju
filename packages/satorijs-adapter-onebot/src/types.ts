@@ -121,6 +121,30 @@ export interface RecordInfo {
   file: string;
 }
 
+export interface CustomFace {
+  resId: string;
+  md5: string;
+  url: string;
+  isMarkFace: boolean;
+  eId: string;
+  epId: string;
+}
+
+export interface CustomFaceResult {
+  result: number;
+  errMsg: string;
+  isExist?: number;
+}
+
+export interface AddCustomFaceInput {
+  file: string;
+  md5: string;
+  emoji_id?: string;
+  package_id?: number;
+  file_name?: string;
+  is_mark_face: boolean;
+}
+
 export interface VersionInfo {
   app_name?: string;
   app_version?: string;
@@ -604,6 +628,19 @@ const logger = new Logger("onebot");
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: OneBot methods are generated from action names at module load time.
 export class Internal {
   _request?(action: string, params: Dict): Promise<Response>;
+
+  async fetchCustomFaceDetail(count: number): Promise<CustomFace[]> {
+    return await this._get("fetch_custom_face_detail", { count });
+  }
+
+  async addCustomFace(input: AddCustomFaceInput): Promise<CustomFaceResult> {
+    return await this._get("add_custom_face", input);
+  }
+
+  // delete 前缀的动态方法会丢弃 data；这里保留底层 result 以确认真实删除结果。
+  async deleteCustomFace(resId: string): Promise<CustomFaceResult> {
+    return await this._get("delete_custom_face", { res_id: resId });
+  }
 
   private async _get<T = any>(action: string, params = {}): Promise<T> {
     logger.debug("[request] %s %o", action, params);

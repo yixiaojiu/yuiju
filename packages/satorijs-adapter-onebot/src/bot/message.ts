@@ -67,12 +67,24 @@ export class OneBotMessageEncoder extends MessageEncoder {
       if (attrs.id) this.children.push({ type: "reply", data: { id: attrs.id } });
     } else if (type === "face") {
       this.children.push({ type: "face", data: { id: attrs.id } });
+    } else if (type === "mface") {
+      this.children.push({
+        type: "mface",
+        data: {
+          emoji_id: attrs.emojiId,
+          emoji_package_id: attrs.emojiPackageId,
+          key: attrs.key,
+          summary: attrs.summary,
+        },
+      });
     } else if (type === "image" || type === "img") {
       this.children.push({
         type: "image",
         data: {
           file: attrs.url || attrs.src,
           cache: attrs.cache ? 1 : 0,
+          summary: attrs.summary,
+          sub_type: attrs.subType,
         },
       });
     } else if (type === "audio") {

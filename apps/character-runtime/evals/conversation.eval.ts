@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, vi } from "vitest";
 import type { ConversationMessage, IncomingEvent } from "../src/conversation/message";
 import { OneBotConnection } from "../src/conversation/onebot";
 import { Planner } from "../src/conversation/planner";
 import { Replyer } from "../src/conversation/replyer";
+import { StickerCollection } from "../src/conversation/sticker";
 import type { ConversationToolContext } from "../src/conversation/tools";
 import { evaluateTrigger } from "../src/conversation/trigger";
 import { conversationCases, conversationState } from "./cases/conversation";
@@ -88,6 +91,11 @@ for (const scenario of conversationCases) {
                 return `已投递给主 loop，事件 ID：${id}。尚不代表已作出决定。`;
               },
               connection,
+              stickers: new StickerCollection(
+                join(tmpdir(), `yuiju-stickers-eval-${randomUUID()}.json`),
+                connection,
+              ),
+              annotationResIds: [],
               replyer,
               history,
               historyThrough: history.length,

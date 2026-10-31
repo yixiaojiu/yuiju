@@ -21,6 +21,12 @@ import {
 import type { OneBotConnection } from "./onebot";
 import type { Replyer } from "./replyer";
 import { sendReply } from "./sender";
+import {
+  collectStickerSchema,
+  type StickerCollection,
+  sendMediaSchema,
+  stickerTools,
+} from "./sticker";
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
@@ -92,6 +98,7 @@ const personMemorySchema = personSchema.extend({
 
 /** 不绑定执行逻辑的工具定义，规划和压缩共用同一套 schema。 */
 export const plannerTools = {
+  ...stickerTools,
   notifyCharacter: tool({
     description:
       "你将群聊中值得带回生活里考虑的事情传递给主 loop，供后续生活决策使用。也可以通过 relatedEventId 反馈主 loop 事件的实际交流结果。通知只投递事件，不等待决定、不发送群消息，也不表示接受邀请或建立计划。",
@@ -123,10 +130,13 @@ export const plannerTools = {
   }),
   reply: tool({
     description:
-      "你决定这次要参与文字交流后调用，不能用它试探是否还能接一句。Replyer 根据聊天记录、人设与补充上下文决定具体回复，也可以选择本次不回复；返回实际发送记录或未发送的结果。主动不回复不是执行失败。没有额外上下文时省略 replyContext；引用和 @ 可选，分别使用消息 id 和 sender-id。",
+      "你想用文字回应或分享时调用，由 Replyer 根据聊天记录和补充上下文生成并发送回复，也可搭配表情。只想发表情用 sendMedia，只想戳一戳用 poke。返回实际发送记录或未发送结果；Replyer 可以选择不回复，无需因此重试。",
     inputSchema: replySchema,
   }),
-  poke: tool({ description: "你戳一戳某个人，返回实际执行结果。", inputSchema: pokeSchema }),
+  poke: tool({
+    description: "聊天软件的戳一戳功能，你戳一戳某个人，返回实际执行结果。",
+    inputSchema: pokeSchema,
+  }),
   wait: tool({
     description:
       "你安排一次主动定时唤醒：本步工具完成后暂停，到期即使无人发消息也会再判断。用于对方明确还没说完等具体短暂停顿。它不是结束工具，也不是等待下一条群消息；旁听、聊完、等别人回话时不调用工具即可结束。",
@@ -146,6 +156,9 @@ export const plannerToolDescription = JSON.stringify(
       readPerson: personSchema,
       updatePersonMemory: personMemorySchema,
       readPlans: z.strictObject({}),
+      collectSticker: collectStickerSchema,
+      listStickers: z.strictObject({}),
+      sendMedia: sendMediaSchema,
     }).map(([name, schema]) => [
       name,
       {
@@ -167,6 +180,8 @@ export type ConversationToolContext = {
     relatedEventId?: string,
   ) => Promise<string>;
   connection: OneBotConnection;
+  stickers: StickerCollection;
+  annotationResIds: string[];
   replyer: Replyer;
   /** 固定本轮收到的消息，执行期间仅追加已确认发送的事件。 */
   history: ConversationMessage[];
@@ -193,9 +208,77 @@ export function createPlannerTools(
   botIds: readonly string[],
   context: ConversationToolContext,
 ) {
-  let replyQueue = Promise.resolve();
+  let sendQueue = Promise.resolve();
 
   return {
+    collectSticker: tool({
+      ...plannerTools.collectSticker,
+      async execute(input) {
+        try {
+          if (input.source.type === "message") {
+            const messageId = input.source.messageId;
+            if (
+              !context.history.some(
+                (message) => message.kind === "message" && message.id === messageId,
+              )
+            ) {
+              throw new Error("来源消息不在当前真实交流中");
+            }
+          } else if (!context.annotationResIds.includes(input.source.resId)) {
+            throw new Error("来源收藏不在已收到的待标注事件中");
+          }
+          return JSON.stringify(await context.stickers.collect(input, scope.channelId));
+        } catch (error) {
+          context.failed = true;
+          logger.error("表情收藏未完整完成", { error });
+          return `表情收藏未完整完成：${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
+    listStickers: tool({
+      ...plannerTools.listStickers,
+      execute: async () => JSON.stringify(context.stickers.list()),
+    }),
+    sendMedia: tool({
+      ...plannerTools.sendMedia,
+      async execute({ id }) {
+        const previous = sendQueue;
+        let release!: () => void;
+        sendQueue = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        const sent: IncomingEvent[] = [];
+        let stage = "prepare-send";
+        let failure: string | undefined;
+        try {
+          await context.stickers.send(
+            scope.channelId,
+            { id },
+            async () => {
+              await context.beforeSend();
+              context.sendAttempted = true;
+              stage = "send";
+            },
+            async (messages) => {
+              sent.push(...messages);
+              stage = "storage";
+              await context.recordSent(messages);
+            },
+          );
+        } catch (error) {
+          context.failed = true;
+          logger.error("媒体发送工具失败", { stage, sentCount: sent.length, error });
+          failure = `媒体发送未完整完成（${stage}）：${error instanceof Error ? error.message : String(error)}。以下为已确认发送记录。`;
+        } finally {
+          release();
+        }
+        return [
+          ...(failure ? [failure] : []),
+          ...sent.map((message) => renderMessage(message, timezone, botIds)),
+        ].join("\n");
+      },
+    }),
     notifyCharacter: tool({
       ...plannerTools.notifyCharacter,
       async execute({ description, messageIds, relatedEventId }) {
@@ -316,10 +399,10 @@ export function createPlannerTools(
     reply: tool({
       ...plannerTools.reply,
       execute: async ({ "sender-id": senderId, ...input }) => {
-        // 只排队回复，覆盖生成、分段发送与记录；其他工具不等待此队列。
-        const previousReply = replyQueue;
+        // 回复和直接媒体发送共用队列，覆盖生成、发送与记录。
+        const previousReply = sendQueue;
         let release!: () => void;
-        replyQueue = new Promise<void>((resolve) => {
+        sendQueue = new Promise<void>((resolve) => {
           release = resolve;
         });
         await previousReply;
@@ -336,15 +419,17 @@ export function createPlannerTools(
             context.historyThrough,
             context.saveReplyerSummary,
             await context.readCharacter(),
+            context.stickers.list().flatMap((sticker) => sticker.tags),
           );
           if (reply.status === "no_reply") {
-            return "本次未发送：Replyer 判断当前无需回复。";
+            return "本次未发送：没有可发送的回复内容。";
           }
           if (reply.status === "quality_rejected") {
             return "本次未发送：Replyer 回复质量检查三次未通过。";
           }
-          for await (const events of sendReply(
+          await sendReply(
             context.connection,
+            context.stickers,
             scope.channelId,
             reply.text,
             replyInput,
@@ -355,13 +440,13 @@ export function createPlannerTools(
               context.sendAttempted = true;
               stage = "send";
             },
-          )) {
-            // 先保存本次工具确认的结果，落库失败也不能抹去发送事实。
-            sent.push(...events);
-            stage = "storage";
-            await context.recordSent(events);
-            stage = "send";
-          }
+            async (events) => {
+              // 先保留确认结果，历史或统计写入失败也不能抹去发送事实。
+              sent.push(...events);
+              stage = "storage";
+              await context.recordSent(events);
+            },
+          );
         } catch (error) {
           context.failed = true;
           logger.error("回复工具执行失败", { stage, sentCount: sent.length, error });
@@ -384,7 +469,7 @@ export function createPlannerTools(
         }
         const result = sent.map((message) => renderMessage(message, timezone, botIds));
         if (failure) result.unshift(failure);
-        return result.join("\n");
+        return result.length ? result.join("\n") : "本次未发送：没有可发送的文字或表情。";
       },
     }),
     poke: tool({

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
@@ -5,7 +6,8 @@ import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText } from "ai";
 import type { Character } from "../character";
-import { COMMUNICATION_RETENTION_MS, type ConversationAgentEvent } from "../communication";
+import { COMMUNICATION_RETENTION_MS } from "../communication";
+import type { ConversationInputEvent } from "./events";
 import {
   type ConversationMessage,
   type ConversationScope,
@@ -15,6 +17,7 @@ import {
 import type { OneBotConnection } from "./onebot";
 import { Planner } from "./planner";
 import { Replyer } from "./replyer";
+import type { PendingSticker, StickerCollection } from "./sticker";
 import {
   type ConversationRuntime,
   type ConversationState,
@@ -33,7 +36,7 @@ type NextRound = {
     messages: ConversationMessage[];
     history: ConversationMessage[];
     throughSequence: number;
-    agentEvents: ConversationAgentEvent[];
+    agentEvents: ConversationInputEvent[];
   };
   /** 等待实际秒数；0 也表示结束等待。 */
   waitedSeconds?: number;
@@ -81,6 +84,7 @@ export class ConversationLoop {
     collectTrainingData: boolean,
     private readonly botIds: readonly string[],
     checkReplyQuality: boolean,
+    private readonly stickers: StickerCollection,
   ) {
     this.planner = new Planner(scope, botIds);
     this.replyer = new Replyer(scope, collectTrainingData, botIds, checkReplyQuality);
@@ -132,7 +136,7 @@ export class ConversationLoop {
   }
 
   /** 先持久接收再唤醒；忙碌时留到下一轮，暂停聊天时保留到恢复。 */
-  async receiveAgentEvent(event: ConversationAgentEvent): Promise<string> {
+  async receiveAgentEvent(event: ConversationInputEvent): Promise<string> {
     const release = await this.acquireStateWrite();
     try {
       if (this.persistenceError) {
@@ -158,6 +162,33 @@ export class ConversationLoop {
       return `已投递给本群 Planner，事件 ID：${event.id}。是否、何时发送群消息由它决定。`;
     } finally {
       release();
+    }
+  }
+
+  async restoreStickerKeys(): Promise<void> {
+    for (const message of this.history) {
+      if (message.kind === "message") {
+        await this.stickers.observeMessage(message.content);
+      }
+    }
+  }
+
+  /** 启动只投递未被待消费事件覆盖的收藏；事件消费不等于标注完成。 */
+  async receiveStickerAnnotations(pending: PendingSticker[]): Promise<void> {
+    const covered = new Set(
+      (this.runtime.agentEvents ?? []).flatMap((event) =>
+        event.type === "sticker_annotation" && !event.consumed ? event.resIds : [],
+      ),
+    );
+    const remaining = pending.filter((sticker) => !covered.has(sticker.resId));
+    if (remaining.length) {
+      await this.receiveAgentEvent({
+        type: "sticker_annotation",
+        id: randomUUID(),
+        occurredAt: Date.now(),
+        resIds: remaining.map((sticker) => sticker.resId),
+        content: JSON.stringify(remaining),
+      });
     }
   }
 
@@ -363,10 +394,13 @@ export class ConversationLoop {
           pendingCount: this.pending.length,
         });
       }
-      this.requestRun();
     } finally {
       release();
     }
+    if (input.kind === "message") {
+      await this.stickers.observeMessage(input.content);
+    }
+    this.requestRun();
   }
 
   /** 真实发送先写入内存和本轮快照；保存失败也不能抹去平台确认的事实。 */
@@ -529,7 +563,7 @@ export class ConversationLoop {
       reason: currentRound
         ? "恢复未完成轮次"
         : agentEvents.length
-          ? "收到主 loop 事件"
+          ? "收到内部事件"
           : waitedSeconds !== undefined
             ? "结束主动等待，继续处理"
             : trigger.reason,
@@ -597,7 +631,7 @@ export class ConversationLoop {
           for (const event of next.input.agentEvents) {
             this.planner.appendBackground(
               [
-                `来自主 loop 的${event.type === "share" ? "分享意图" : "交流反馈"}（事件 ID：${event.id}）`,
+                `${event.type === "sticker_annotation" ? "QQ 收藏待标注事件" : `来自主 loop 的${event.type === "share" ? "分享意图" : "交流反馈"}`}（事件 ID：${event.id}）`,
                 `发生时间：${formatLlmDateTime(event.occurredAt, timezone)}`,
                 ...(event.type === "result" ? [`关联事件 ID：${event.relatedEventId}`] : []),
                 event.content,
@@ -687,6 +721,10 @@ export class ConversationLoop {
   private async runRound(input: NonNullable<NextRound["input"]>): Promise<ConversationToolContext> {
     const execution: ConversationToolContext = {
       connection: this.connection,
+      stickers: this.stickers,
+      annotationResIds: (this.runtime.agentEvents ?? []).flatMap((event) =>
+        event.type === "sticker_annotation" && event.consumed ? event.resIds : [],
+      ),
       replyer: this.replyer,
       history: input.history,
       historyThrough: input.history.at(-1)?.sequence ?? 0,
@@ -699,7 +737,10 @@ export class ConversationLoop {
       notifyCharacter: async (description, messageIds, relatedEventId) => {
         if (
           relatedEventId &&
-          !this.runtime.agentEvents?.some((event) => event.id === relatedEventId && event.consumed)
+          !this.runtime.agentEvents?.some(
+            (event) =>
+              event.type !== "sticker_annotation" && event.id === relatedEventId && event.consumed,
+          )
         ) {
           return "未投递：关联事件不在本群已接收的主 loop 输入中，请使用可见的事件 ID。";
         }

@@ -88,7 +88,7 @@
     "lodash-es": "^4.17.21",
     "mongoose": "^8.20.0",
     "node-cron": "^4.2.1",
-    "node-napcat-ts": "^0.4.23",
+    "node-napcat-ts": "^0.4.25",
     "react": "catalog:",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",

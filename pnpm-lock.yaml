@@ -87,8 +87,8 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
       node-napcat-ts:
-        specifier: ^0.4.23
-        version: 0.4.23
+        specifier: ^0.4.25
+        version: 0.4.25
       react:
         specifier: 'catalog:'
         version: 19.2.4
@@ -4125,8 +4125,8 @@ packages:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
 
-  node-napcat-ts@0.4.23:
-    resolution: {integrity: sha512-1xdgCeMzld1htzaiYb+7EfAQYD5QTq4990BKBhaKa8zB199ad25/TDQQ8blMEbHZagdB+duEtsj8zFsnZUswbg==}
+  node-napcat-ts@0.4.25:
+    resolution: {integrity: sha512-Yp/+JNJ65DnCnNJzxVP/kqkRXdDHM4hVM3MLuYvoGFaT3gCclSyuEiZ5tL5ADVrWxWHMtJJaV5yJVSrBsrIR/w==}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -5044,18 +5044,6 @@ packages:
     peerDependencies:
       bufferutil: ^4.0.1
       utf-8-validate: ^5.0.2
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
-  ws@8.18.3:
-    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
     peerDependenciesMeta:
       bufferutil:
         optional: true
@@ -8425,9 +8413,9 @@ snapshots:
 
   is-what@5.5.0: {}
 
-  isomorphic-ws@5.0.0(ws@8.18.3):
+  isomorphic-ws@5.0.0(ws@8.20.1):
     dependencies:
-      ws: 8.18.3
+      ws: 8.20.1
 
   jiti@2.7.0: {}
 
@@ -8758,11 +8746,11 @@ snapshots:
       detect-libc: 2.1.2
     optional: true
 
-  node-napcat-ts@0.4.23:
+  node-napcat-ts@0.4.25:
     dependencies:
-      isomorphic-ws: 5.0.0(ws@8.18.3)
+      isomorphic-ws: 5.0.0(ws@8.20.1)
       nanoid: 5.1.6
-      ws: 8.18.3
+      ws: 8.20.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -9936,8 +9924,6 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@7.5.10: {}
-
-  ws@8.18.3: {}
 
   ws@8.20.1: {}
 

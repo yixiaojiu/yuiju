@@ -18,7 +18,11 @@ export class WorldEventQueues {
   private readonly archiveWorker: Worker<WorldFact>;
 
   constructor(producer: Redis, redisUrl: string, characterIds: Iterable<string>) {
-    this.workerConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+    this.workerConnection = new Redis(redisUrl, {
+      maxRetriesPerRequest: null,
+      // 长于 BullMQ 的正常阻塞等待，连接无响应时由 ioredis 断开重连。
+      socketTimeout: 30_000,
+    });
     this.workerConnection.on("error", (error) =>
       logger.error("世界队列 Redis 连接异常", { error }),
     );
