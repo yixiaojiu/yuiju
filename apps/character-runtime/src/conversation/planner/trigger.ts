@@ -1,5 +1,8 @@
 import { h } from "@satorijs/core";
-import { type ConversationMessage, visibleText } from "./message";
+import { logger } from "@yuiju/shared/logger/logger";
+import type { ConversationInputEvent } from "../events";
+import { type ConversationMessage, visibleText } from "../message";
+import type { ConversationRuntime } from "../storage/redis";
 
 export const RECHECK_INTERVAL_MS = 30_000;
 // 第二次连续沉默开始退避，后续按顺序增长，最多五分钟。
@@ -145,5 +148,112 @@ export function evaluateTrigger(input: {
     score,
     scoreDetails: { contentScore, pressure, ageBonus, directedBonus, penalty },
     reason: !eligible ? "沉默冷却中" : score >= threshold ? "触发评分达标" : "触发评分不足",
+  };
+}
+
+/** 判断阶段只给出输入快照或下次检查时间，不创建定时器、不修改状态。 */
+export type NextRound = {
+  input?: {
+    messages: ConversationMessage[];
+    history: ConversationMessage[];
+    throughSequence: number;
+    agentEvents: ConversationInputEvent[];
+  };
+  /** 等待实际秒数；0 也表示结束等待。 */
+  waitedSeconds?: number;
+  nextCheckAt?: number;
+};
+
+export function getNextRound(input: {
+  now: number;
+  pending: ConversationMessage[];
+  history: ConversationMessage[];
+  runtime: ConversationRuntime;
+  selfId: string;
+  names: string[];
+  botIds: readonly string[];
+}): NextRound {
+  const { now, pending, history, runtime, selfId, names, botIds } = input;
+  const agentEvents = (runtime.agentEvents ?? []).filter((event) => !event.consumed);
+  const { waiting, failedThroughSequence, currentRound } = runtime;
+  const trigger = evaluateTrigger({
+    pending,
+    history,
+    selfId,
+    names,
+    botIds,
+    nextEligibleAt: runtime.silenceCooldownUntil,
+    now,
+  });
+  let waitedSeconds: number | undefined;
+  if (waiting) {
+    if (now < waiting.until && !trigger.interruptsWait && !agentEvents.length) {
+      logger.info("Planner 继续等待", {
+        pendingCount: pending.length,
+        recheckAfterSeconds: Math.ceil((waiting.until - now) / 1000),
+      });
+      return { nextCheckAt: waiting.until };
+    }
+    waitedSeconds = (now - waiting.startedAt) / 1000;
+  }
+  if (!pending.length && !agentEvents.length && waitedSeconds === undefined && !currentRound) {
+    return {};
+  }
+  if (
+    failedThroughSequence !== undefined &&
+    !agentEvents.length &&
+    !pending.some((message) => message.sequence > failedThroughSequence)
+  ) {
+    logger.info("Planner 暂不运行", {
+      reason: "上轮失败，等待新输入后再处理",
+      pendingCount: pending.length,
+    });
+    return { waitedSeconds };
+  }
+  if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
+    logger.info("Planner 触发判断", {
+      shouldRun: false,
+      reason: trigger.reason,
+      pendingCount: pending.length,
+      score: trigger.score,
+      threshold: trigger.threshold,
+      botOnly: trigger.botOnly,
+      scoredMessageCount: trigger.scoredMessageCount,
+      ...trigger.scoreDetails,
+      cooldownSeconds: Math.max(0, Math.ceil((runtime.silenceCooldownUntil - now) / 1000)),
+      recheckAfterSeconds: trigger.shouldRecheck ? RECHECK_INTERVAL_MS / 1000 : null,
+    });
+    return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
+  }
+  // 恢复轮次、主 loop 事件和等待结束可以绕过评分，日志记录实际放行原因。
+  logger.info("Planner 触发判断", {
+    shouldRun: true,
+    reason: currentRound
+      ? "恢复未完成轮次"
+      : agentEvents.length
+        ? "收到内部事件"
+        : waitedSeconds !== undefined
+          ? "结束主动等待，继续处理"
+          : trigger.reason,
+    pendingCount: pending.length,
+    ...(!currentRound && !agentEvents.length && waitedSeconds === undefined && trigger.scoreDetails
+      ? {
+          score: trigger.score,
+          threshold: trigger.threshold,
+          botOnly: trigger.botOnly,
+          scoredMessageCount: trigger.scoredMessageCount,
+          ...trigger.scoreDetails,
+        }
+      : {}),
+  });
+  const throughSequence = pending.at(-1)?.sequence ?? runtime.processedThrough;
+  return {
+    input: {
+      messages: pending,
+      history: history.filter((message) => message.sequence <= throughSequence || message.isSelf),
+      throughSequence,
+      agentEvents,
+    },
+    waitedSeconds,
   };
 }

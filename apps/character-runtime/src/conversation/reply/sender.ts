@@ -1,8 +1,9 @@
 import { setTimeout as delay } from "node:timers/promises";
-import type { IncomingMessage, ReplyTarget } from "./message";
-import type { OneBotConnection } from "./onebot";
+import type { IncomingMessage, ReplyTarget } from "../message";
+import type { OneBotConnection } from "../onebot";
+import type { StickerCollection } from "../sticker/collection";
+import { parseStickerReply } from "../sticker/reply";
 import { splitChatReply } from "./split-reply";
-import { parseStickerReply, type StickerCollection } from "./sticker";
 
 /**
  * 逐段发送并等待调用方记录当前段，再继续下一段；最后发送表情。

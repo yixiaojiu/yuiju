@@ -3,7 +3,7 @@ import { getMongoDatabase } from "@yuiju/shared/database/mongo";
 import { logger } from "@yuiju/shared/logger/logger";
 import type { ModelMessage } from "ai";
 import type { mongo } from "mongoose";
-import type { ConversationScope } from "./message";
+import type { ConversationScope } from "../message";
 
 /** 按请求拼装顺序保存各个 prompt key 当次渲染后的内容。 */
 export type ReplyerSystemPrompt = { key: string; content: string };

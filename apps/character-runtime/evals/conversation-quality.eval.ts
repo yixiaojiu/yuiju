@@ -11,11 +11,11 @@ import {
   renderMessage,
 } from "../src/conversation/message";
 import { OneBotConnection } from "../src/conversation/onebot";
-import { Planner } from "../src/conversation/planner";
-import { Replyer } from "../src/conversation/replyer";
-import { StickerCollection } from "../src/conversation/sticker";
-import type { ConversationToolContext } from "../src/conversation/tools";
-import { isDirectedMessage } from "../src/conversation/trigger";
+import { Planner } from "../src/conversation/planner/planner";
+import type { ConversationToolContext } from "../src/conversation/planner/tools";
+import { isDirectedMessage } from "../src/conversation/planner/trigger";
+import { Replyer } from "../src/conversation/reply/replyer";
+import { StickerCollection } from "../src/conversation/sticker/collection";
 import { participants } from "./cases/conversation-quality";
 import { continuityCases } from "./cases/conversation-quality/continuity";
 import { expressionCases } from "./cases/conversation-quality/expression";
@@ -130,8 +130,6 @@ for (const scenario of [
               ].join("\n"),
             );
           }
-          pending = [];
-          pendingEvents = [];
           record("effect", "Planner 观察轮次", {
             round: ++round,
             time: formatLlmDateTime(now, timezone),
@@ -161,6 +159,9 @@ for (const scenario of [
             replyer,
             history,
             historyThrough: history.length,
+            receivedMentionOrReply: pending.some(
+              (message) => message.kind === "message" && isDirectedMessage(message, "90001", []),
+            ),
             recordSent: async (events) => {
               for (const event of events) {
                 history.push({ ...event, sequence: history.length + 1 });
@@ -171,6 +172,8 @@ for (const scenario of [
             sendAttempted: false,
             failed: false,
           };
+          pending = [];
+          pendingEvents = [];
           await planner.run(execution, async () => {});
           record("effect", "Planner 本轮结束", {
             round,

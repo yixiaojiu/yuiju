@@ -7,10 +7,10 @@ import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { experimental_decide, generateText, type ModelMessage } from "ai";
-import { type ContextSummary, ConversationContext } from "./context";
-import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
-import { parseStickerReply } from "./sticker";
-import type { ReplyInput } from "./tools";
+import { type ContextSummary, ConversationContext } from "../context";
+import { type ConversationMessage, type ConversationScope, renderMessage } from "../message";
+import type { ReplyInput } from "../planner/tools";
+import { parseStickerReply } from "../sticker/reply";
 import { collectReplyerGeneration, type ReplyerSystemPrompt } from "./training-data";
 
 /** 每群独立的回复上下文；长期历史只保留真实交流，本轮补充上下文作为末尾临时输入。 */
@@ -101,7 +101,7 @@ export class Replyer {
 
   /**
    * historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。
-   * 清理表情标记后无内容时不回复，质量检查未通过单独返回。
+   * 清理表情标记后无内容时不回复；本轮收到 @ 或引用回复时，第三版即使质检失败也返回发送。
    */
   async reply(
     input: ReplyInput,
@@ -110,6 +110,7 @@ export class Replyer {
     saveSummary: () => Promise<void>,
     characterContext: string,
     availableStickerTags: readonly string[],
+    receivedMentionOrReply: boolean,
   ): Promise<
     { status: "reply"; text: string } | { status: "no_reply" } | { status: "quality_rejected" }
   > {
@@ -270,14 +271,20 @@ export class Replyer {
             usage: evaluation.usage,
           });
           if (issues.length) {
-            if (attempt === 3) {
+            if (attempt < 3) {
+              retries.push({
+                role: "user",
+                content: `上一版回复未通过：\n${text}\n\n问题：\n${issues.join("\n")}`,
+              });
+              continue;
+            }
+            if (!receivedMentionOrReply) {
               return { status: "quality_rejected" };
             }
-            retries.push({
-              role: "user",
-              content: `上一版回复未通过：\n${text}\n\n问题：\n${issues.join("\n")}`,
+            logger.info("本轮收到 @ 或引用回复，质量检查三次未通过，放行第三版回复", {
+              attempt,
+              probabilities,
             });
-            continue;
           }
         }
         logger.info("Replyer 生成完成", {

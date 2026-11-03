@@ -1,11 +1,7 @@
 import { setTimeout } from "node:timers/promises";
 import { logger } from "@yuiju/shared/logger/logger";
-import {
-  archiveConversationMessages,
-  MESSAGE_RETENTION_MS,
-  pendingArchiveScopes,
-  takePendingArchive,
-} from "./storage";
+import { archiveConversationMessages } from "./mongo";
+import { MESSAGE_RETENTION_MS, pendingArchiveScopes, takePendingArchive } from "./redis";
 
 const ARCHIVE_BATCH_SIZE = 100;
 const ARCHIVE_INTERVAL_MS = 5_000;

@@ -7,7 +7,7 @@ import type { Config } from "@yuiju/shared/config/schema";
 import { logger } from "@yuiju/shared/logger/logger";
 import { z } from "zod";
 import type { IncomingEvent, IncomingMessage, IncomingPoke, ReplyTarget } from "./message";
-import type { Sticker, StickerImage } from "./sticker";
+import type { Sticker, StickerImage } from "./sticker/schema";
 
 /** demo 使用的原始 Session 接入；正式群聊由 OneBotConnection 过滤后接入。 */
 export async function connectOneBot(

@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { test, vi } from "vitest";
 import type { ConversationMessage, IncomingEvent } from "../src/conversation/message";
 import { OneBotConnection } from "../src/conversation/onebot";
-import { Planner } from "../src/conversation/planner";
-import { Replyer } from "../src/conversation/replyer";
-import { StickerCollection } from "../src/conversation/sticker";
-import type { ConversationToolContext } from "../src/conversation/tools";
-import { evaluateTrigger } from "../src/conversation/trigger";
+import { Planner } from "../src/conversation/planner/planner";
+import type { ConversationToolContext } from "../src/conversation/planner/tools";
+import { evaluateTrigger, isDirectedMessage } from "../src/conversation/planner/trigger";
+import { Replyer } from "../src/conversation/reply/replyer";
+import { StickerCollection } from "../src/conversation/sticker/collection";
 import { conversationCases, conversationState } from "./cases/conversation";
 import { runEvaluation } from "./fixtures";
 import { record } from "./report";
@@ -99,6 +99,9 @@ for (const scenario of conversationCases) {
               replyer,
               history,
               historyThrough: history.length,
+              receivedMentionOrReply: messages.some(
+                (message) => message.kind === "message" && isDirectedMessage(message, "90001", []),
+              ),
               recordSent: async (events) => {
                 for (const event of events) {
                   history.push({ ...event, sequence: history.length + 1 });

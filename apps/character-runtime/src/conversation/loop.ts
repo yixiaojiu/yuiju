@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
-import { flashModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
-import { generateText } from "ai";
 import type { Character } from "../character";
 import { COMMUNICATION_RETENTION_MS } from "../communication";
 import type { ConversationInputEvent } from "./events";
@@ -15,33 +13,27 @@ import {
   renderMessage,
 } from "./message";
 import type { OneBotConnection } from "./onebot";
-import { Planner } from "./planner";
-import { Replyer } from "./replyer";
-import type { PendingSticker, StickerCollection } from "./sticker";
+import { summarizePausedBackground } from "./paused-background";
+import { Planner } from "./planner/planner";
+import type { ConversationToolContext } from "./planner/tools";
+import {
+  BACKOFF_DELAYS_MS,
+  getNextRound,
+  isDirectedMessage,
+  type NextRound,
+} from "./planner/trigger";
+import { Replyer } from "./reply/replyer";
+import type { StickerCollection } from "./sticker/collection";
+import type { PendingSticker } from "./sticker/schema";
 import {
   type ConversationRuntime,
   type ConversationState,
   loadConversationState,
   saveConversationState,
-} from "./storage";
-import type { ConversationToolContext } from "./tools";
-import { BACKOFF_DELAYS_MS, evaluateTrigger, RECHECK_INTERVAL_MS } from "./trigger";
+} from "./storage/redis";
 
 /** Planner 主动等待的 Unix 毫秒起止时间；普通用户的定向消息可提前结束等待。 */
 export type ConversationWait = { startedAt: number; until: number };
-
-/** 判断阶段只给出输入快照或下次检查时间，不创建定时器、不修改状态。 */
-type NextRound = {
-  input?: {
-    messages: ConversationMessage[];
-    history: ConversationMessage[];
-    throughSequence: number;
-    agentEvents: ConversationInputEvent[];
-  };
-  /** 等待实际秒数；0 也表示结束等待。 */
-  waitedSeconds?: number;
-  nextCheckAt?: number;
-};
 
 /** 单群决策串行运行；模型调用期间仍接收消息，状态提交使用同一条短写入队列。 */
 export class ConversationLoop {
@@ -300,19 +292,17 @@ export class ConversationLoop {
       if (!batch.length) {
         throw new Error("暂停聊天的最小消息单位无法放入摘要窗口");
       }
-      const result = await generateText({
-        model: flashModel,
+      const summary = await summarizePausedBackground(
         instructions,
-        maxRetries: 0,
-        prompt: `已有背景：\n${previous.summary}\n\n后续交流：\n${batch.map((message) => renderMessage(message, timezone, this.botIds)).join("\n")}`,
-      });
-      if (result.finishReason !== "stop" || !result.text.trim()) {
-        throw new Error("暂停聊天摘要未正常生成，保留原文及暂停状态");
-      }
+        previous.summary,
+        batch,
+        timezone,
+        this.botIds,
+      );
       const release = await this.acquireStateWrite();
       try {
         this.runtime.paused = {
-          summary: result.text.trim(),
+          summary,
           coveredThrough: batch.at(-1)!.sequence,
         };
         await this.commit({ runtime: this.runtime });
@@ -504,97 +494,6 @@ export class ConversationLoop {
     }
   }
 
-  private getNextRound(now: number): NextRound {
-    const pending = this.pending;
-    const agentEvents = (this.runtime.agentEvents ?? []).filter((event) => !event.consumed);
-    const { waiting, failedThroughSequence, currentRound } = this.runtime;
-    const trigger = evaluateTrigger({
-      pending,
-      history: this.history,
-      selfId: this.selfId,
-      names: this.names,
-      botIds: this.botIds,
-      nextEligibleAt: this.runtime.silenceCooldownUntil,
-      now,
-    });
-    let waitedSeconds: number | undefined;
-    if (waiting) {
-      if (now < waiting.until && !trigger.interruptsWait && !agentEvents.length) {
-        logger.info("Planner 继续等待", {
-          pendingCount: pending.length,
-          recheckAfterSeconds: Math.ceil((waiting.until - now) / 1000),
-        });
-        return { nextCheckAt: waiting.until };
-      }
-      waitedSeconds = (now - waiting.startedAt) / 1000;
-    }
-    if (!pending.length && !agentEvents.length && waitedSeconds === undefined && !currentRound) {
-      return {};
-    }
-    if (
-      failedThroughSequence !== undefined &&
-      !agentEvents.length &&
-      !pending.some((message) => message.sequence > failedThroughSequence)
-    ) {
-      logger.info("Planner 暂不运行", {
-        reason: "上轮失败，等待新输入后再处理",
-        pendingCount: pending.length,
-      });
-      return { waitedSeconds };
-    }
-    if (!currentRound && !agentEvents.length && waitedSeconds === undefined && !trigger.shouldRun) {
-      logger.info("Planner 触发判断", {
-        shouldRun: false,
-        reason: trigger.reason,
-        pendingCount: pending.length,
-        score: trigger.score,
-        threshold: trigger.threshold,
-        botOnly: trigger.botOnly,
-        scoredMessageCount: trigger.scoredMessageCount,
-        ...trigger.scoreDetails,
-        cooldownSeconds: Math.max(0, Math.ceil((this.runtime.silenceCooldownUntil - now) / 1000)),
-        recheckAfterSeconds: trigger.shouldRecheck ? RECHECK_INTERVAL_MS / 1000 : null,
-      });
-      return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
-    }
-    // 恢复轮次、主 loop 事件和等待结束可以绕过评分，日志记录实际放行原因。
-    logger.info("Planner 触发判断", {
-      shouldRun: true,
-      reason: currentRound
-        ? "恢复未完成轮次"
-        : agentEvents.length
-          ? "收到内部事件"
-          : waitedSeconds !== undefined
-            ? "结束主动等待，继续处理"
-            : trigger.reason,
-      pendingCount: pending.length,
-      ...(!currentRound &&
-      !agentEvents.length &&
-      waitedSeconds === undefined &&
-      trigger.scoreDetails
-        ? {
-            score: trigger.score,
-            threshold: trigger.threshold,
-            botOnly: trigger.botOnly,
-            scoredMessageCount: trigger.scoredMessageCount,
-            ...trigger.scoreDetails,
-          }
-        : {}),
-    });
-    const throughSequence = pending.at(-1)?.sequence ?? this.runtime.processedThrough;
-    return {
-      input: {
-        messages: pending,
-        history: this.history.filter(
-          (message) => message.sequence <= throughSequence || message.isSelf,
-        ),
-        throughSequence,
-        agentEvents,
-      },
-      waitedSeconds,
-    };
-  }
-
   /** 状态判断与输入提交在队列中完成，释放队列后才调用模型。 */
   private async run(): Promise<void> {
     clearTimeout(this.wakeTimer);
@@ -606,7 +505,15 @@ export class ConversationLoop {
         if (!this.scheduling || !this.participationAllowed) {
           return;
         }
-        next = this.getNextRound(Date.now());
+        next = getNextRound({
+          now: Date.now(),
+          pending: this.pending,
+          history: this.history,
+          runtime: this.runtime,
+          selfId: this.selfId,
+          names: this.names,
+          botIds: this.botIds,
+        });
         if (next.waitedSeconds !== undefined) this.runtime.waiting = undefined;
         if (!next.input) {
           if (next.waitedSeconds !== undefined) await this.commit({ runtime: this.runtime });
@@ -728,6 +635,10 @@ export class ConversationLoop {
       replyer: this.replyer,
       history: input.history,
       historyThrough: input.history.at(-1)?.sequence ?? 0,
+      // 只认本轮消息中的 @ 和引用回复，不包含昵称呼叫、戳一戳或旧历史。
+      receivedMentionOrReply: input.messages.some(
+        (message) => message.kind === "message" && isDirectedMessage(message, this.selfId, []),
+      ),
       beforeSend: async () => await this.beforeSend(),
       recordSent: async (events) => await this.recordSent(events, input.history),
       saveReplyerSummary: async () => await this.saveReplyerSummary(),

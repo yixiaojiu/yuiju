@@ -7,7 +7,7 @@ import { closeRedis } from "@yuiju/shared/database/redis";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
 import { initializePrompts } from "@yuiju/shared/prompt/template";
 import { Character } from "./character";
-import { startConversationArchive } from "./conversation/archive";
+import { startConversationArchive } from "./conversation/storage/archive";
 import { extensionAgents } from "./extensions/generated";
 import { loadExtensions } from "./extensions/load";
 

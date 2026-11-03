@@ -7,7 +7,7 @@ import timezonePlugin from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { renderMessage } from "../conversation/message";
-import { queryMemoryMessages } from "../conversation/storage";
+import { queryMemoryMessages } from "../conversation/storage/mongo";
 import { cleanupPlans } from "../plan/plan";
 import { characterKey } from "../storage";
 import {

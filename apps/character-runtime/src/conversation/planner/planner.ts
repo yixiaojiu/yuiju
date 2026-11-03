@@ -6,15 +6,11 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText, type ModelMessage, stepCountIs } from "ai";
-import { type ContextUnit, ConversationContext } from "./context";
-import { type ConversationMessage, type ConversationScope, renderMessage } from "./message";
-import type { ConversationState } from "./storage";
-import {
-  type ConversationToolContext,
-  createPlannerTools,
-  plannerToolDescription,
-  plannerTools,
-} from "./tools";
+import { type ContextUnit, ConversationContext } from "../context";
+import { type ConversationMessage, type ConversationScope, renderMessage } from "../message";
+import type { ConversationState } from "../storage/redis";
+import { plannerToolDescription, plannerTools } from "./definitions";
+import { type ConversationToolContext, createPlannerTools } from "./tools";
 
 /** 每群独立的工具循环；上下文只保留输入及 SDK 生成的模型消息、工具调用与结果。 */
 export class Planner {

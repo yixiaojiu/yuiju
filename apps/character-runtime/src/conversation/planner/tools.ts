@@ -1,173 +1,30 @@
-import { getMultimodalModel } from "@yuiju/shared/llm/models";
 import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
-import { renderPrompt } from "@yuiju/shared/prompt/template";
-import { generateText, tool, type UserContent } from "ai";
+import { tool } from "ai";
 import dayjs from "dayjs";
 import timezonePlugin from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import { z } from "zod";
-import { formatPeople, readPeople, updatePersonMemory } from "../memory/people";
-import { recallExperiences, recallSchema } from "../memory/recall";
-import { formatPlans } from "../plan/plan";
-import { readPlans } from "../plan/storage";
+import { formatPeople, readPeople, updatePersonMemory } from "../../memory/people";
+import { recallExperiences } from "../../memory/recall";
+import { formatPlans } from "../../plan/plan";
+import { readPlans } from "../../plan/storage";
 import {
   type ConversationMessage,
   type ConversationScope,
   type IncomingEvent,
   type ReplyTarget,
   renderMessage,
-} from "./message";
-import type { OneBotConnection } from "./onebot";
-import type { Replyer } from "./replyer";
-import { sendReply } from "./sender";
-import {
-  collectStickerSchema,
-  type StickerCollection,
-  sendMediaSchema,
-  stickerTools,
-} from "./sticker";
+} from "../message";
+import type { OneBotConnection } from "../onebot";
+import type { Replyer } from "../reply/replyer";
+import { sendReply } from "../reply/sender";
+import type { StickerCollection } from "../sticker/collection";
+import { plannerTools } from "./definitions";
+import { understandMedia } from "./media";
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
 
-/** Planner 从聊天 XHTML 中选择需要理解的媒体，不要求一次读取全部附件。 */
-const understandMediaSchema = z.object({
-  media: z
-    .array(
-      z.object({
-        type: z.enum(["image", "audio", "video"]).describe("你要理解的媒体类型。"),
-        url: z
-          .url({ protocol: /^https?$/ })
-          .describe("你从媒体标签 src 中读取的完整 HTTP(S) 地址。"),
-      }),
-    )
-    .min(1)
-    .describe("你本次需要理解的媒体，结果按此顺序对应。"),
-  instruction: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("你希望重点理解的问题；不填则概述主要内容和可辨认的话语。"),
-});
-
-const replySchema = z.object({
-  replyContext: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "你补充 Replyer 看不到的相关信息，例如查询结果、媒体理解或主 loop 事件，保留来源、时间、已确定的决定与不确定性。交错话题需要定位时，可指出本次接哪件事。Replyer 已有群聊、人设和当前角色状态；没有额外上下文时不填。不提供回复提纲、口吻指令、心理解读或成品台词。",
-    ),
-  quoteMessageId: z.string().min(1).optional().describe("你要引用的消息 id；不引用则不填。"),
-  "sender-id": z.string().min(1).optional().describe("你要 @ 的人的 sender-id；不 @ 则不填。"),
-});
-const pokeSchema = z.object({
-  "sender-id": z.string().min(1).describe("你想戳的人的 sender-id。"),
-});
-const waitSchema = z.object({
-  seconds: z.number().int().min(1).max(60).describe("你想等待多少秒后再判断。"),
-});
-const noticeSchema = z.strictObject({
-  description: z
-    .string()
-    .min(1)
-    .describe(
-      "你要传递的事情及相关事实，包括涉及的人、尚未确定的内容和你已经表达的态度；区分对方的说法与你自己的决定。",
-    ),
-  messageIds: z
-    .array(z.string().min(1))
-    .describe("你提供直接依据的真实消息 id；反馈主 loop 事件且没有相关群消息时可为空"),
-  relatedEventId: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("你反馈的主 loop 事件 ID；独立的群聊信息不填，不是消息 id"),
-});
-const personSchema = z.strictObject({ "sender-id": z.string().min(1) });
-const personMemorySchema = personSchema.extend({
-  description: z
-    .string()
-    .min(1)
-    .describe("你认为值得记住的新信息、纠正或重要互动，保留不确定性，不代写完整画像。"),
-  messageIds: z
-    .array(z.string().min(1))
-    .min(1)
-    .describe("支持本次更新的真实消息 id；提供必要的前后文、纠正和回应，不只摘取一句话。"),
-});
-
-/** 不绑定执行逻辑的工具定义，规划和压缩共用同一套 schema。 */
-export const plannerTools = {
-  ...stickerTools,
-  notifyCharacter: tool({
-    description:
-      "你将群聊中值得带回生活里考虑的事情传递给主 loop，供后续生活决策使用。也可以通过 relatedEventId 反馈主 loop 事件的实际交流结果。通知只投递事件，不等待决定、不发送群消息，也不表示接受邀请或建立计划。",
-    inputSchema: noticeSchema,
-  }),
-  recall: tool({
-    description:
-      "你可以回忆已经整理的生活经历；这里不查询人物画像，了解某个人请使用 readPerson。每日记忆在零点整理前一天，今天未整理的内容不在其中；久远记忆可能只剩周、月、年概括。search 按语义搜索相关片段，read 按日期返回记忆正文；日期为 YYYY-MM-DD，两种查询均遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。搜索未命中只代表没有找到相关经历，不能据此判断你不认识某个人。",
-    inputSchema: recallSchema,
-  }),
-  readPerson: tool({
-    description:
-      "你可以按消息中的 sender-id 读取对这个人的已有认识，包括称呼、已知事实、过去互动及关系感受。需要判断是否认识对方、记得对方什么时使用，不按昵称搜索。同一平台身份跨群共用画像，并联合读取手动关联的其他平台身份；没有画像也不代表从未认识。",
-    inputSchema: personSchema,
-  }),
-  updatePersonMemory: tool({
-    description:
-      "你可以提交值得记住的人物信息，程序会结合来源原文和旧画像生成、审查并保存。仅发过言、普通接话不需要记录；不把玩笑或猜测写成事实。返回实际更新结果，失败或审查未通过时不要重复提交同一内容。",
-    inputSchema: personMemorySchema,
-  }),
-  readPlans: tool({
-    description: "你可以查看角色已经接受的安排与进展。",
-    inputSchema: z.strictObject({}),
-  }),
-  understandMedia: tool({
-    description:
-      "你可以查看图片、聆听音频或观看视频。传入媒体类型和标签 src 中的完整地址，可附上关注的问题；返回的文字理解或读取失败信息，供后续判断和回复使用。长结果会省略中间内容，可减少本次媒体数量或提出更具体的问题。",
-    inputSchema: understandMediaSchema,
-  }),
-  reply: tool({
-    description:
-      "你想用文字回应或分享时调用，由 Replyer 根据聊天记录和补充上下文生成并发送回复，也可搭配表情。只想发表情用 sendMedia，只想戳一戳用 poke。返回实际发送记录或未发送结果；Replyer 可以选择不回复，无需因此重试。",
-    inputSchema: replySchema,
-  }),
-  poke: tool({
-    description: "聊天软件的戳一戳功能，你戳一戳某个人，返回实际执行结果。",
-    inputSchema: pokeSchema,
-  }),
-  wait: tool({
-    description:
-      "你安排一次主动定时唤醒：本步工具完成后暂停，到期即使无人发消息也会再判断。用于对方明确还没说完等具体短暂停顿。它不是结束工具，也不是等待下一条群消息；旁听、聊完、等别人回话时不调用工具即可结束。",
-    inputSchema: waitSchema,
-  }),
-};
-/** 用于估算工具定义占用的上下文大小。 */
-export const plannerToolDescription = JSON.stringify(
-  Object.fromEntries(
-    Object.entries({
-      understandMedia: understandMediaSchema,
-      reply: replySchema,
-      poke: pokeSchema,
-      wait: waitSchema,
-      notifyCharacter: noticeSchema,
-      recall: recallSchema,
-      readPerson: personSchema,
-      updatePersonMemory: personMemorySchema,
-      readPlans: z.strictObject({}),
-      collectSticker: collectStickerSchema,
-      listStickers: z.strictObject({}),
-      sendMedia: sendMediaSchema,
-    }).map(([name, schema]) => [
-      name,
-      {
-        description: plannerTools[name as keyof typeof plannerTools].description,
-        inputSchema: z.toJSONSchema(schema, { io: "input" }),
-      },
-    ]),
-  ),
-);
 /** 工具入口将 sender-id 转为发送接口使用的 senderId，不再包装为待执行的行动。 */
 export type ReplyInput = ReplyTarget & { replyContext?: string };
 
@@ -187,6 +44,8 @@ export type ConversationToolContext = {
   history: ConversationMessage[];
   /** 开始本轮时的历史边界；之后自己的发送先作为 Replyer 临时上下文，避免摘要跳过排队的新消息。 */
   historyThrough: number;
+  /** 本轮收到 @ 当前机器人或引用回复机器人的消息，第三次质量检查失败也发送。 */
+  receivedMentionOrReply: boolean;
   /** 将平台确认的事件写入真实历史和本轮快照，再持久化。 */
   recordSent: (events: IncomingEvent[]) => Promise<void>;
   /** 每段回复或戳一戳发出前，等待会话保存发送标记。 */
@@ -420,6 +279,7 @@ export function createPlannerTools(
             context.saveReplyerSummary,
             await context.readCharacter(),
             context.stickers.list().flatMap((sticker) => sticker.tags),
+            context.receivedMentionOrReply,
           );
           if (reply.status === "no_reply") {
             return "本次未发送：没有可发送的回复内容。";
@@ -511,62 +371,4 @@ export function createPlannerTools(
       },
     }),
   };
-}
-
-/** 下载并理解所选媒体；失败返回阶段与原因，由 Planner 决定后续处理，不中断工具循环。 */
-async function understandMedia(
-  { media, instruction }: z.infer<typeof understandMediaSchema>,
-  scope: ConversationScope,
-  abortSignal?: AbortSignal,
-) {
-  const startedAt = Date.now();
-  let stage = "准备提示词";
-  try {
-    const instructions = await renderPrompt("conversation.multimodal");
-    const content: UserContent = [];
-    if (instruction !== undefined) {
-      content.push({ type: "text", text: instruction });
-    }
-
-    for (const [index, item] of media.entries()) {
-      stage = `下载第 ${index + 1} 个媒体（${item.type}）`;
-      const response = await fetch(item.url, { signal: abortSignal });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      content.push(
-        { type: "text", text: `媒体 ${index + 1}（${item.type}）` },
-        {
-          type: "file",
-          data: new Uint8Array(await response.arrayBuffer()),
-          // SDK 根据文件字节识别具体 MIME；不凭 URL 后缀猜测格式，也不转码。
-          mediaType: item.type,
-        },
-      );
-    }
-
-    stage = "调用多模态模型";
-    const result = await generateText({
-      model: getMultimodalModel([...new Set(media.map((item) => item.type))]),
-      instructions,
-      messages: [{ role: "user", content }],
-      maxRetries: 0,
-      abortSignal,
-    });
-    if (result.finishReason !== "stop" || !result.text.trim()) {
-      throw new Error(`未正常生成理解结果：${result.finishReason}`);
-    }
-
-    return result.text.trim();
-  } catch (error) {
-    logger.error("聊天媒体理解失败", {
-      stage: "planner.multimodal",
-      failedAt: stage,
-      mediaCount: media.length,
-      durationMs: Date.now() - startedAt,
-      error,
-    });
-    // 返回明确的失败事实，完整异常留在日志；不标记整轮失败或由程序重跑批次。
-    return `媒体理解失败：${stage}失败，${error instanceof Error ? error.message : String(error)}`;
-  }
 }

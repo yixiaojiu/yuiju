@@ -10,7 +10,7 @@ import type { ConversationAgentEvent } from "../communication";
 import { ConversationLoop } from "./loop";
 import type { ConversationScope } from "./message";
 import { type OneBotConfig, OneBotConnection } from "./onebot";
-import { StickerCollection } from "./sticker";
+import { StickerCollection } from "./sticker/collection";
 
 export class Conversation {
   private readonly connection: OneBotConnection;

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
-import type { ArchivedConversationMessage } from "../conversation/storage";
+import type { ArchivedConversationMessage } from "../conversation/storage/mongo";
 import { lockMemoryFile, memoryPath, writeMemoryFile } from "./files";
 
 const activitySchema = z.strictObject({
