@@ -82,7 +82,7 @@ export class Replyer {
   observe(history: ConversationMessage[]) {
     // loop 在没有执行中的轮次或一轮结束后调用，旁听也能推进压缩。
     this.context.applyCompression();
-    this.context.maintain(this.historyUnits(history));
+    this.context.maintain(this.historyUnits(history), [], undefined);
   }
 
   private historyUnits(history: ConversationMessage[]) {
@@ -176,6 +176,7 @@ export class Replyer {
             ),
           task,
         ],
+        undefined,
       );
 
       if (previousSummary !== this.context.summary) await saveSummary();

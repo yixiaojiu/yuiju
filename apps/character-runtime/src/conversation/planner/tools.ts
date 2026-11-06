@@ -1,3 +1,4 @@
+import { registerSkills } from "@yuiju/shared/llm/skill-runtime";
 import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
 import { tool } from "ai";
@@ -8,6 +9,8 @@ import { formatPeople, readPeople, updatePersonMemory } from "../../memory/peopl
 import { recallExperiences } from "../../memory/recall";
 import { formatPlans } from "../../plan/plan";
 import { readPlans } from "../../plan/storage";
+import { createOnebotSkill } from "../../skills/onebot/skill";
+import { queryTodayActivities } from "../../world/activities";
 import {
   type ConversationMessage,
   type ConversationScope,
@@ -48,11 +51,11 @@ export type ConversationToolContext = {
   receivedMentionOrReply: boolean;
   /** 将平台确认的事件写入真实历史和本轮快照，再持久化。 */
   recordSent: (events: IncomingEvent[]) => Promise<void>;
-  /** 每段回复或戳一戳发出前，等待会话保存发送标记。 */
+  /** 每次发送或 Skill 平台写入前，等待会话保存执行标记。 */
   beforeSend: () => Promise<void>;
   /** Replyer 应用新摘要后，由会话保存摘要和原文裁剪。 */
   saveReplyerSummary: () => Promise<void>;
-  /** 进入平台发送前设置；即使结果未确认，也不能重跑整个输入批次。 */
+  /** 进入平台发送或 Skill 写入前设置；结果未确认也不能重跑整个输入批次。 */
   sendAttempted: boolean;
   /** 本轮是否出现工具失败；失败不能计为主动沉默。 */
   failed: boolean;
@@ -61,15 +64,43 @@ export type ConversationToolContext = {
 };
 
 /** 工具直接执行，返回值由 SDK 转为 tool message；不另行追加执行反馈。 */
-export function createPlannerTools(
+export async function createPlannerTools(
   scope: ConversationScope,
   timezone: string,
   botIds: readonly string[],
   context: ConversationToolContext,
 ) {
+  const currentGroup = await context.connection.api.getGroupInfo(scope.channelId);
+  const skills = [
+    createOnebotSkill({
+      api: context.connection.api,
+      selfId: context.connection.selfId,
+      groupId: scope.channelId,
+      groupName: currentGroup.group_name,
+      groupWhitelistIds: context.connection.groupWhitelistIds,
+      async beforeWrite() {
+        await context.beforeSend();
+        context.sendAttempted = true;
+      },
+      async onMessageDeleted(message) {
+        await context.recordSent([
+          {
+            kind: "recall",
+            recalledMessageId: String(message.message_id),
+            senderId: String(message.sender.user_id),
+            senderName: message.sender.nickname,
+            operatorId: context.connection.selfId,
+            timestamp: Date.now(),
+            isSelf: true,
+          },
+        ]);
+      },
+    }),
+  ];
   let sendQueue = Promise.resolve();
 
   return {
+    ...registerSkills(skills),
     collectSticker: tool({
       ...plannerTools.collectSticker,
       async execute(input) {
@@ -171,6 +202,10 @@ export function createPlannerTools(
         }
       },
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
+    }),
+    query_today_activities: tool({
+      ...plannerTools.query_today_activities,
+      execute: async (input) => await queryTodayActivities(scope.characterId, input),
     }),
     readPerson: tool({
       ...plannerTools.readPerson,

@@ -6,10 +6,10 @@ import { logger } from "@yuiju/shared/logger/logger";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText, type ModelMessage, stepCountIs } from "ai";
+import { z } from "zod";
 import { type ContextUnit, ConversationContext } from "../context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "../message";
 import type { ConversationState } from "../storage/redis";
-import { plannerToolDescription, plannerTools } from "./definitions";
 import { type ConversationToolContext, createPlannerTools } from "./tools";
 
 /** 每群独立的工具循环；上下文只保留输入及 SDK 生成的模型消息、工具调用与结果。 */
@@ -50,8 +50,6 @@ export class Planner {
         compressionPrompt,
         model: flashModel,
         windowTokens,
-        tools: plannerTools,
-        toolDescription: plannerToolDescription,
       },
       state.summary,
     );
@@ -89,6 +87,18 @@ export class Planner {
   async run(execution: ConversationToolContext, saveContext: () => Promise<void>): Promise<void> {
     const startedAt = performance.now();
     try {
+      const tools = await createPlannerTools(this.scope, this.timezone, this.botIds, execution);
+      const toolDescription = JSON.stringify(
+        Object.fromEntries(
+          Object.entries(tools).map(([name, definition]) => [
+            name,
+            {
+              description: definition.description,
+              inputSchema: z.toJSONSchema(definition.inputSchema as z.ZodType, { io: "input" }),
+            },
+          ]),
+        ),
+      );
       this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
       await saveContext();
       // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
@@ -99,7 +109,7 @@ export class Planner {
         model: flashModel,
         messages: this.history.flatMap((unit) => unit.messages),
         allowSystemInMessages: true,
-        tools: createPlannerTools(this.scope, this.timezone, this.botIds, execution),
+        tools,
         maxRetries: 0,
         stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
         prepareStep: async () => {
@@ -107,8 +117,11 @@ export class Planner {
           // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
           const previousSummary = this.context.summary;
           try {
-            const messages = await this.context.prepare(this.history, []);
-            requestEstimate = estimateInputTokens(messages, plannerToolDescription);
+            const messages = await this.context.prepare(this.history, [], {
+              tools,
+              toolDescription,
+            });
+            requestEstimate = estimateInputTokens(messages, toolDescription);
             return { messages };
           } finally {
             // prepare 可能已应用一份摘要，再因窗口仍不足而失败；已应用的状态也要成对保存。

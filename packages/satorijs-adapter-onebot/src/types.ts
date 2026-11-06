@@ -473,7 +473,12 @@ export interface Internal {
   getEssenceMsgList(group_id: id): Promise<EssenceMessage[]>;
   getWordSlices(content: string): Promise<string[]>;
   ocrImage(image: string): Promise<OcrResult>;
-  getGroupMsgHistory(group_id: id, message_seq?: number): Promise<{ messages: Message[] }>;
+  getGroupMsgHistory(
+    group_id: id,
+    message_seq?: number,
+    count?: number,
+    reverseOrder?: boolean,
+  ): Promise<{ messages: Message[] }>;
   deleteFriend(user_id: id): Promise<void>;
   deleteFriendAsync(user_id: id): Promise<void>;
   deleteUnidirectionalFriend(user_id: id): Promise<void>;
@@ -629,6 +634,15 @@ const logger = new Logger("onebot");
 export class Internal {
   _request?(action: string, params: Dict): Promise<Response>;
 
+  // set 前缀的动态方法会丢弃 data；这两个接口保留平台返回的操作结果。
+  async setMsgEmojiLike(message_id: id, emoji_id: string, set: boolean): Promise<unknown> {
+    return await this._get("set_msg_emoji_like", { message_id, emoji_id, set });
+  }
+
+  async setSelfLongnick(longNick: string): Promise<unknown> {
+    return await this._get("set_self_longnick", { longNick });
+  }
+
   async fetchCustomFaceDetail(count: number): Promise<CustomFace[]> {
     return await this._get("fetch_custom_face_detail", { count });
   }
@@ -735,7 +749,7 @@ Internal.define("get_essence_msg_list", "group_id");
 Internal.define("ocr_image", "image");
 Internal.defineExtract("get_forward_msg", "messages", "message_id");
 Internal.defineExtract(".get_word_slices", "slices", "content");
-Internal.define("get_group_msg_history", "group_id", "message_seq");
+Internal.define("get_group_msg_history", "group_id", "message_seq", "count", "reverseOrder");
 Internal.define("set_friend_add_request", "flag", "approve", "remark");
 Internal.define("set_group_add_request", "flag", "sub_type", "approve", "reason");
 Internal.defineExtract("_get_model_show", "variants", "model");
@@ -771,7 +785,7 @@ Internal.define("delete_unidirectional_friend", "user_id");
 Internal.define("get_group_info", "group_id", "no_cache");
 Internal.define("get_group_list");
 Internal.define("get_group_member_info", "group_id", "user_id", "no_cache");
-Internal.define("get_group_member_list", "group_id");
+Internal.define("get_group_member_list", "group_id", "no_cache");
 Internal.define("get_group_honor_info", "group_id", "type");
 Internal.define("get_group_system_msg");
 Internal.define("get_group_file_system_info", "group_id");

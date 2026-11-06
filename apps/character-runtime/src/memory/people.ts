@@ -32,10 +32,16 @@ const identitySchema = z.strictObject({ platform: z.string().min(1), userId: z.s
 const linksSchema = z.array(z.array(identitySchema).min(2));
 /** 模型只生成两段认识正文；身份和昵称由程序维护。 */
 const profileContentSchema = z.strictObject({
-  facts: z.string().describe("你知道的事实，每条使用 - YYYY-MM-DD：正文；没有内容时为空字符串。"),
+  facts: z
+    .string()
+    .describe(
+      "你知道的事实，每条使用 - YYYY-MM-DD：正文；最多 20 条，单条正文最多 150 字，字段含日期、格式和换行最多 2000 字符；没有内容时为空字符串。",
+    ),
   impressions: z
     .string()
-    .describe("你的认识与关系感受，每条使用 - YYYY-MM-DD：正文；没有内容时为空字符串。"),
+    .describe(
+      "你以第一人称记录对这个人的认识与关系感受，可以省略‘我’，不用角色姓名或第三人称指代自己；每条使用 - YYYY-MM-DD：正文；最多 20 条，单条正文最多 150 字，字段含日期、格式和换行最多 2000 字符；没有内容时为空字符串。",
+    ),
 });
 type ProfileContent = z.infer<typeof profileContentSchema>;
 const profileSchema = identitySchema.extend({ name: z.string(), ...profileContentSchema.shape });
@@ -70,21 +76,15 @@ async function readProfile(
   }
 }
 
-/** 分别检查两个文本字段的条目日期和容量，不再解析姓名或 Markdown 栏目标题。 */
+/** 解析新旧画像的条目与日期；容量限制仅在生成候选后检查，旧画像仍能进入清理。 */
 function profileEntries(text: string): { date: string; text: string }[] {
   const lines = text.split("\n").filter((line) => line.trim().length > 0);
-  if (lines.length > 20) {
-    throw new Error("画像每个字段最多 20 条记忆");
-  }
   return lines.map((line) => {
     const match = /^- (\d{4}-\d{2}-\d{2})：(\S.*)$/.exec(line);
     if (!match) {
       throw new Error("画像条目格式为 - YYYY-MM-DD：正文，不包含标题");
     }
     z.iso.date().parse(match[1]);
-    if ([...match[2]].length > 400) {
-      throw new Error("画像每条正文最多 400 字");
-    }
     return { date: match[1], text: match[2] };
   });
 }
@@ -218,14 +218,22 @@ async function reviewProfile(
     if (!context.previous && !candidate.facts && !candidate.impressions) {
       return { approved: true, content: null };
     }
-    // 格式问题与审查意见一样交回更新 agent 修正，不由程序猜测或补齐正文。
+    // 格式与容量问题交回更新 agent 修正；不截断条目，避免丢失日期和事实语义。
     try {
-      const entries = [
-        ...profileEntries(candidate.facts),
-        ...profileEntries(candidate.impressions),
-      ];
-      if (entries.some((entry) => entry.date > context.currentDate)) {
-        throw new Error("认识日期不能晚于当前日期");
+      for (const [field, text] of Object.entries(candidate)) {
+        if ([...text].length > 2000) {
+          throw new Error(`画像 ${field} 含日期、格式和换行最多 2000 字符`);
+        }
+        const entries = profileEntries(text);
+        if (entries.length > 20) {
+          throw new Error(`画像 ${field} 最多 20 条记忆`);
+        }
+        if (entries.some((entry) => [...entry.text].length > 150)) {
+          throw new Error(`画像 ${field} 每条正文最多 150 字`);
+        }
+        if (entries.some((entry) => entry.date > context.currentDate)) {
+          throw new Error("认识日期不能晚于当前日期");
+        }
       }
     } catch (error) {
       issues = [error instanceof Error ? error.message : String(error)];

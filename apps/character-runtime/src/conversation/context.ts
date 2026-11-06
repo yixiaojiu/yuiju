@@ -20,9 +20,10 @@ type ContextOptions = {
   compressionPrompt: string;
   model: LanguageModel;
   windowTokens: number;
-  tools?: ToolSet;
-  toolDescription?: string;
 };
+
+/** 每次请求显式提供；后台压缩持有启动时这一份定义，不依赖下一轮的执行闭包。 */
+export type ContextTools = Readonly<{ tools: ToolSet; toolDescription: string }>;
 
 /** 管理一个模型的摘要与后台压缩；原始历史由 Planner / Replyer 的调用方持有。 */
 export class ConversationContext {
@@ -60,12 +61,16 @@ export class ConversationContext {
   }
 
   /** 达到等待阈值时先压缩并重新组装：Planner 为 85%，Replyer 为 70%。 */
-  async prepare(units: ContextUnit[], current: ModelMessage[]): Promise<ModelMessage[]> {
+  async prepare(
+    units: ContextUnit[],
+    current: ModelMessage[],
+    requestTools: ContextTools | undefined,
+  ): Promise<ModelMessage[]> {
     const blockingRatio = this.options.stage === "replyer" ? 0.7 : 0.85;
     this.applyCompression();
-    let messages = this.maintain(units, current);
+    let messages = this.maintain(units, current, requestTools);
     while (
-      estimateInputTokens(messages, this.options.toolDescription, this.inputUsage) >=
+      estimateInputTokens(messages, requestTools?.toolDescription, this.inputUsage) >=
       this.options.windowTokens * blockingRatio
     ) {
       if (!this.task) {
@@ -82,13 +87,17 @@ export class ConversationContext {
       }
       this.applyCompression();
       // 上一次快照之后可能又新增了交互；仍达阈值时继续压缩尚未覆盖的旧内容。
-      messages = this.maintain(units, current);
+      messages = this.maintain(units, current, requestTools);
     }
     return messages;
   }
 
   // 旁听时也维护摘要，避免长期不回复的群积累无限的 Replyer 原文。
-  maintain(units: ContextUnit[], current: ModelMessage[] = []): ModelMessage[] {
+  maintain(
+    units: ContextUnit[],
+    current: ModelMessage[],
+    requestTools: ContextTools | undefined,
+  ): ModelMessage[] {
     // 稳定前缀后追加未压缩历史与当前任务；摘要切换前不重写已有消息，便于前缀缓存命中。
     const history = units.filter((unit) => unit.sequence > this.currentSummary.coveredThrough);
     const prefix: ModelMessage[] = [{ role: "system", content: this.options.system }];
@@ -134,7 +143,7 @@ export class ConversationContext {
 
     const contextTokens = estimateInputTokens(
       messages,
-      this.options.toolDescription,
+      requestTools?.toolDescription,
       this.inputUsage,
     );
     const messageCount = messageCounts.reduce((sum, count) => sum + count, 0);
@@ -174,6 +183,7 @@ export class ConversationContext {
           structuredClone(history.slice(0, keepFrom)),
           contextTokens,
           messageCountReached ? "message_count" : "token_limit",
+          requestTools,
         ).finally(() => {
           this.task = undefined;
         });
@@ -194,8 +204,9 @@ export class ConversationContext {
     units: ContextUnit[],
     contextTokens: number,
     trigger: "message_count" | "token_limit",
+    requestTools: ContextTools | undefined,
   ) {
-    const { stage, model, tools, toolDescription, windowTokens, compressionPrompt } = this.options;
+    const { stage, model, windowTokens, compressionPrompt } = this.options;
     const startedAt = Date.now();
     // 正常生成可能同时更新用量；本次压缩始终使用启动时的计数基准。
     const inputUsage = this.inputUsage;
@@ -207,7 +218,7 @@ export class ConversationContext {
         units.length &&
         estimateInputTokens(
           [...prefix, ...units.flatMap((unit) => unit.messages), suffix],
-          toolDescription,
+          requestTools?.toolDescription,
           inputUsage,
         ) > windowTokens
       ) {
@@ -234,7 +245,7 @@ export class ConversationContext {
       // 保留原工具定义以复用请求前缀，但压缩请求不能执行工具。
       const result = await generateText({
         model,
-        tools,
+        tools: requestTools?.tools,
         toolChoice: "none",
         allowSystemInMessages: true,
         maxRetries: 0,

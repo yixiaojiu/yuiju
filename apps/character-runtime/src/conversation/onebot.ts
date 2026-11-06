@@ -6,6 +6,7 @@ import type { CustomFace } from "@yuiju/satorijs-adapter-onebot/types";
 import type { Config } from "@yuiju/shared/config/schema";
 import { logger } from "@yuiju/shared/logger/logger";
 import { z } from "zod";
+import type { OnebotApi } from "../skills/onebot/skill";
 import type { IncomingEvent, IncomingMessage, IncomingPoke, ReplyTarget } from "./message";
 import type { Sticker, StickerImage } from "./sticker/schema";
 
@@ -76,6 +77,19 @@ export class OneBotConnection {
     private readonly characterName: string,
     private readonly config: OneBotConfig,
   ) {}
+
+  get api(): OnebotApi {
+    return this.bot.internal;
+  }
+
+  get selfId(): string {
+    return this.config.self_id;
+  }
+
+  get groupWhitelistIds(): readonly string[] {
+    // Planner 只为已配置白名单的群创建，沿用同一份角色配置。
+    return this.config.group_white_list!.map((group) => group.group_id);
+  }
 
   async start(onMessage: (channelId: string, message: IncomingEvent) => Promise<void>) {
     const context = new Context({});

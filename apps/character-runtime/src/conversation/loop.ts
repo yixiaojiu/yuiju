@@ -104,13 +104,13 @@ export class ConversationLoop {
     ]);
 
     if (this.runtime.currentRound?.sendAttempted) {
-      // 平台与 Redis 不能组成事务；已尝试发送的中断批次宁可少回复，不自动重放。
+      // 平台与 Redis 不能组成事务；已尝试发送或 Skill 写入的中断批次不自动重放。
       this.runtime.processedThrough = this.runtime.currentRound.throughSequence;
       this.runtime.currentRound = undefined;
       this.runtime.failedThroughSequence = undefined;
       this.runtime.waiting = undefined;
     }
-    // 无发送的 currentRound 保留为恢复后的待执行轮次，包括没有新输入的等待续接。
+    // 未尝试平台写入的 currentRound 保留为待执行轮次，包括没有新输入的等待续接。
     this.pruneHistory();
     await this.commit({
       runtime: this.runtime,
@@ -413,7 +413,7 @@ export class ConversationLoop {
     }
   }
 
-  /** 每次工具发送前等待此提交；并发 poke 与 reply 也不能绕过持久化边界。 */
+  /** 发送和 Skill 平台写入前等待此提交，确保中断后不重放已尝试的操作。 */
   private async beforeSend(): Promise<void> {
     const release = await this.acquireStateWrite();
     try {

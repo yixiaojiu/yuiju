@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { load_config } from "@yuiju/shared/config/load";
+import { registerSkills, type Skill } from "@yuiju/shared/llm/skill-runtime";
 import { truncateToolOutput } from "@yuiju/shared/llm/tool-output";
 import { logger } from "@yuiju/shared/logger/logger";
 import { formatLlmDateTime } from "@yuiju/shared/utils/date";
@@ -28,6 +29,7 @@ import {
   updatePlanSchema,
 } from "../plan/plan";
 import { readPlans } from "../plan/storage";
+import { queryTodayActivities, queryTodayActivitiesTool } from "../world/activities";
 import type { WorldClient } from "../world/client";
 import { formatWorldView } from "../world/tools";
 import type { AgentControl } from "./control";
@@ -77,9 +79,10 @@ export const agentTools = {
   }),
   recall: tool({
     description:
-      "你可以回忆已经整理的生活经历。search 按语义搜索片段，read 按日期读取记忆正文；日期为 YYYY-MM-DD，查询遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。",
+      "你可以回忆已经整理的生活经历，当天的活动记录使用 query_today_activities 查询。search 按语义搜索片段，read 按日期读取记忆正文；日期为 YYYY-MM-DD，查询遵守遗忘范围。长结果会省略中间内容，可缩小日期范围或按具体问题搜索。",
     inputSchema: recallSchema,
   }),
+  query_today_activities: queryTodayActivitiesTool,
   read_person: tool({
     description: "你可以了解对某个人的已有认识；手动关联的平台身份会联合读取。",
     inputSchema: personSchema,
@@ -182,6 +185,7 @@ export function createAgentTools(
   signal: AbortSignal,
   onFailure: (error: unknown) => void,
 ) {
+  const skills: Skill[] = [];
   // SDK 同一步可并行调用多个工具；实际修改串行，确保未确认的操作不会被后续修改覆盖。
   let actionQueue = Promise.resolve();
   async function executeAction(name: AgentAction["name"], input: unknown): Promise<string> {
@@ -211,6 +215,7 @@ export function createAgentTools(
   }
 
   return {
+    ...registerSkills(skills),
     ...createExtensionTools(context.extensions, context.control, signal),
     inspect_character: tool({
       ...agentTools.inspect_character,
@@ -274,6 +279,10 @@ export function createAgentTools(
         }
       },
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
+    }),
+    query_today_activities: tool({
+      ...agentTools.query_today_activities,
+      execute: async (input) => await queryTodayActivities(context.characterId, input),
     }),
     read_person: tool({
       ...agentTools.read_person,
