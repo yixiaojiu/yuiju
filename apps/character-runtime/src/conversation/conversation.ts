@@ -27,7 +27,7 @@ export class Conversation {
     private readonly character: Character,
     private readonly onebot: OneBotConfig,
   ) {
-    this.connection = new OneBotConnection(character.name, onebot);
+    this.connection = new OneBotConnection(character, onebot);
   }
 
   /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */

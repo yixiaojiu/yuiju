@@ -147,7 +147,7 @@ export function AnalyticsFilterCard({
                   </SelectTrigger>
                   <SelectContent position="popper">
                     <SelectItem value="__all__">全部</SelectItem>
-                    {["chat", "flash", "strong", "multimodal"].map((group) => (
+                    {["chat", "flash", "strong", "multimodal", "decision"].map((group) => (
                       <SelectItem key={group} value={group}>
                         {group}
                       </SelectItem>

@@ -118,7 +118,7 @@ const querySchema = z
     z.strictObject({
       ...queryFields,
       eventName: z.literal("llm.request"),
-      group: z.enum(["chat", "flash", "strong", "multimodal"]).optional(),
+      group: z.enum(["chat", "flash", "strong", "multimodal", "decision"]).optional(),
       model: z.string().trim().optional(),
       host: z.string().trim().optional(),
       status: z.enum(["success", "failed", "cancelled", "timeout"]).optional(),

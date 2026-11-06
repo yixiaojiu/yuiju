@@ -5,6 +5,7 @@ import { CQCode } from "@yuiju/satorijs-adapter-onebot/bot/cqcode";
 import type { CustomFace } from "@yuiju/satorijs-adapter-onebot/types";
 import type { Config } from "@yuiju/shared/config/schema";
 import { logger } from "@yuiju/shared/logger/logger";
+import { BusinessMonitor } from "@yuiju/shared/monitoring/monitor";
 import { z } from "zod";
 import type { OnebotApi } from "../skills/onebot/skill";
 import type { IncomingEvent, IncomingMessage, IncomingPoke, ReplyTarget } from "./message";
@@ -72,11 +73,39 @@ export class OneBotConnection {
   private context: Context | undefined;
   private bot!: OneBotBot;
   private accepting = false;
+  private readonly connectionMonitor: BusinessMonitor;
+  private readonly accountMonitor: BusinessMonitor;
+  private stopStatusListener: (() => void) | undefined;
+  private monitoring = false;
+  private accountCheckTimer: ReturnType<typeof setTimeout> | undefined;
+  /** 在途状态请求停止时一并等待，避免关闭数据库后继续发出告警。 */
+  private accountCheckTask: Promise<void> | undefined;
 
   constructor(
-    private readonly characterName: string,
+    private readonly character: { id: string; name: string },
     private readonly config: OneBotConfig,
-  ) {}
+  ) {
+    this.connectionMonitor = new BusinessMonitor({
+      monitorKey: "qq.connection",
+      app: "character-runtime",
+      characterId: character.id,
+      severity: "error",
+      title: "NapCat 连接异常",
+      impact: "QQ 消息收发受影响",
+      failureThreshold: 1,
+      cooldownMs: 5 * 60_000,
+    });
+    this.accountMonitor = new BusinessMonitor({
+      monitorKey: "qq.account",
+      app: "character-runtime",
+      characterId: character.id,
+      severity: "error",
+      title: "QQ 登录状态异常",
+      impact: "QQ 消息收发可能不可用",
+      failureThreshold: 1,
+      cooldownMs: 5 * 60_000,
+    });
+  }
 
   get api(): OnebotApi {
     return this.bot.internal;
@@ -180,9 +209,53 @@ export class OneBotConnection {
         }
       });
     });
+    this.monitoring = true;
+    this.stopStatusListener = context.on("bot-status-updated", (bot) => {
+      if (bot.sid !== this.bot.sid) {
+        return;
+      }
+      if (bot.status === Universal.Status.ONLINE) {
+        this.connectionMonitor.success();
+      } else if (bot.status === Universal.Status.RECONNECT) {
+        this.connectionMonitor.failure({ message: "NapCat WebSocket 连接失败或中断，正在重连" });
+      } else if (bot.status === Universal.Status.OFFLINE) {
+        this.connectionMonitor.failure({ message: "NapCat 连接不可用" });
+      }
+    });
     this.accepting = true;
     await context.start();
     await online;
+    // WebSocket 已连接不代表 QQ 账号在线，单独检查一次，此后低频检查。
+    this.accountCheckTask = this.checkAccount();
+  }
+
+  /** 每次请求结束后才安排四小时后的检查，不重叠请求，也不重试失败检查。 */
+  private async checkAccount(): Promise<void> {
+    try {
+      const status = await this.bot.internal.getStatus();
+      if (this.monitoring) {
+        if (status.online) {
+          this.accountMonitor.success();
+        } else {
+          this.accountMonitor.failure({ message: "NapCat 返回 QQ 账号已下线" });
+        }
+      }
+    } catch (error) {
+      if (this.monitoring) {
+        this.accountMonitor.failure({
+          message: `无法确认 QQ 账号在线：状态检查失败，${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    } finally {
+      if (this.monitoring) {
+        this.accountCheckTimer = setTimeout(
+          () => {
+            this.accountCheckTask = this.checkAccount();
+          },
+          4 * 60 * 60_000,
+        );
+      }
+    }
   }
 
   stopReceiving() {
@@ -191,9 +264,14 @@ export class OneBotConnection {
   }
 
   async stop() {
+    // 先关闭观测入口；主动断开和在途请求取消都不应被记录成业务故障。
+    this.monitoring = false;
+    this.stopStatusListener?.();
+    clearTimeout(this.accountCheckTimer);
     if (this.context) {
       // 先关闭连接并卸载 Bot，再释放其依赖的 HTTP 与 Satori 服务。
       await this.bot.stop();
+      await this.accountCheckTask;
       this.context.registry.delete(OneBotBot);
       await this.context.stop();
     }
@@ -304,7 +382,7 @@ export class OneBotConnection {
       kind: "message",
       id: message.id!,
       senderId: this.config.self_id,
-      senderName: this.characterName,
+      senderName: this.character.name,
       timestamp: message.timestamp!,
       isSelf: true,
       content,
@@ -331,7 +409,7 @@ export class OneBotConnection {
       kind: "message",
       id: message.id!,
       senderId: this.config.self_id,
-      senderName: this.characterName,
+      senderName: this.character.name,
       timestamp: message.timestamp!,
       isSelf: true,
       content: [...(target.senderId ? [h.at(target.senderId)] : []), textElement].join(""),
@@ -346,7 +424,7 @@ export class OneBotConnection {
     return {
       kind: "poke",
       senderId: this.config.self_id,
-      senderName: this.characterName,
+      senderName: this.character.name,
       timestamp: Date.now(),
       isSelf: true,
       targetSenderId: senderId,

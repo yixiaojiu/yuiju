@@ -22,6 +22,7 @@ import {
   Puzzle,
   ScrollText,
   Settings,
+  TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,6 +39,7 @@ const menuItems: MenuItem[] = [
   { label: "记忆", href: "/memories", icon: BookOpen },
   { label: "日志", href: "/logs", icon: ScrollText, privateOnly: true },
   { label: "埋点", href: "/analytics", icon: ChartNoAxesCombined, privateOnly: true },
+  { label: "告警", href: "/alerts", icon: TriangleAlert, privateOnly: true },
   {
     label: "设置",
     icon: Settings,

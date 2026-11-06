@@ -42,10 +42,13 @@ for (const scenario of [
       }));
       const planner = new Planner(scope, []);
       const replyer = new Replyer(scope, false, [], false);
-      const connection = new OneBotConnection("悠乃", {
-        self_id: "90001",
-        endpoint: "ws://eval.invalid",
-      });
+      const connection = new OneBotConnection(
+        { id: scope.characterId, name: "悠乃" },
+        {
+          self_id: "90001",
+          endpoint: "ws://eval.invalid",
+        },
+      );
       let sentCount = 0;
       vi.spyOn(connection, "sendText").mockImplementation(async (_channelId, content, target) => {
         const event: IncomingEvent = {

@@ -23,10 +23,13 @@ for (const scenario of conversationCases) {
         const history: ConversationMessage[] = [];
         const planner = new Planner(scope, []);
         const replyer = new Replyer(scope, false, [], false);
-        const connection = new OneBotConnection("悠乃", {
-          self_id: "90001",
-          endpoint: "ws://eval.invalid",
-        });
+        const connection = new OneBotConnection(
+          { id: scope.characterId, name: "悠乃" },
+          {
+            self_id: "90001",
+            endpoint: "ws://eval.invalid",
+          },
+        );
         const self = { senderId: "90001", senderName: "悠乃", isSelf: true };
         let sentCount = 0;
         vi.spyOn(connection, "sendText").mockImplementation(async (_channelId, content, target) => {

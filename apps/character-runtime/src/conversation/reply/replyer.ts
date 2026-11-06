@@ -5,8 +5,15 @@ import { load_config } from "@yuiju/shared/config/load";
 import { estimateInputTokens, readInputTokenUsage } from "@yuiju/shared/llm/context-usage";
 import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
+import { BusinessMonitor } from "@yuiju/shared/monitoring/monitor";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
-import { experimental_decide, generateText, type ModelMessage } from "ai";
+import {
+  APICallError,
+  type Experimental_DecisionResult,
+  experimental_decide,
+  generateText,
+  type ModelMessage,
+} from "ai";
 import { type ContextSummary, ConversationContext } from "../context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "../message";
 import type { ReplyInput } from "../planner/tools";
@@ -21,6 +28,9 @@ export class Replyer {
   /** 初始化时从合并默认值后的项目配置读取，与消息发生时间使用同一展示时区。 */
   private timezone!: string;
   private qualityModel?: ReturnType<ReturnType<typeof createTypeSafeAi>["decisionModel"]>;
+  /** 与质检模型同时初始化，供每次请求埋点标记接口域名，不保存整份供应商配置。 */
+  private qualityHost?: string;
+  private qualityMonitor?: BusinessMonitor;
 
   constructor(
     private readonly scope: ConversationScope,
@@ -41,6 +51,18 @@ export class Replyer {
         baseURL: decision.base_url,
         apiKey: decision.api_key,
       }).decisionModel(decision.model);
+      this.qualityHost = new URL(decision.base_url).host;
+      this.qualityMonitor = new BusinessMonitor({
+        monitorKey: "replyer.quality_check",
+        app: "character-runtime",
+        characterId: this.scope.characterId,
+        channelId: this.scope.channelId,
+        severity: "warning",
+        title: "回复质量检查不可用",
+        impact: "回复将跳过质量检查",
+        failureThreshold: 1,
+        cooldownMs: 5 * 60_000,
+      });
     }
     const windowTokens = config.llm?.models?.chat?.context_window_tokens;
     if (!windowTokens) {
@@ -244,48 +266,90 @@ export class Replyer {
           );
         }
         if (this.qualityModel && questions && parsed.text) {
-          const evaluation = await experimental_decide({
-            model: this.qualityModel,
-            state: { context: JSON.stringify(messages), reply: parsed.text },
-            questions,
-            maxRetries: 0,
-          });
-          const probabilities = {
-            unwantedAdvice: evaluation.answers.unwantedAdvice.probability,
-            genericEmpathy: evaluation.answers.genericEmpathy.probability,
-            overexplaining: evaluation.answers.overexplaining.probability,
-          };
-          const issues = [
-            ...(probabilities.unwantedAdvice >= 0.85
-              ? ["对方未请求建议，却给出不合时宜的建议或说教。"]
-              : []),
-            ...(probabilities.genericEmpathy >= 0.85
-              ? ["使用脱离具体处境的套话式共情或鼓励。"]
-              : []),
-            ...(probabilities.overexplaining >= 0.85 ? ["解释玩笑或过度复述对方刚说的内容。"] : []),
-          ];
-          logger.info("Replyer 回复质量检查", {
-            model: evaluation.response.modelId,
-            attempt,
-            probabilities,
-            passed: issues.length === 0,
-            usage: evaluation.usage,
-          });
-          if (issues.length) {
-            if (attempt < 3) {
-              retries.push({
-                role: "user",
-                content: `上一版回复未通过：\n${text}\n\n问题：\n${issues.join("\n")}`,
-              });
-              continue;
-            }
-            if (!receivedMentionOrReply) {
-              return { status: "quality_rejected" };
-            }
-            logger.info("本轮收到 @ 或引用回复，质量检查三次未通过，放行第三版回复", {
+          const qualityStartedAt = performance.now();
+          let evaluation: Experimental_DecisionResult<typeof questions> | undefined;
+          let qualityError: unknown;
+          try {
+            evaluation = await experimental_decide({
+              model: this.qualityModel,
+              state: { context: JSON.stringify(messages), reply: parsed.text },
+              questions,
+              maxRetries: 0,
+            });
+            this.qualityMonitor!.success();
+          } catch (error) {
+            qualityError = error;
+            this.qualityMonitor!.failure({
+              message: error instanceof Error ? error.message : String(error),
+            });
+            // 质检服务不可用时继续使用当前回复，不重跑生成，也不伪造通过结果。
+            logger.warn("Jev 调用失败，本次跳过回复质量检查", {
+              model: this.qualityModel.modelId,
+              attempt,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          } finally {
+            // 一次 Jev 请求计一次；质检拒绝是成功返回，调用异常才计为失败。
+            reportAnalyticsEvent({
+              eventName: "llm.request",
+              eventData: {
+                group: "decision",
+                host: this.qualityHost!,
+                provider: this.qualityModel.provider,
+                model: this.qualityModel.modelId,
+                durationMs: Math.round(performance.now() - qualityStartedAt),
+                status: evaluation === undefined ? "failed" : "success",
+                errorName: qualityError instanceof Error ? qualityError.name : undefined,
+                statusCode: APICallError.isInstance(qualityError)
+                  ? qualityError.statusCode
+                  : undefined,
+                inputTokens: evaluation?.usage.inputTokens ?? null,
+                outputTokens: evaluation?.usage.outputTokens ?? null,
+                cacheReadTokens: null,
+                reasoningTokens: null,
+              },
+            });
+          }
+          if (evaluation !== undefined) {
+            const probabilities = {
+              unwantedAdvice: evaluation.answers.unwantedAdvice.probability,
+              genericEmpathy: evaluation.answers.genericEmpathy.probability,
+              overexplaining: evaluation.answers.overexplaining.probability,
+            };
+            const issues = [
+              ...(probabilities.unwantedAdvice >= 0.85
+                ? ["对方未请求建议，却给出不合时宜的建议或说教。"]
+                : []),
+              ...(probabilities.genericEmpathy >= 0.85
+                ? ["使用脱离具体处境的套话式共情或鼓励。"]
+                : []),
+              ...(probabilities.overexplaining >= 0.85
+                ? ["解释玩笑或过度复述对方刚说的内容。"]
+                : []),
+            ];
+            logger.info("Replyer 回复质量检查", {
+              model: evaluation.response.modelId,
               attempt,
               probabilities,
+              passed: issues.length === 0,
+              usage: evaluation.usage,
             });
+            if (issues.length) {
+              if (attempt < 3) {
+                retries.push({
+                  role: "user",
+                  content: `上一版回复未通过：\n${text}\n\n问题：\n${issues.join("\n")}`,
+                });
+                continue;
+              }
+              if (!receivedMentionOrReply) {
+                return { status: "quality_rejected" };
+              }
+              logger.info("本轮收到 @ 或引用回复，质量检查三次未通过，放行第三版回复", {
+                attempt,
+                probabilities,
+              });
+            }
           }
         }
         logger.info("Replyer 生成完成", {
