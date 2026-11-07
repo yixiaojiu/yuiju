@@ -10,6 +10,7 @@ import { conversationSettingsApi } from "./routes/conversation-settings";
 import { extensionsApi } from "./routes/extensions";
 import { logsApi } from "./routes/logs";
 import { memoriesApi } from "./routes/memories";
+import { stickersApi } from "./routes/stickers";
 import { worldApi } from "./routes/world";
 
 export const runtime = "nodejs";
@@ -36,6 +37,7 @@ app.route("/memories", memoriesApi);
 app.route("/logs", logsApi);
 app.route("/world", worldApi);
 app.route("/settings/conversations", conversationSettingsApi);
+app.route("/stickers", stickersApi);
 
 app.get("/health", (context) => context.json({ ok: true }));
 

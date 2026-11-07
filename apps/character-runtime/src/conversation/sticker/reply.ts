@@ -1,21 +1,17 @@
-/** 清理所有表情控制片段，仅保留第一个完整且可用的标签。 */
+/** 消费已知的单括号表情标签，保留未知括号文字；不回复标记仍使用双括号。 */
 export function parseStickerReply(
   content: string,
   availableTags: readonly string[],
 ): { text: string; tag?: string } {
   let tag: string | undefined;
-  // 残缺片段清理到右括号、下一个左括号或行尾，不跨行吞掉正文。
   const text = content
-    .replace(/\[{2,}[^[\]\r\n]*(?:\]+|(?=\[|\r|\n|$))|\]{2,}/g, (fragment) => {
-      const match = /^\[\[([^[\]\r\n]+)\]\]$/.exec(fragment);
-      if (
-        tag === undefined &&
-        match &&
-        match[1] !== "NO_REPLY" &&
-        availableTags.includes(match[1])
-      ) {
-        tag = match[1];
+    .replaceAll("[[NO_REPLY]]", "")
+    // 不从旧的 [[标签]] 中提取内层标签，也不匹配全角、残缺或跨行括号。
+    .replace(/(?<!\[)\[([^[\]\r\n]+)\](?!\])/g, (fragment, label: string) => {
+      if (label === "NO_REPLY" || !availableTags.includes(label)) {
+        return fragment;
       }
+      tag ??= label;
       return "";
     })
     .trim();

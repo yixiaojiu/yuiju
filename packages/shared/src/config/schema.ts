@@ -118,6 +118,7 @@ export const config_schema = z
         z.string().min(1),
         z.looseObject({
           name: z.string().min(1),
+          runtime: z.looseObject({ base_url: z.url({ protocol: /^https?$/ }) }).optional(),
           nicknames: z.array(z.string().min(1)).optional(),
           identities: z.array(z.string().min(1)).optional(),
           extensions: z

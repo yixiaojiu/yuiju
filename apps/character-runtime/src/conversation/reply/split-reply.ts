@@ -6,7 +6,7 @@ const MAX_SEGMENTS = 3;
 const URL_PATTERN = /https?:\/\/[^\s。！？；，、“”‘’]+/g;
 const PROTECTED_TOKEN_PATTERN = /[A-Za-z0-9][A-Za-z0-9._:/?#[\]@!$&'()*+,;=%-]*/g;
 
-/** 沿用旧应用分段规则：保护完整片段，按标点切分，再合并过短与超额的段落。 */
+/** 保护完整片段，按标点切分并合并短句；实际拆成多条时去掉各段的句尾标点。 */
 export function splitChatReply(text: string): string[] {
   const normalized = text.trim();
   if (!normalized || (normalized.length <= SHORT_REPLY_MAX_LENGTH && !normalized.includes("\n"))) {
@@ -64,12 +64,30 @@ export function splitChatReply(text: string): string[] {
     merged.shift();
   }
 
-  if (merged.length <= MAX_SEGMENTS) {
+  // 先确定最终发送边界，合并后留在句中的标点仍有语义，不能提前删除。
+  if (merged.length > MAX_SEGMENTS) {
+    merged.splice(MAX_SEGMENTS - 1, merged.length, merged.slice(MAX_SEGMENTS - 1).join(""));
+  }
+  if (merged.length <= 1) {
     return merged;
   }
 
-  // 超出最大段数时合并尾部，不能截掉回复内容。
-  return [...merged.slice(0, MAX_SEGMENTS - 1), merged.slice(MAX_SEGMENTS - 1).join("")];
+  return merged
+    .map((fragment) => {
+      // URL 末尾可能包含问号、句点等合法字符；引号与括号也不属于要删除的句读。
+      const urlIndexes = new Set<number>();
+      protectMatches(fragment, URL_PATTERN, urlIndexes);
+      let end = fragment.length;
+      while (
+        end > 0 &&
+        /[，。！？；：、,.!?;:…~～—–\-\s]/u.test(fragment[end - 1]) &&
+        !urlIndexes.has(end - 1)
+      ) {
+        end -= 1;
+      }
+      return fragment.slice(0, end);
+    })
+    .filter((fragment) => fragment.length > 0);
 }
 
 function protectMatches(text: string, pattern: RegExp, protectedIndexes: Set<number>): void {

@@ -11,11 +11,13 @@ import { Character } from "./character";
 import { startConversationArchive } from "./conversation/storage/archive";
 import { extensionAgents } from "./extensions/generated";
 import { loadExtensions } from "./extensions/load";
+import { serveCharacter } from "./server/server";
 
 async function main() {
   const { values } = parseArgs({
     options: {
       character: { type: "string" },
+      port: { type: "string" },
       mode: { type: "string", default: "all" },
     },
   });
@@ -24,6 +26,16 @@ async function main() {
     throw new Error("请通过 --character 指定角色 ID");
   }
   const mode = values.mode;
+  const port = Number(values.port);
+  if (
+    !values.port ||
+    !/^\d+$/.test(values.port) ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  ) {
+    throw new Error("请通过 --port 指定 1～65535 的监听端口");
+  }
   if (mode !== "all" && mode !== "conversation" && mode !== "agent") {
     throw new Error("mode 必须是 all、conversation 或 agent");
   }
@@ -45,12 +57,18 @@ async function main() {
   await initializePrompts(extensions.prompts);
   const character = new Character(characterId, characterConfig, mode, extensions, 30 * 60_000);
   const archive = mode !== "agent" ? startConversationArchive(characterId) : undefined;
-  const startup = character.start();
+  let server: Awaited<ReturnType<typeof serveCharacter>> | undefined;
+  async function startRuntime() {
+    await character.start();
+    server = await serveCharacter(character, port);
+  }
+  const startup = startRuntime();
 
   async function stopRuntime() {
     // 等待正在启动的角色完成交接，再关闭资源，不与 start 并发修改连接。
     await Promise.allSettled([startup]);
-    const results = await Promise.allSettled([character.stop()]);
+    const results = await Promise.allSettled([server?.stop()]);
+    results.push(...(await Promise.allSettled([character.stop()])));
     // 会话停止后再停止归档；只等待在途批次，Redis 中的剩余积压留到下次启动。
     results.push(...(await Promise.allSettled([archive?.stop()])));
     results.push(...(await Promise.allSettled([flushMonitoringAlerts()])));

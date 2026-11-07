@@ -44,7 +44,10 @@ const menuItems: MenuItem[] = [
     label: "设置",
     icon: Settings,
     privateOnly: true,
-    children: [{ label: "会话", href: "/settings/conversations" }],
+    children: [
+      { label: "会话", href: "/settings/conversations" },
+      { label: "表情收藏", href: "/settings/stickers" },
+    ],
   },
 ];
 

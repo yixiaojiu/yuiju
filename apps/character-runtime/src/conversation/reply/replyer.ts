@@ -20,6 +20,8 @@ import type { ReplyInput } from "../planner/tools";
 import { parseStickerReply } from "../sticker/reply";
 import { collectReplyerGeneration, type ReplyerSystemPrompt } from "./training-data";
 
+const QUALITY_REJECTION_THRESHOLD = 0.7;
+
 /** 每群独立的回复上下文；长期历史只保留真实交流，本轮补充上下文作为末尾临时输入。 */
 export class Replyer {
   private context!: ConversationContext;
@@ -123,7 +125,7 @@ export class Replyer {
 
   /**
    * historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。
-   * 清理表情标记后无内容时不回复；本轮收到 @ 或引用回复时，第三版即使质检失败也返回发送。
+   * 误认交流对象三次未改正则不发送；其他质检项保留本轮收到 @ 或引用后的第三版放行规则。
    */
   async reply(
     input: ReplyInput,
@@ -180,9 +182,15 @@ export class Replyer {
       }
       if (input.senderId) {
         taskLines.push(
-          `本次发送时，程序会在正文前附加对发送者 ${input.senderId}${mentioned?.senderName ? `（${mentioned.senderName}）` : ""} 的 @。你只写正文，无需重复 @ 或生成标签。`,
+          `本次发送时，程序会在正文前附加对发送者 ${input.senderId}${mentioned?.senderName ? `（${mentioned.senderName}）` : ""} 的 @。你只写正文，无需重复 @ 或生成消息协议标签。`,
         );
       }
+      const stickerTags = [...new Set(availableStickerTags)];
+      taskLines.push(
+        stickerTags.length
+          ? `本次可用表情标签：${stickerTags.map((tag) => `[${tag}]`).join("、")}`
+          : "本次没有可用表情标签，只输出聊天文字或 [[NO_REPLY]]。",
+      );
       const task: ModelMessage = { role: "user", content: taskLines.join("\n") };
       // 自己的新发送可能排在尚未处理的群消息之后，不能提前推进摘要覆盖序号。
       const messages = await this.context.prepare(
@@ -201,10 +209,17 @@ export class Replyer {
         undefined,
       );
 
-      if (previousSummary !== this.context.summary) await saveSummary();
+      if (previousSummary !== this.context.summary) {
+        await saveSummary();
+      }
 
       const questions = this.qualityModel
         ? {
+            misdirectedReply: {
+              type: "boolean" as const,
+              instructions:
+                '待检查回复由聊天记录中 is-self="true" 的角色发送。判断回复是否接错了对话对象：其他群友正在彼此问答，角色却把发给别人的提问或回应，当成发给自己的，直接以被提问者或被回应者的身份接话。根据发送者、引用和 @ 确定对话双方，区分替其中一人作答与补充自己的看法。主动搭话、接梗和分享独立经历不算接错，不能仅凭没有 @ 当前角色就判定为误认。',
+            },
             unwantedAdvice: {
               type: "boolean" as const,
               instructions:
@@ -249,6 +264,8 @@ export class Replyer {
           );
         }
         const parsed = parseStickerReply(text, availableStickerTags);
+        const replyContent =
+          parsed.tag === undefined ? parsed.text : `${parsed.text}[${parsed.tag}]`;
         if (!parsed.text && parsed.tag === undefined) {
           logger.info("Replyer 本次没有可发送内容", {
             durationMs: Math.round(performance.now() - startedAt),
@@ -265,14 +282,18 @@ export class Replyer {
             "Replyer 输出包含消息协议标签，未发送；正文只能是普通文字，@ 和引用由程序附加",
           );
         }
-        if (this.qualityModel && questions && parsed.text) {
+        if (this.qualityModel && questions) {
           const qualityStartedAt = performance.now();
           let evaluation: Experimental_DecisionResult<typeof questions> | undefined;
           let qualityError: unknown;
           try {
             evaluation = await experimental_decide({
               model: this.qualityModel,
-              state: { context: JSON.stringify(messages), reply: parsed.text },
+              // Replyer 组装的是文本消息，保留角色和正文顺序，不再嵌套 JSON 字符串。
+              state: [
+                ...generationMessages.map((message) => `${message.role}:\n${message.content}`),
+                `待检查的回复：\n${replyContent}`,
+              ].join("\n\n"),
               questions,
               maxRetries: 0,
             });
@@ -312,18 +333,22 @@ export class Replyer {
           }
           if (evaluation !== undefined) {
             const probabilities = {
+              misdirectedReply: evaluation.answers.misdirectedReply.probability,
               unwantedAdvice: evaluation.answers.unwantedAdvice.probability,
               genericEmpathy: evaluation.answers.genericEmpathy.probability,
               overexplaining: evaluation.answers.overexplaining.probability,
             };
             const issues = [
-              ...(probabilities.unwantedAdvice >= 0.85
+              ...(probabilities.misdirectedReply >= QUALITY_REJECTION_THRESHOLD
+                ? ["误把群友之间的交流当成在与自己对话。"]
+                : []),
+              ...(probabilities.unwantedAdvice >= QUALITY_REJECTION_THRESHOLD
                 ? ["对方未请求建议，却给出不合时宜的建议或说教。"]
                 : []),
-              ...(probabilities.genericEmpathy >= 0.85
+              ...(probabilities.genericEmpathy >= QUALITY_REJECTION_THRESHOLD
                 ? ["使用脱离具体处境的套话式共情或鼓励。"]
                 : []),
-              ...(probabilities.overexplaining >= 0.85
+              ...(probabilities.overexplaining >= QUALITY_REJECTION_THRESHOLD
                 ? ["解释玩笑或过度复述对方刚说的内容。"]
                 : []),
             ];
@@ -342,7 +367,10 @@ export class Replyer {
                 });
                 continue;
               }
-              if (!receivedMentionOrReply) {
+              if (
+                probabilities.misdirectedReply >= QUALITY_REJECTION_THRESHOLD ||
+                !receivedMentionOrReply
+              ) {
                 return { status: "quality_rejected" };
               }
               logger.info("本轮收到 @ 或引用回复，质量检查三次未通过，放行第三版回复", {
@@ -358,7 +386,7 @@ export class Replyer {
         });
         return {
           status: "reply",
-          text: parsed.tag === undefined ? parsed.text : `${parsed.text}[[${parsed.tag}]]`,
+          text: replyContent,
         };
       }
       throw new Error("Replyer 回复质量检查未正常结束");

@@ -1,13 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { h } from "@satorijs/core";
 import type { CustomFace } from "@yuiju/satorijs-adapter-onebot/types";
+import type { ManagedSticker, StickerAnnotation } from "@yuiju/shared/character-runtime/protocol";
 import { z } from "zod";
 import type { IncomingMessage } from "../message";
 import type { OneBotConnection } from "../onebot";
-
-export const STICKER_LIMIT = 30;
-
+import { StickerImages } from "./images";
 import {
   type collectStickerSchema,
   type MarketSticker,
@@ -16,6 +15,18 @@ import {
   type StickerImage,
   stickerSchema,
 } from "./schema";
+
+export const STICKER_LIMIT = 30;
+
+/** HTTP 入口据此返回领域拒绝，不把平台或磁盘异常误报成参数错误。 */
+export class StickerCollectionError extends Error {
+  constructor(
+    readonly code: "not_found" | "duplicate_id" | "image_not_ready",
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 function isSendable(sticker: Sticker): boolean {
   return (
@@ -37,11 +48,99 @@ type StickerPlatform = Pick<
 export class StickerCollection {
   private records: Sticker[] = [];
   private mutationQueue: Promise<void> = Promise.resolve();
+  private readonly images: StickerImages;
 
   constructor(
     private readonly filePath: string,
     private readonly platform: StickerPlatform,
-  ) {}
+  ) {
+    this.images = new StickerImages(
+      join(dirname(filePath), basename(filePath, ".json"), "images"),
+      async (resId, data, contentType, signal) => {
+        await this.mutate(async () => {
+          // 下载期间可能取消收藏；取消信号在取得修改队列后再次生效。
+          if (signal.aborted) {
+            return;
+          }
+          const record = this.requireRecord(resId);
+          await this.images.write(resId, data);
+          record.imageContentType = contentType;
+          await this.save();
+        });
+      },
+    );
+  }
+
+  /** 管理列表包含不可发送收藏；等待已有修改提交，不隐式访问 QQ 或下载图片。 */
+  async listForManagement(): Promise<ManagedSticker[]> {
+    await this.mutationQueue;
+    return this.records.map((record) => ({
+      resId: record.resId,
+      type: record.market ? "market" : "custom",
+      ...(record.annotation && {
+        annotation: { ...record.annotation, tags: [...record.annotation.tags] },
+      }),
+      firstSeenAt: record.firstSeenAt,
+      lastSentAt: record.lastSentAt,
+      sendCount: record.sendCount,
+      status: !record.annotation
+        ? "unannotated"
+        : isSendable(record)
+          ? "sendable"
+          : "missing_send_info",
+      imageStatus: this.images.status(record.resId),
+    }));
+  }
+
+  async updateAnnotation(resId: string, annotation: StickerAnnotation): Promise<void> {
+    await this.mutate(async () => {
+      const record = this.requireRecord(resId);
+      if (
+        this.records.some((other) => other !== record && other.annotation?.id === annotation.id)
+      ) {
+        throw new StickerCollectionError("duplicate_id", `表情 ID 已被使用：${annotation.id}`);
+      }
+      record.annotation = annotation;
+      await this.save();
+    });
+  }
+
+  async remove(resId: string): Promise<void> {
+    await this.mutate(async () => {
+      this.requireRecord(resId);
+      await this.platform.deleteFavoriteSticker(resId);
+      this.records = this.records.filter((record) => record.resId !== resId);
+      try {
+        await this.save();
+        await this.images.remove(resId);
+      } catch (error) {
+        throw new Error("QQ 取消收藏已确认，本地记录或图片清理失败，请重新同步", { cause: error });
+      }
+    });
+  }
+
+  async readImage(resId: string): Promise<{ data: Uint8Array; contentType: string }> {
+    await this.mutationQueue;
+    const record = this.requireRecord(resId);
+    if (this.images.status(resId) !== "ready") {
+      throw new StickerCollectionError("image_not_ready", "图片尚未就绪，请刷新状态或手动同步");
+    }
+    return { data: await this.images.read(resId), contentType: record.imageContentType! };
+  }
+
+  /** 所有发送与管理请求停止后调用，取消图片下载并等待在途提交结束。 */
+  async stop(): Promise<void> {
+    await this.images.stop();
+    await this.mutationQueue;
+  }
+
+  private requireRecord(resId: string): Sticker {
+    const record = this.records.find((item) => item.resId === resId);
+    if (!record) {
+      throw new StickerCollectionError("not_found", "该表情收藏已不存在");
+    }
+    return record;
+  }
 
   async initialize(): Promise<void> {
     let content: string;
@@ -80,89 +179,98 @@ export class StickerCollection {
 
   async synchronize(): Promise<void> {
     await this.mutate(async () => {
-      await this.refresh();
-      await this.save();
-      await this.evict();
+      try {
+        await this.refresh();
+        await this.save();
+        await this.evict();
+        await this.images.clean(this.records);
+      } finally {
+        this.images.schedule(this.records, true);
+      }
     });
   }
 
   async collect(input: z.infer<typeof collectStickerSchema>, channelId: string) {
     return await this.mutate(async () => {
-      await this.refresh();
-      await this.save();
-      let record: Sticker;
-      let image: StickerImage | undefined;
-      if (input.source.type === "favorite") {
-        const resId = input.source.resId;
-        const favorite = this.records.find((sticker) => sticker.resId === resId);
-        if (!favorite) {
-          throw new Error("该 QQ 收藏已不存在");
-        }
-        record = favorite;
-      } else {
-        image = await this.platform.resolveStickerImage(
-          channelId,
-          input.source.messageId,
-          input.source.imageIndex,
-        );
-        const existing = this.findImage(image);
-        if (existing?.annotation) {
-          if (image.market) {
-            existing.market = image.market;
-            await this.save();
+      try {
+        await this.refresh();
+        await this.save();
+        let record: Sticker;
+        let image: StickerImage | undefined;
+        if (input.source.type === "favorite") {
+          const resId = input.source.resId;
+          const favorite = this.records.find((sticker) => sticker.resId === resId);
+          if (!favorite) {
+            throw new Error("该 QQ 收藏已不存在");
           }
-          return { status: "existing", ...existing.annotation };
+          record = favorite;
+        } else {
+          image = await this.platform.resolveStickerImage(
+            channelId,
+            input.source.messageId,
+            input.source.imageIndex,
+          );
+          const existing = this.findImage(image);
+          if (existing?.annotation) {
+            if (image.market) {
+              existing.market = image.market;
+              await this.save();
+            }
+            return { status: "existing", ...existing.annotation };
+          }
+          const conflict = this.records.find((sticker) => sticker.annotation?.id === input.id);
+          if (conflict && conflict !== existing) {
+            throw new Error(`表情 ID 已被使用：${input.id}`);
+          }
+          if (!existing) {
+            await this.platform.addFavoriteSticker(image);
+            try {
+              await this.refresh();
+            } catch (error) {
+              throw new Error(
+                `QQ 收藏请求已成功，但回查失败：${error instanceof Error ? error.message : String(error)}`,
+                { cause: error },
+              );
+            }
+          }
+          const collected = this.findImage(image);
+          if (!collected) {
+            throw new Error("QQ 收藏操作已完成，但回查未找到目标表情");
+          }
+          record = collected;
         }
-        const conflict = this.records.find((sticker) => sticker.annotation?.id === input.id);
-        if (conflict && conflict !== existing) {
+        if (record.annotation) {
+          return { status: "existing", ...record.annotation };
+        }
+        if (
+          this.records.some((sticker) => sticker !== record && sticker.annotation?.id === input.id)
+        ) {
           throw new Error(`表情 ID 已被使用：${input.id}`);
         }
-        if (!existing) {
-          await this.platform.addFavoriteSticker(image);
-          try {
-            await this.refresh();
-          } catch (error) {
-            throw new Error(
-              `QQ 收藏请求已成功，但回查失败：${error instanceof Error ? error.message : String(error)}`,
-              { cause: error },
-            );
-          }
+        record.annotation = { id: input.id, description: input.description, tags: input.tags };
+        if (image?.market) {
+          record.market = image.market;
         }
-        const collected = this.findImage(image);
-        if (!collected) {
-          throw new Error("QQ 收藏操作已完成，但回查未找到目标表情");
+        try {
+          await this.save();
+        } catch (error) {
+          throw new Error(
+            `QQ 收藏已存在，但本地标注保存失败：${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          );
         }
-        record = collected;
+        try {
+          await this.evict();
+        } catch (error) {
+          throw new Error(
+            `表情已登记，但超限清理失败：${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
+          );
+        }
+        return { status: "collected", ...record.annotation, sendable: isSendable(record) };
+      } finally {
+        this.images.schedule(this.records, false);
       }
-      if (record.annotation) {
-        return { status: "existing", ...record.annotation };
-      }
-      if (
-        this.records.some((sticker) => sticker !== record && sticker.annotation?.id === input.id)
-      ) {
-        throw new Error(`表情 ID 已被使用：${input.id}`);
-      }
-      record.annotation = { id: input.id, description: input.description, tags: input.tags };
-      if (image?.market) {
-        record.market = image.market;
-      }
-      try {
-        await this.save();
-      } catch (error) {
-        throw new Error(
-          `QQ 收藏已存在，但本地标注保存失败：${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
-      try {
-        await this.evict();
-      } catch (error) {
-        throw new Error(
-          `表情已登记，但超限清理失败：${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
-      }
-      return { status: "collected", ...record.annotation, sendable: isSendable(record) };
     });
   }
 
@@ -250,6 +358,11 @@ export class StickerCollection {
       count *= 2;
     }
     const now = Date.now();
+    for (const previous of this.records) {
+      if (!favorites.some((favorite) => favorite.resId === previous.resId)) {
+        await this.images.remove(previous.resId);
+      }
+    }
     this.records = favorites.map((favorite) => {
       const existing = this.records.find((sticker) => sticker.resId === favorite.resId);
       const market = favorite.isMarkFace
@@ -267,6 +380,9 @@ export class StickerCollection {
         sendCount: existing ? existing.sendCount : 0,
         ...(existing?.annotation && { annotation: existing.annotation }),
         ...(existing?.lastSentAt !== undefined && { lastSentAt: existing.lastSentAt }),
+        ...(existing?.imageContentType !== undefined && {
+          imageContentType: existing.imageContentType,
+        }),
         ...(market && { market }),
       };
     });
@@ -282,6 +398,7 @@ export class StickerCollection {
       await this.platform.deleteFavoriteSticker(record.resId);
       this.records = this.records.filter((sticker) => sticker.resId !== record.resId);
       await this.save();
+      await this.images.remove(record.resId);
     }
   }
 

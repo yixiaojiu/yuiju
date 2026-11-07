@@ -26,7 +26,7 @@ export class Character {
   readonly name: string;
   readonly nicknames: readonly string[];
   readonly world: WorldClient;
-  private readonly conversation: Conversation | undefined;
+  readonly conversation: Conversation | undefined;
   private readonly agent: AgentRuntime | undefined;
   private readonly extensions: ExtensionRuntime | undefined;
   private readonly control: AgentControl | undefined;

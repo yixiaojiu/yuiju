@@ -30,6 +30,21 @@ export class Conversation {
     this.connection = new OneBotConnection(character, onebot);
   }
 
+  /** 只读提供当前账号的业务实例；HTTP 管理与聊天使用同一份收藏状态。 */
+  get stickerCollection(): StickerCollection {
+    return this.stickers;
+  }
+
+  async synchronizeStickers(): Promise<void> {
+    await this.stickers.synchronize();
+    const firstGroup = this.onebot.group_white_list?.[0];
+    if (firstGroup) {
+      await this.sessions
+        .get(firstGroup.group_id)!
+        .receiveStickerAnnotations(this.stickers.pending());
+    }
+  }
+
   /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */
   async start(participationAllowed?: boolean) {
     if (participationAllowed !== undefined) {
@@ -107,6 +122,7 @@ export class Conversation {
     const results = await Promise.allSettled(
       [...this.sessions.values()].map((session) => session.stop()),
     );
+    results.push(...(await Promise.allSettled([this.stickers?.stop()])));
     await this.connection.stop();
     this.sessions.clear();
     const failures = results.filter((result) => result.status === "rejected");

@@ -1,24 +1,6 @@
+import { stickerAnnotationSchema } from "@yuiju/shared/character-runtime/protocol";
 import { z } from "zod";
 
-const annotationSchema = z.strictObject({
-  id: z
-    .string()
-    .trim()
-    .min(1)
-    .describe("你为表情命名的简短可读 ID，在当前角色和 QQ 账号的收藏中唯一。"),
-  description: z.string().trim().min(1).describe("你看图后对画面内容和表达含义的简短描述。"),
-  tags: z
-    .array(
-      z
-        .string()
-        .trim()
-        .min(1)
-        .refine((tag) => !/[[\]\r\n]/.test(tag) && tag !== "NO_REPLY"),
-    )
-    .min(1)
-    .transform((tags) => [...new Set(tags)])
-    .describe("你为表情选择的情绪、语气或场景标签，不含括号、换行或 NO_REPLY。"),
-});
 const marketSchema = z.strictObject({
   emojiId: z.string().min(1),
   packageId: z.number().int(),
@@ -29,7 +11,8 @@ export const stickerSchema = z.strictObject({
   md5: z.string().min(1),
   url: z.string().url(),
   market: marketSchema.optional(),
-  annotation: annotationSchema.optional(),
+  annotation: stickerAnnotationSchema.optional(),
+  imageContentType: z.string().startsWith("image/").optional(),
   firstSeenAt: z.number(),
   lastSentAt: z.number().optional(),
   sendCount: z.number().int().nonnegative(),
@@ -40,7 +23,7 @@ export type MarketSticker = z.infer<typeof marketSchema>;
 export type StickerImage = { url: string; file: string; md5: string; market?: MarketSticker };
 export type PendingSticker = { resId: string; url: string };
 
-export const collectStickerSchema = annotationSchema.extend({
+export const collectStickerSchema = stickerAnnotationSchema.extend({
   source: z.discriminatedUnion("type", [
     z.strictObject({
       type: z.literal("message").describe("你从当前群聊中选择图片，收藏到 QQ 并保存标注。"),
