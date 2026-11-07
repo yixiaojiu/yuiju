@@ -24,6 +24,7 @@ import { sendReply } from "../reply/sender";
 import type { StickerCollection } from "../sticker/collection";
 import { plannerTools } from "./definitions";
 import { understandMedia } from "./media";
+import { readWebpage } from "./webpage";
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
@@ -289,6 +290,11 @@ export async function createPlannerTools(
       ...plannerTools.understandMedia,
       execute: async (input, { abortSignal }) => await understandMedia(input, scope, abortSignal),
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
+    }),
+    readWebpage: tool({
+      ...plannerTools.readWebpage,
+      execute: async ({ url }, { abortSignal }) => await readWebpage(url, abortSignal),
+      toModelOutput: ({ output }) => ({ type: "text", value: output }),
     }),
     reply: tool({
       ...plannerTools.reply,
