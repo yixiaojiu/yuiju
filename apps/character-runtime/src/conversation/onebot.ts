@@ -357,14 +357,16 @@ export class OneBotConnection {
 
   async sendSticker(channelId: string, sticker: Sticker): Promise<IncomingMessage[]> {
     const annotation = sticker.annotation!;
+    // QQ 客户端只展示简短标签；完整画面描述保留在下方的内部消息记录中。
+    const summary = `[${annotation.tags[0]}]`;
     const element = sticker.market
       ? h("mface", {
           emojiId: sticker.market.emojiId,
           emojiPackageId: sticker.market.packageId,
           key: sticker.market.key!,
-          summary: annotation.description,
+          summary,
         })
-      : h("image", { src: sticker.url, summary: annotation.description, subType: 1 });
+      : h("image", { src: sticker.url, summary, subType: 1 });
     const sent = await this.bot.createMessage(channelId, [element], channelId);
     if (!sent.length) {
       throw new Error("OneBot 未返回发送成功的表情消息");
