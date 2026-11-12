@@ -13,7 +13,6 @@ module.exports = {
       cwd: __dirname,
       env: {
         NODE_ENV: "production",
-        NODE_USE_ENV_PROXY: "1",
       },
       autorestart: false,
       watch: false,
@@ -26,7 +25,6 @@ module.exports = {
       cwd: __dirname,
       env: {
         NODE_ENV: "production",
-        NODE_USE_ENV_PROXY: "1",
       },
       autorestart: false,
       watch: false,

@@ -3,6 +3,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError } from "ai";
 import type { Config } from "../config/schema";
 import { logger } from "../logger/logger";
+import { fetchWithProxy } from "../utils/http";
 
 export type LlmModels = NonNullable<NonNullable<Config["llm"]>["models"]>;
 type ProviderConfig = NonNullable<LlmModels["chat"]>["providers"][number];
@@ -60,7 +61,7 @@ export function createProvider(config: ProviderConfig, name: string) {
         logger.silly("e2e.llm.request", { traceId, provider: name, request: requestBody });
       }
       try {
-        const response = await fetch(url, request);
+        const response = await (config.use_proxy ? fetchWithProxy : fetch)(url, request);
         if (traceId) {
           // 临时观察非流式正文；副本不替代 SDK 消费，流式请求不等整条流结束。
           logger.silly("e2e.llm.response", {

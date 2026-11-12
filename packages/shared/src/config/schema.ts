@@ -39,6 +39,7 @@ const provider_schema = z.looseObject({
   base_url: z.url(),
   api_key: z.string().optional(),
   model: z.string().min(1),
+  use_proxy: z.boolean().optional(),
   headers: z.record(z.string(), z.string()).optional(),
   request: z.record(z.string(), z.json()).optional(),
 });
@@ -64,6 +65,7 @@ export const config_schema = z
       .looseObject({
         timezone: z.string().min(1).optional(),
         public_deployment: z.boolean().optional(),
+        proxy_url: z.url({ protocol: /^https?$/ }).optional(),
         world_simulator: z
           .looseObject({
             base_url: z.url({ protocol: /^https?$/ }).optional(),
@@ -89,6 +91,7 @@ export const config_schema = z
                 base_url: z.url({ protocol: /^https?$/ }),
                 api_key: z.string().min(1),
                 model: z.string().min(1),
+                use_proxy: z.boolean().optional(),
               })
               .optional(),
             chat: model_group_schema.optional(),
@@ -138,6 +141,26 @@ export const config_schema = z
       .optional(),
   })
   .superRefine((config, context) => {
+    if (config.app?.proxy_url === undefined) {
+      if (config.llm?.models?.decision?.use_proxy) {
+        context.addIssue({
+          code: "custom",
+          path: ["llm", "models", "decision", "use_proxy"],
+          message: "启用代理需要配置 app.proxy_url",
+        });
+      }
+      for (const name of ["chat", "strong", "flash", "multimodal", "embedding"] as const) {
+        for (const [index, provider] of (config.llm?.models?.[name]?.providers ?? []).entries()) {
+          if (provider.use_proxy) {
+            context.addIssue({
+              code: "custom",
+              path: ["llm", "models", name, "providers", index, "use_proxy"],
+              message: "启用代理需要配置 app.proxy_url",
+            });
+          }
+        }
+      }
+    }
     for (const [characterId, character] of Object.entries(config.characters ?? {})) {
       for (const name of Object.keys(character.extensions ?? {})) {
         if (!config.extensions?.includes(name)) {

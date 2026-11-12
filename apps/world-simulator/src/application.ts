@@ -1,6 +1,7 @@
 import type { Config } from "@yuiju/shared/config/schema";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { closeRedis, getRedis } from "@yuiju/shared/database/redis";
+import { closeHttpProxy } from "@yuiju/shared/utils/http";
 import { createCharacterDefinition } from "./content/characters";
 import { createWorldLocations } from "./content/locations";
 import { createWorldMap } from "./map";
@@ -93,6 +94,13 @@ export async function startWorldSimulator(config: Config) {
     // 世界不再产生任务后，停止归档消费者；未完成任务留在 Redis。
     try {
       await queues.stop();
+    } catch (error) {
+      failures.push(error);
+    }
+
+    // 模型调用结束后，先释放按需创建的代理连接池。
+    try {
+      await closeHttpProxy();
     } catch (error) {
       failures.push(error);
     }

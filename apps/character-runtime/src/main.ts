@@ -7,6 +7,7 @@ import { closeRedis } from "@yuiju/shared/database/redis";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
 import { flushMonitoringAlerts } from "@yuiju/shared/monitoring/storage";
 import { initializePrompts } from "@yuiju/shared/prompt/template";
+import { closeHttpProxy } from "@yuiju/shared/utils/http";
 import { Character } from "./character";
 import { startConversationArchive } from "./conversation/storage/archive";
 import { extensionAgents } from "./extensions/generated";
@@ -72,6 +73,7 @@ async function main() {
     // 会话停止后再停止归档；只等待在途批次，Redis 中的剩余积压留到下次启动。
     results.push(...(await Promise.allSettled([archive?.stop()])));
     results.push(...(await Promise.allSettled([flushMonitoringAlerts()])));
+    results.push(...(await Promise.allSettled([closeHttpProxy()])));
     results.push(...(await Promise.allSettled([closeMongo()])));
     closeRedis();
     const failures = results.filter((result) => result.status === "rejected");

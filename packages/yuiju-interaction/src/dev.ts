@@ -7,6 +7,7 @@ import { load_config } from "@yuiju/shared/config/load";
 import { closeMongo } from "@yuiju/shared/database/mongo";
 import { init_logger, logger } from "@yuiju/shared/logger/logger";
 import { initializePrompts } from "@yuiju/shared/prompt/template";
+import { closeHttpProxy } from "@yuiju/shared/utils/http";
 import interaction from "../agent.ts";
 
 /** 独立调试只运行插件场景；世界条件检查与控制权交接仍由正式宿主负责。 */
@@ -68,7 +69,7 @@ async function main() {
       await flushAnalyticsEvents();
     } finally {
       // 模型取消时也会上报埋点，必须等最后一条写入结束后才能关闭连接。
-      await closeMongo();
+      await Promise.all([closeHttpProxy(), closeMongo()]);
     }
   }
 }

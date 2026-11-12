@@ -32,7 +32,7 @@
     "docs:dev": "pnpm --filter @yuiju/site run dev",
     "docs:build": "pnpm --filter @yuiju/site run build",
     "docs:preview": "pnpm --filter @yuiju/site run preview",
-    "image": "node --use-env-proxy packages/source/aigc/pixel/generate/generate-image.js",
+    "image": "node packages/source/aigc/pixel/generate/generate-image.js",
     "generate:extensions": "pnpm --filter @yuiju/shared run generate:extensions",
     "type-check:shared": "pnpm --filter @yuiju/shared run type-check",
     "type-check:interaction": "pnpm --filter yuiju-interaction run type-check"

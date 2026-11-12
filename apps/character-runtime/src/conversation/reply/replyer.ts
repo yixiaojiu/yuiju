@@ -7,6 +7,7 @@ import { chatModel } from "@yuiju/shared/llm/models";
 import { logger } from "@yuiju/shared/logger/logger";
 import { BusinessMonitor } from "@yuiju/shared/monitoring/monitor";
 import { renderPrompt } from "@yuiju/shared/prompt/template";
+import { fetchWithProxy } from "@yuiju/shared/utils/http";
 import {
   APICallError,
   type Experimental_DecisionResult,
@@ -52,6 +53,7 @@ export class Replyer {
       this.qualityModel = createTypeSafeAi({
         baseURL: decision.base_url,
         apiKey: decision.api_key,
+        fetch: decision.use_proxy ? fetchWithProxy : undefined,
       }).decisionModel(decision.model);
       this.qualityHost = new URL(decision.base_url).host;
       this.qualityMonitor = new BusinessMonitor({
