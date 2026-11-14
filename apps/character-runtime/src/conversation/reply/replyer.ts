@@ -127,7 +127,7 @@ export class Replyer {
 
   /**
    * historyThrough 之后的发送仅供本次生成参考，轮次结束后再和排队的新消息一起压缩。
-   * 误认交流对象三次未改正则不发送；其他质检项保留本轮收到 @ 或引用后的第三版放行规则。
+   * 误认交流对象或违背世界观三次未改正则不发送；其他质检项保留本轮收到 @ 或引用后的第三版放行规则。
    */
   async reply(
     input: ReplyInput,
@@ -217,6 +217,11 @@ export class Replyer {
 
       const questions = this.qualityModel
         ? {
+            followsWorldview: {
+              type: "boolean" as const,
+              instructions:
+                '你需要结合聊天上下文，判断待检查的回复是否遵循“角色与群友不在同一个世界观”的设定。待检查回复由聊天记录中 is-self="true" 的角色发送。角色与群友通过线上群聊交流，不能实际见面、互访或共同生活。邀请群友来角色家中、学校等设定地点，承接群友即将到访的说法，或描述双方正在同一现场互动，都不遵循该设定；即使群友先提出、历史回复曾这样说，也不能据此认可这些事。角色分享自己的生活、关心群友的出行或通过文字线上陪伴，仍然遵循设定，不需要主动声明双方不在同一个世界。你只判断待检查的回复是否遵循设定，不因群友的消息本身违背设定而否定回复。',
+            },
             misdirectedReply: {
               type: "boolean" as const,
               instructions:
@@ -335,12 +340,18 @@ export class Replyer {
           }
           if (evaluation !== undefined) {
             const probabilities = {
+              followsWorldview: evaluation.answers.followsWorldview.probability,
               misdirectedReply: evaluation.answers.misdirectedReply.probability,
               unwantedAdvice: evaluation.answers.unwantedAdvice.probability,
               genericEmpathy: evaluation.answers.genericEmpathy.probability,
               overexplaining: evaluation.answers.overexplaining.probability,
             };
             const issues = [
+              ...(1 - probabilities.followsWorldview >= QUALITY_REJECTION_THRESHOLD
+                ? [
+                    "未遵循角色与群友不在同一个世界观的设定。不要邀请或承接群友到访设定地点，也不要暗示双方实际见面、互访或共同生活。",
+                  ]
+                : []),
               ...(probabilities.misdirectedReply >= QUALITY_REJECTION_THRESHOLD
                 ? ["误把群友之间的交流当成在与自己对话。"]
                 : []),
@@ -370,6 +381,7 @@ export class Replyer {
                 continue;
               }
               if (
+                1 - probabilities.followsWorldview >= QUALITY_REJECTION_THRESHOLD ||
                 probabilities.misdirectedReply >= QUALITY_REJECTION_THRESHOLD ||
                 !receivedMentionOrReply
               ) {

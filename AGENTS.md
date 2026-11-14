@@ -29,8 +29,8 @@
 ## 项目约束
 
 - Monorepo 使用 pnpm，应用位于 `apps/`，公共技术能力位于 `packages/shared/`。
-- `apps/character-runtime` 负责角色大脑、聊天、场景 loop、情绪、计划与记忆。
-- `apps/world-simulator` 负责世界运转、实际状态、行动执行和事件推送，不负责角色的 LLM 决策。
+- `apps/character-runtime` 负责角色大脑、聊天、场景 loop、情绪、规划决策与记忆。
+- `apps/world-simulator` 负责世界运转、实际状态、任务与日程、行动执行和事件推送，不负责角色的 LLM 决策。
 - `apps/dashboard` 使用 Next.js，提供管理界面及 Hono API，API 统一使用 Node.js runtime。
 - `packages/shared` 放实际共用的技术能力与集中维护的提示词定义，不放大脑、聊天、记忆等业务执行逻辑。
 - 旧应用与旧包保留作参考，新功能在新架构中实现，不要求兼容旧逻辑。

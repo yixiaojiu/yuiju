@@ -5,6 +5,7 @@ import { handle } from "hono/vercel";
 import { activitiesApi } from "./routes/activities";
 import { alertsApi } from "./routes/alerts";
 import { analyticsApi } from "./routes/analytics";
+import { calendarApi } from "./routes/calendar";
 import { charactersApi } from "./routes/characters";
 import { conversationSettingsApi } from "./routes/conversation-settings";
 import { extensionsApi } from "./routes/extensions";
@@ -30,6 +31,7 @@ app.onError((error, c) => {
 });
 app.route("/extensions", extensionsApi);
 app.route("/character", charactersApi);
+app.route("/calendar", calendarApi);
 app.route("/activities", activitiesApi);
 app.route("/analytics", analyticsApi);
 app.route("/alerts", alertsApi);

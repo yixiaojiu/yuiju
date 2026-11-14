@@ -1,8 +1,7 @@
 import { logger } from "@yuiju/shared/logger/logger";
-import { nextPlanAttention, signalPlansDue } from "../plan/plan";
 import { readActivityWait, signalActivityDue } from "./events";
 
-/** 角色宿主的活动与计划时钟；主 agent 等待进入或场景思考时仍继续运行。 */
+/** 角色宿主的活动超时时钟；主 agent 等待进入或场景思考时仍继续运行。 */
 export class CharacterAttention {
   private active = false;
   private requested = false;
@@ -19,7 +18,7 @@ export class CharacterAttention {
     this.schedule();
   }
 
-  /** 活动或计划变更后重新读取最早关注时间；合并并发请求，不与模型调用互相等待。 */
+  /** 活动变更后重新读取最早关注时间；合并并发请求，不与模型调用互相等待。 */
   schedule(): void {
     this.requested = true;
     if (this.active && !this.task) {
@@ -33,16 +32,12 @@ export class CharacterAttention {
       while (this.active && this.requested) {
         this.requested = false;
         await signalActivityDue(this.characterId, Date.now());
-        await signalPlansDue(this.characterId, Date.now());
         if (!this.active) {
           return;
         }
         this.wake();
-        const [activity, planAt] = await Promise.all([
-          readActivityWait(this.characterId),
-          nextPlanAttention(this.characterId),
-        ]);
-        const times = [activity?.checkAt, planAt].filter((time): time is number => time != null);
+        const activity = await readActivityWait(this.characterId);
+        const times = activity?.checkAt == null ? [] : [activity.checkAt];
         clearTimeout(this.timer);
         if (this.active && times.length) {
           this.timer = setTimeout(

@@ -47,6 +47,20 @@ function formatObservation(observation: ObservationView): string {
 /** 供角色 loop 注入事件；现场信息使用发生时的快照，与主动查询采用相同表达。 */
 export async function formatWorldEvent(event: WorldEvent): Promise<string> {
   const timezone = (await load_config()).app!.timezone!;
+  if (event.type === "calendar_attention") {
+    const attention = event.calendar!;
+    return [
+      `事件时间：${formatLlmDateTime(event.occurredAt, timezone)}`,
+      event.description,
+      `事项 ID：${attention.itemId}；版本：${attention.revision}`,
+      `关注时间：${formatLlmDateTime(attention.attentionAt, timezone)}`,
+      ...(attention.occurrenceStartAt === null
+        ? []
+        : [
+            `本次日程：${formatLlmDateTime(attention.occurrenceStartAt, timezone)} 至 ${formatLlmDateTime(attention.occurrenceEndAt!, timezone)}`,
+          ]),
+    ].join("\n");
+  }
   return [
     `事件时间：${formatLlmDateTime(event.occurredAt, timezone)}`,
     event.description,

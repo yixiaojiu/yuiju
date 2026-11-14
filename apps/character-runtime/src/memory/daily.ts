@@ -8,7 +8,6 @@ import utc from "dayjs/plugin/utc";
 import { z } from "zod";
 import { renderMessage } from "../conversation/message";
 import { queryMemoryMessages } from "../conversation/storage/mongo";
-import { cleanupPlans } from "../plan/plan";
 import { characterKey } from "../storage";
 import {
   archiveExperiences,
@@ -32,11 +31,10 @@ import { generateMemoryChunks, indexExperienceMemory } from "./vector-index";
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
 
-/** 入睡后整理记忆，只持久化素材截止时间；原始归档和每日计划清理独立运行。 */
+/** 入睡后整理记忆，只持久化素材截止时间；原始归档独立运行。 */
 export class DailyMemory {
   private readonly stopping = new AbortController();
   private archiveTask: Promise<void> | undefined;
-  private planCleanupTask: Promise<void> | undefined;
   private organizeTask: Promise<void> | undefined;
   /** 合并重复的活动观察；即使领取节点失败，本进程也不重复尝试同一次入睡。 */
   private latestSleepAt = 0;
@@ -52,7 +50,6 @@ export class DailyMemory {
 
   start(): void {
     this.archiveTask = this.runArchive();
-    this.planCleanupTask = this.runPlanCleanup();
   }
 
   /** 由角色确认睡眠后调用；串行整理不同入睡区间，不阻塞世界通知和角色调度。 */
@@ -86,38 +83,6 @@ export class DailyMemory {
       }
       try {
         await setTimeout(5_000, undefined, { signal: this.stopping.signal });
-      } catch (error) {
-        if (!this.stopping.signal.aborted) {
-          throw error;
-        }
-      }
-    }
-  }
-
-  private async runPlanCleanup(): Promise<void> {
-    const timezone = (await load_config()).app!.timezone!;
-    while (!this.stopping.signal.aborted) {
-      const date = dayjs().tz(timezone).format("YYYY-MM-DD");
-      // 计划清理独立于素材读取和模型生成；已通知但未处理的计划到期即可移除。
-      try {
-        const removed = await cleanupPlans(this.characterId, Date.now());
-        if (removed) {
-          logger.info("已清理结束或提醒后未处理的计划", { count: removed });
-        }
-      } catch (error) {
-        if (this.stopping.signal.aborted) {
-          return;
-        }
-        logger.error("每日计划清理失败，本次跳过", { error });
-      }
-      // 清理仍在启动及每天零点执行，不依赖角色是否入睡。
-      const nextAt = dayjs
-        .tz(dayjs.utc(date).add(1, "day").format("YYYY-MM-DD"), timezone)
-        .valueOf();
-      try {
-        await setTimeout(Math.max(0, nextAt - Date.now()), undefined, {
-          signal: this.stopping.signal,
-        });
       } catch (error) {
         if (!this.stopping.signal.aborted) {
           throw error;
@@ -289,6 +254,6 @@ export class DailyMemory {
 
   async stop(): Promise<void> {
     this.stopping.abort();
-    await Promise.all([this.archiveTask, this.planCleanupTask, this.organizeTask]);
+    await Promise.all([this.archiveTask, this.organizeTask]);
   }
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CalendarAttention } from "./calendar";
 
 /** JSON 形态用于持久化结算依据和模型提供的行动参数。 */
 export type JsonValue =
@@ -161,7 +162,8 @@ export type WorldErrorCode =
   | "route_not_known"
   | "conditions_not_met"
   | "request_conflict"
-  | "world_unavailable";
+  | "world_unavailable"
+  | "calendar_item_not_found";
 export type WorldFailure = {
   ok: false;
   code: WorldErrorCode;
@@ -186,12 +188,14 @@ export type WorldEvent = {
     | "activity_paused"
     | "activity_resumed"
     | "weather_changed"
-    | "idle_reminder";
+    | "idle_reminder"
+    | "calendar_attention";
   description: string;
   activity: ActivityView | null;
   position: PositionView;
   /** 到达时保存的现场感知；不在重连投递时重新查询。 */
   observation?: ObservationView;
+  calendar?: CalendarAttention;
 };
 export type WorldServerMessage =
   | { type: "event"; deliveryId: string; event: WorldEvent }
@@ -209,6 +213,7 @@ export const worldClientMessageSchema = z.discriminatedUnion("type", [
         "activity_resumed",
         "weather_changed",
         "idle_reminder",
+        "calendar_attention",
       ]),
     ),
   }),

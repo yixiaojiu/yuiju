@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { logger } from "@yuiju/shared/logger/logger";
 import type {
+  CalendarQuery,
+  CalendarQueryResult,
+  CalendarWrite,
+  CalendarWriteResult,
+} from "@yuiju/shared/world/calendar";
+import type {
   ActivityControlInput,
   ActivityView,
   ExecuteActionInput,
@@ -14,11 +20,14 @@ import type {
 import { createIdleActivity } from "./actions/anywhere";
 import { actionsById } from "./actions/definitions";
 import { createActionContext, settleActivity, startAction } from "./actions/execution";
+import { advanceCalendar, calendarSave, queryCalendar, writeCalendar } from "./calendar/calendar";
+import { calendarInitialized, commitCalendar } from "./calendar/storage";
 import {
   createCharacterState,
   getHomePlaceIds,
   type WorldCharacterDefinition,
 } from "./content/characters";
+import { createSchoolCalendar } from "./content/school-calendar";
 import type { WorldAdvanceContext, WorldEvolution } from "./environment/evolution";
 import { isPlaceOpen, PlaceEvolution } from "./environment/places";
 import { ResourceEvolution, refreshResources } from "./environment/resources";
@@ -138,6 +147,26 @@ export class World {
       }
     }
     await this.commitStateAndFacts(draftState, []);
+    await this.enqueueStateChange(async () => {
+      for (const definition of this.characterDefinitions.values()) {
+        if (
+          definition.identities.includes("student") &&
+          !(await calendarInitialized(definition.characterId))
+        ) {
+          const items = createSchoolCalendar(definition.characterId, now, this.timezone);
+          const saves = await Promise.all(
+            items.map((item) => calendarSave(item, now, this.timezone, null)),
+          );
+          await commitCalendar(this.queues, now, {
+            saves,
+            removals: [],
+            notifications: [],
+            initializeCharacterId: definition.characterId,
+          });
+        }
+      }
+      await this.advanceCalendarTo(now);
+    });
     logger.info("世界状态已就绪", {
       weather: draftState.weather,
       characters: Object.values(draftState.characters).map((character) => ({
@@ -177,6 +206,62 @@ export class World {
       ),
       definition,
       this.characterNames,
+    );
+  }
+
+  async queryCalendar(
+    characterId: string,
+    query: CalendarQuery,
+  ): Promise<WorldResult<CalendarQueryResult>> {
+    return await this.enqueueStateChange(async () => {
+      if (!this.committedState?.characters[characterId]) {
+        return { ok: false, code: "character_not_found", message: "角色尚未加入世界" };
+      }
+      return await queryCalendar(characterId, query, this.timezone, Date.now());
+    });
+  }
+
+  async writeCalendar(
+    characterId: string,
+    requestId: string,
+    input: CalendarWrite,
+  ): Promise<WorldResult<CalendarWriteResult>> {
+    return await this.enqueueStateChange(async () => {
+      if (!this.committedState?.characters[characterId]) {
+        return { ok: false, code: "character_not_found", message: "角色尚未加入世界" };
+      }
+      return await writeCalendar(
+        this.queues,
+        characterId,
+        requestId,
+        input,
+        Date.now(),
+        this.timezone,
+      );
+    });
+  }
+
+  private async advanceCalendarTo(now: number): Promise<void> {
+    await advanceCalendar(
+      this.queues,
+      now,
+      this.timezone,
+      (item, attention): WorldEvent => ({
+        eventId: `calendar:${item.id}:${item.revision}:${attention.startAt === null ? attention.at : attention.startAt}`,
+        occurredAt: now,
+        characterId: item.characterId,
+        type: "calendar_attention",
+        description: `这项${item.kind === "task" ? "任务" : "日程"}到了关注时间：${item.title}。${item.description}`,
+        activity: null,
+        position: positionView(this.committedState!.characters[item.characterId], this.map),
+        calendar: {
+          itemId: item.id,
+          revision: item.revision,
+          attentionAt: attention.at,
+          occurrenceStartAt: attention.startAt,
+          occurrenceEndAt: attention.endAt,
+        },
+      }),
     );
   }
 
@@ -354,7 +439,11 @@ export class World {
     while (!signal.aborted) {
       try {
         // 每轮按时间顺序推进环境 Evolution 与到期活动，共用一次状态修改队列。
-        await this.enqueueStateChange(async () => this.advanceWorldTo(Date.now()));
+        await this.enqueueStateChange(async () => {
+          const now = Date.now();
+          await this.advanceWorldTo(now);
+          await this.advanceCalendarTo(now);
+        });
       } catch (error) {
         logger.error("世界推进失败，下一轮从已提交状态恢复", { error });
       }

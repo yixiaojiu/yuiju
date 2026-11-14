@@ -12,8 +12,6 @@ import { formatLlmDateTime } from "@yuiju/shared/utils/date";
 import { generateText } from "ai";
 import { z } from "zod";
 import { formatLlmPlatform } from "../conversation/platform";
-import { formatPlans } from "../plan/plan";
-import { readPlans } from "../plan/storage";
 import { formatWorldEvent } from "../world/tools";
 import { agentMessages, prepareAgentContext } from "./context";
 import { type CharacterEvent, type CharacterEventBatch, recordWorldExperiences } from "./events";
@@ -74,6 +72,45 @@ export class MainAgentLoop {
     state.round = { id: randomUUID(), ...batch };
     await saveAgentState(characterId, state);
     try {
+      const validEvents: CharacterEvent[] = [];
+      for (const event of batch.events) {
+        if (event.type === "world" && event.event.type === "calendar_attention") {
+          const attention = event.event.calendar!;
+          const result = await this.execution.world.queryCalendar({
+            type: "item",
+            itemId: attention.itemId,
+          });
+          if (!result.ok) {
+            if (result.code === "calendar_item_not_found") {
+              continue;
+            }
+            throw new Error(result.message);
+          }
+          if (result.value.type !== "item") {
+            throw new Error("日历单条查询返回了错误类型");
+          }
+          const item = result.value.item;
+          const now = Date.now();
+          if (
+            item.revision !== attention.revision ||
+            item.status === "cancelled" ||
+            (item.kind === "task" &&
+              (item.status === "completed" ||
+                item.status === "expired" ||
+                item.expiresAt <= now)) ||
+            (item.kind === "event" &&
+              (attention.occurrenceEndAt! <= now ||
+                (item.repeatUntilAt !== null && item.repeatUntilAt <= now)))
+          ) {
+            continue;
+          }
+        }
+        validEvents.push(event);
+      }
+      batch.events = validEvents;
+      if (!batch.events.length) {
+        return;
+      }
       const hasIdleReminder = batch.events.some(
         (event) => event.type === "world" && event.event.type === "idle_reminder",
       );
@@ -230,7 +267,6 @@ export class MainAgentLoop {
   }
 
   private async describeInput(events: CharacterEvent[]): Promise<string> {
-    const { characterId } = this.execution;
     const lines = [`当前时间：${formatLlmDateTime(Date.now(), this.timezone)}`];
     for (const event of events) {
       if (event.type === "world") {
@@ -246,16 +282,6 @@ export class MainAgentLoop {
         lines.push(
           `活动 ${event.activityId} 已超过预计时长的 1.5 倍，尚未确认结束，需要了解实际状态。`,
         );
-      } else if (event.type === "plan_attention" || event.type === "plan_review") {
-        const plan = (await readPlans(characterId)).find((item) => item.id === event.planId);
-        if (
-          plan?.revision === event.revision &&
-          (plan.status === "pending" || plan.status === "in_progress")
-        ) {
-          lines.push(
-            `${event.type === "plan_review" ? "这项计划已过计划日期或长期未更新，需要确认后续安排" : "这项计划到了关注时间"}：${await formatPlans([plan])}`,
-          );
-        }
       } else if (event.type === "extension_task_result") {
         const result = event.result;
         lines.push(

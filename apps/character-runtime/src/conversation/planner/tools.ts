@@ -7,10 +7,9 @@ import timezonePlugin from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import { formatPeople, readPeople, updatePersonMemory } from "../../memory/people";
 import { recallExperiences } from "../../memory/recall";
-import { formatPlans } from "../../plan/plan";
-import { readPlans } from "../../plan/storage";
 import { createOnebotSkill } from "../../skills/onebot/skill";
 import { queryTodayActivities } from "../../world/activities";
+import { queryCalendarForAgent } from "../../world/calendar";
 import {
   type ConversationMessage,
   type ConversationScope,
@@ -48,7 +47,7 @@ export type ConversationToolContext = {
   history: ConversationMessage[];
   /** 开始本轮时的历史边界；之后自己的发送先作为 Replyer 临时上下文，避免摘要跳过排队的新消息。 */
   historyThrough: number;
-  /** 本轮收到 @ 当前机器人或引用回复机器人的消息，第三次质量检查失败也发送。 */
+  /** 本轮收到 @ 或引用时，第三版仅可放行不涉及误认交流对象、违背世界观的质检问题。 */
   receivedMentionOrReply: boolean;
   /** 将平台确认的事件写入真实历史和本轮快照，再持久化。 */
   recordSent: (events: IncomingEvent[]) => Promise<void>;
@@ -274,16 +273,10 @@ export async function createPlannerTools(
       },
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
-    readPlans: tool({
-      ...plannerTools.readPlans,
-      async execute() {
-        try {
-          return await formatPlans(await readPlans(scope.characterId));
-        } catch (error) {
-          logger.error("角色计划读取失败", { error });
-          return `角色计划读取失败：${error instanceof Error ? error.message : String(error)}`;
-        }
-      },
+    query_calendar: tool({
+      ...plannerTools.query_calendar,
+      execute: async (input, { abortSignal }) =>
+        await queryCalendarForAgent(scope.characterId, input, abortSignal),
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     understandMedia: tool({

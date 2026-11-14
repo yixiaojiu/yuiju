@@ -36,6 +36,7 @@ type MenuItem = { label: string; icon: LucideIcon; privateOnly?: boolean } & (
 const menuItems: MenuItem[] = [
   { label: "主页", href: "/", icon: House },
   { label: "活动", href: "/activities", icon: CalendarDays },
+  { label: "日程", href: "/calendar", icon: CalendarDays, privateOnly: true },
   { label: "记忆", href: "/memories", icon: BookOpen },
   { label: "日志", href: "/logs", icon: ScrollText, privateOnly: true },
   { label: "埋点", href: "/analytics", icon: ChartNoAxesCombined, privateOnly: true },

@@ -1,23 +1,5 @@
 # 规划
 
-## 利用 Hermes Agent 增强趣味性
-
-- 使用工具：Hermes Agent
-- 接入方式：部署 Hermes Agent，通过 API 的方式调用 [API Server Doc](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server#post-v1chatcompletions)
-- 新增一个 「玩手机」的 action，整体链路：`Agent选择"玩手机"Action` -> `调用 Hermes API` -> `执行对应的 SKILL` -> `抓取对应平台的数据` -> `Hermes 将汇总的信息返回给 Agent`
-- 新建 Action 参考历史逻辑：[packages/world/src/action/park.ts](packages/world/src/action/park.ts)
-- 打算利用 Hermes Agent 访问的平台：Bangumi、小红书、Twitter、Google Map
-  - [Bangumi Open API](https://bangumi.github.io/api/)，打算实现的功能：查看每日放送的番剧、查询某个具体的条目、查看某个条目下的评论
-  - 小红书，不确定有没有 API，打算实现的功能：查看文本类帖子、查看帖子评论
-  - Twitter，不确定有没有 API，打算实现的功能：查看文本类帖子、查看帖子评论
-  - Google Map，不确定有没有 API。打算利用 Google Map 的街景功能实现云旅游功能。打算实现的能力：随机查看日本的一个街景、选择方向前进。
-
-### 大致链路
-
-用“云旅游“举例：
-
-输入给 hermes 的prompt（悠酱想云旅游，随机到一个日本景点，用文字描述看到了什么）-> hermes 命中对应的 skill 开始执行 -> 随机到一个景点的街景图片 -> hermes 将看到的内容用文字汇总，输出
-
 ## 群 bot 互动文字小游戏
 
 新建一个群 bot，用来承载文字小游戏前端，可以与悠酱一起互动。

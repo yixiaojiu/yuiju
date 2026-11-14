@@ -1,6 +1,5 @@
 import { Card } from "@yuiju/shared/ui/components/card";
 import type { CharacterStatus } from "@/app/api/[[...route]]/routes/characters";
-import { formatTime } from "@/lib/date";
 
 export function HomeStatusCard({
   data,
@@ -94,39 +93,6 @@ export function HomeStatusCard({
       </details>
       {!data.publicDeployment && (
         <>
-          <section className="space-y-3 rounded-xl border bg-secondary/40 p-3">
-            <h3 className="text-xs text-muted-foreground">计划</h3>
-            {data.plans?.length ? (
-              data.plans.map((plan) => (
-                <div key={plan.id} className="text-xs leading-6">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-medium">{plan.content}</span>
-                    <span className="shrink-0 text-muted-foreground">
-                      {
-                        {
-                          pending: "待进行",
-                          in_progress: "进行中",
-                          completed: "已完成",
-                          cancelled: "已取消",
-                        }[plan.status]
-                      }
-                    </span>
-                  </div>
-                  {plan.plannedAt !== null && (
-                    <time className="text-muted-foreground">
-                      {formatTime(plan.plannedAt, true)}
-                    </time>
-                  )}
-                  <p className="whitespace-pre-wrap text-muted-foreground">
-                    {plan.background}
-                    {plan.progress && `\n${plan.progress}`}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-muted-foreground">暂无</p>
-            )}
-          </section>
           <section className="space-y-2 rounded-xl border bg-secondary/40 p-3">
             <h3 className="text-xs text-muted-foreground">当前感受</h3>
             {data.feelings?.length ? (

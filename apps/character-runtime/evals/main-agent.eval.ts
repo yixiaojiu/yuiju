@@ -6,7 +6,12 @@ import { Emotion } from "../src/emotion/emotion";
 import { ExtensionRuntime } from "../src/extensions/runtime";
 import { WorldClient } from "../src/world/client";
 import { mainAgentCases } from "./cases/main-agent";
-import { fixture, runEvaluation } from "./fixtures";
+import {
+  fixture,
+  queryEvaluationCalendar,
+  runEvaluation,
+  writeEvaluationCalendar,
+} from "./fixtures";
 import { record } from "./report";
 import { createEvaluationWorld } from "./world";
 
@@ -16,7 +21,7 @@ for (const scenario of mainAgentCases) {
       scenario,
       {
         ...scenario,
-        plans: [],
+        calendar: [],
         memories: "无相关记录",
         emotion: { pleasure: 50, activation: 50, control: 50 },
       },
@@ -32,6 +37,12 @@ for (const scenario of mainAgentCases) {
           async () => {},
           { observe: async () => {}, wake: () => {} },
           { queueAgentEvents: true },
+        );
+        vi.spyOn(world, "queryCalendar").mockImplementation(async (query) =>
+          queryEvaluationCalendar("yuuno", query),
+        );
+        vi.spyOn(world, "writeCalendar").mockImplementation(async (input, id) =>
+          writeEvaluationCalendar("yuuno", input, id),
         );
         // 测评仅模拟感受提交，不启动后台情绪处理或唤醒主 loop。
         const emotion = new Emotion("yuuno", () => {});

@@ -5,6 +5,12 @@ import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getRedis } from "@yuiju/shared/database/redis";
 import { logger } from "@yuiju/shared/logger/logger";
 import type {
+  CalendarQuery,
+  CalendarQueryResult,
+  CalendarWrite,
+  CalendarWriteResult,
+} from "@yuiju/shared/world/calendar";
+import type {
   ActivityControlInput,
   ActivityView,
   ExecuteActionInput,
@@ -25,6 +31,7 @@ const allEventTypes: WorldEvent["type"][] = [
   "activity_resumed",
   "weather_changed",
   "idle_reminder",
+  "calendar_attention",
 ];
 
 /** 世界通知确认前，主 agent 模式持久入队，聊天调试模式直接同步状态。 */
@@ -95,6 +102,38 @@ export class WorldClient {
     const result = (await response.json()) as WorldResult<ExecuteActionResult>;
 
     return result;
+  }
+
+  async queryCalendar(query: CalendarQuery): Promise<WorldResult<CalendarQueryResult>> {
+    return await queryWorldCalendar(this.characterId, query, this.stopping.signal);
+  }
+
+  async writeCalendar(
+    input: CalendarWrite,
+    requestId: string,
+  ): Promise<WorldResult<CalendarWriteResult>> {
+    const config = await load_config();
+    const { operation, ...fields } = input;
+    let path: string;
+    let body: unknown;
+    if (operation === "create") {
+      path = "/calendar/items";
+      body = { characterId: this.characterId, requestId, item: fields };
+    } else {
+      const { itemId, ...update } = fields as Omit<
+        Extract<CalendarWrite, { operation: "update" }>,
+        "operation"
+      >;
+      path = `/calendar/items/${encodeURIComponent(itemId)}`;
+      body = { characterId: this.characterId, requestId, ...update };
+    }
+    const response = await fetch(new URL(path, config.app!.world_simulator!.base_url!), {
+      method: operation === "create" ? "POST" : "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([this.stopping.signal, AbortSignal.timeout(15_000)]),
+    });
+    return (await response.json()) as WorldResult<CalendarWriteResult>;
   }
 
   async controlActivity(command: ActivityControlInput): Promise<ActivityView> {
@@ -205,4 +244,21 @@ return 1
       event.occurredAt + 30 * 24 * 60 * 60_000,
     );
   }
+}
+
+/** 角色客户端与聊天查询共用 HTTP 契约，查询不需要建立 WS 生命周期。 */
+export async function queryWorldCalendar(
+  characterId: string,
+  query: CalendarQuery,
+  signal?: AbortSignal,
+): Promise<WorldResult<CalendarQueryResult>> {
+  const config = await load_config();
+  const timeout = AbortSignal.timeout(15_000);
+  const response = await fetch(new URL("/calendar/query", config.app!.world_simulator!.base_url!), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ characterId, query }),
+    signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
+  });
+  return (await response.json()) as WorldResult<CalendarQueryResult>;
 }

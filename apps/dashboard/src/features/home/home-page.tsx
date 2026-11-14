@@ -7,6 +7,7 @@ import { type CharacterOption, CharacterSelect } from "@/components/character-se
 import { QueryState } from "@/components/query-state";
 import { today } from "@/lib/date";
 import { useQuery } from "@/lib/use-query";
+import { CalendarSummary } from "../calendar/calendar-summary";
 import { HomeStatusCard } from "./home-status-card";
 import { HomeWorldState } from "./home-world-state";
 
@@ -58,6 +59,9 @@ function HomeContent({
     <div className="grid items-start gap-3.5 min-[1020px]:grid-cols-[360px_minmax(0,1fr)]">
       <div className="grid gap-3.5">
         <HomeStatusCard data={data} now={now} todayActions={activities ? activities.actions : []} />
+        {!data.publicDeployment && (
+          <CalendarSummary characterId={characterId} timezone={data.timezone} />
+        )}
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}

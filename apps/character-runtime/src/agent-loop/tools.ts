@@ -20,16 +20,8 @@ import { createExtensionTools } from "../extensions/tools";
 import { formatPeople, readPeople } from "../memory/people";
 import { recallExperiences, recallSchema } from "../memory/recall";
 import { readSelfCognition } from "../memory/self-cognition";
-import {
-  createPlanSchema,
-  formatPlans,
-  parsePlanTimes,
-  type planInputSchema,
-  savePlan,
-  updatePlanSchema,
-} from "../plan/plan";
-import { readPlans } from "../plan/storage";
 import { queryTodayActivities, queryTodayActivitiesTool } from "../world/activities";
+import { calendarTools, queryCalendarForAgent, writeCalendarForAgent } from "../world/calendar";
 import type { WorldClient } from "../world/client";
 import { formatWorldView } from "../world/tools";
 import type { AgentControl } from "./control";
@@ -142,20 +134,7 @@ export const agentTools = {
       "你向世界提交行动选择，payload 是按 inspect_world 的 action 查询所提供 schema 填写的 JSON 字符串。世界检查实际条件并执行，返回拒绝原因或执行结果。持续活动返回开始信息与预计结束时间，完成结果由后续世界事件提供；进行中会占用你的世界活动，工具返回不表示活动已经结束。",
     inputSchema: executeActionSchema,
   }),
-  read_plans: tool({
-    description: "你可以查看自己的安排与进展。",
-    inputSchema: z.strictObject({}),
-  }),
-  create_plan: tool({
-    description:
-      "你可以记录自己的打算。只需填写内容，背景、安排时间和下次关注时间按需提供；新计划从待办状态开始。",
-    inputSchema: createPlanSchema,
-  }),
-  update_plan: tool({
-    description:
-      "你可以更新已有安排、进展，或标记完成、取消。提供 planId 和至少一个要修改的字段；省略字段保持原值，时间传 null 表示清除。完成或取消会自动清除提醒，更新会解除本次维护提醒对应的待清理状态。",
-    inputSchema: updatePlanSchema,
-  }),
+  ...calendarTools,
 };
 
 export type AgentToolContext = {
@@ -260,13 +239,9 @@ export function createAgentTools(
       ...agentTools.execute_action,
       execute: async (input) => await executeAction("execute_action", input),
     }),
-    create_plan: tool({
-      ...agentTools.create_plan,
-      execute: async (input) => await executeAction("create_plan", input),
-    }),
-    update_plan: tool({
-      ...agentTools.update_plan,
-      execute: async (input) => await executeAction("update_plan", input),
+    write_calendar: tool({
+      ...calendarTools.write_calendar,
+      execute: async (input) => await executeAction("write_calendar", input),
     }),
     recall: tool({
       ...agentTools.recall,
@@ -290,9 +265,9 @@ export function createAgentTools(
         formatPeople(await readPeople(context.characterId, { platform: "onebot", userId })),
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
-    read_plans: tool({
-      ...agentTools.read_plans,
-      execute: async () => await formatPlans(await readPlans(context.characterId)),
+    query_calendar: tool({
+      ...calendarTools.query_calendar,
+      execute: async (input) => await queryCalendarForAgent(context.characterId, input, signal),
       toModelOutput: ({ output }) => ({ type: "text", value: truncateToolOutput(output) }),
     }),
     inspect_world: tool({
@@ -324,7 +299,7 @@ export function createAgentTools(
 
 /** 正常执行与中断恢复共用业务入口；恢复沿用原请求标识，已保存结果的操作不再执行。 */
 async function executeAgentAction(context: AgentToolContext, call: AgentAction): Promise<string> {
-  const { characterId, world } = context;
+  const { world } = context;
   const { id: requestId, createdAt } = call;
   if (call.name === "express_feeling") {
     await context.emotion.submit(requestId, feelingSchema.parse(call.input).feeling, createdAt);
@@ -367,25 +342,5 @@ async function executeAgentAction(context: AgentToolContext, call: AgentAction):
     const timezone = (await load_config()).app!.timezone!;
     return `${result.value.description}\n活动 ID：${result.value.activity.activityId}\n${activity ? `预计结束：${formatLlmDateTime(activity.endsAt!, timezone)}` : "已完成"}`;
   }
-  let id = requestId;
-  let input: Omit<z.infer<typeof updatePlanSchema>, "planId">;
-  if (call.name === "update_plan") {
-    const { planId, ...fields } = updatePlanSchema.parse(call.input);
-    id = planId;
-    input = fields;
-    if (!(await readPlans(characterId)).some((plan) => plan.id === id)) {
-      return `计划不存在：${id}`;
-    }
-  } else {
-    input = createPlanSchema.parse(call.input);
-  }
-  let fields: Partial<z.infer<typeof planInputSchema>>;
-  try {
-    fields = parsePlanTimes(input, (await load_config()).app!.timezone!);
-  } catch (error) {
-    return `计划未保存：${error instanceof Error ? error.message : String(error)}`;
-  }
-  const plan = await savePlan(characterId, id, fields, requestId, call.name === "create_plan");
-  context.scheduleAttention();
-  return await formatPlans([plan]);
+  return await writeCalendarForAgent(world, requestId, call.input);
 }

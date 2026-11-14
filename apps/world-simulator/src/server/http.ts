@@ -1,5 +1,10 @@
 import { logger } from "@yuiju/shared/logger/logger";
 import {
+  calendarCreateSchema,
+  calendarQuerySchema,
+  calendarUpdateSchema,
+} from "@yuiju/shared/world/calendar";
+import {
   activityControlSchema,
   executeActionSchema,
   inspectWorldSchema,
@@ -20,6 +25,59 @@ const actionRequestSchema = executeActionSchema.extend({
 /** HTTP 入口只负责请求校验和响应，世界规则交给 World 执行。 */
 export function createWorldHttpApp(world: World) {
   const app = new Hono();
+  app.post("/calendar/query", async (context) => {
+    const parsed = z
+      .strictObject({ characterId: z.string().min(1), query: calendarQuerySchema })
+      .safeParse(await context.req.json());
+    if (!parsed.success) {
+      return context.json(
+        { ok: false, code: "invalid_request", message: parsed.error.message },
+        400,
+      );
+    }
+    const result = await world.queryCalendar(parsed.data.characterId, parsed.data.query);
+    return context.json(result, result.ok ? 200 : 400);
+  });
+  app.post("/calendar/items", async (context) => {
+    const parsed = z
+      .strictObject({
+        characterId: z.string().min(1),
+        requestId: z.string().min(1),
+        item: calendarCreateSchema,
+      })
+      .safeParse(await context.req.json());
+    if (!parsed.success) {
+      return context.json(
+        { ok: false, code: "invalid_request", message: parsed.error.message },
+        400,
+      );
+    }
+    const { characterId, requestId, item } = parsed.data;
+    const result = await world.writeCalendar(characterId, requestId, {
+      operation: "create",
+      ...item,
+    });
+    return context.json(result, result.ok ? 200 : 400);
+  });
+  app.patch("/calendar/items/:itemId", async (context) => {
+    const parsed = calendarUpdateSchema
+      .omit({ itemId: true })
+      .extend({ characterId: z.string().min(1), requestId: z.string().min(1) })
+      .safeParse(await context.req.json());
+    if (!parsed.success) {
+      return context.json(
+        { ok: false, code: "invalid_request", message: parsed.error.message },
+        400,
+      );
+    }
+    const { characterId, requestId, ...fields } = parsed.data;
+    const result = await world.writeCalendar(characterId, requestId, {
+      operation: "update",
+      itemId: context.req.param("itemId"),
+      ...fields,
+    });
+    return context.json(result, result.ok ? 200 : 400);
+  });
   app.post("/inspect", async (context) => {
     const parsed = inspectRequestSchema.safeParse(await context.req.json());
     if (!parsed.success) {

@@ -62,7 +62,7 @@ export class Character {
       },
       {
         observe: async (event) => {
-          if (event.type !== "weather_changed") {
+          if (event.type !== "weather_changed" && event.type !== "calendar_attention") {
             // 即使 main 暂停也同步当前活动，不能用迟到的事件快照覆盖现状。
             const error = await this.syncWorldActivity();
             if (error !== null) {

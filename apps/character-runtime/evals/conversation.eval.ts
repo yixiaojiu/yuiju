@@ -17,7 +17,7 @@ for (const scenario of conversationCases) {
   test(scenario.title, async () => {
     await runEvaluation(
       scenario,
-      { ...scenario, characterState: conversationState, memories: "无相关记录", plans: [] },
+      { ...scenario, characterState: conversationState, memories: "无相关记录", calendar: [] },
       async () => {
         const scope = { characterId: "yuuno", platform: "onebot" as const, channelId: "20001" };
         const history: ConversationMessage[] = [];

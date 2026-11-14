@@ -18,8 +18,6 @@ export type CharacterEvent = {
   | { type: "extension_scene_result"; result: ExtensionSceneResult }
   | { type: "emotion_result"; result: EmotionResult }
   | { type: "activity_due"; activityId: string; endsAt: number }
-  | { type: "plan_attention"; planId: string; attentionAt: number; revision: number }
-  | { type: "plan_review"; planId: string; revision: number }
   | {
       type: "conversation";
       scope: ConversationScope;

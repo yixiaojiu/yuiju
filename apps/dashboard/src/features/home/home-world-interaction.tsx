@@ -17,6 +17,7 @@ const eventLabels: Record<WorldEvent["type"], string> = {
   activity_paused: "活动暂停",
   activity_resumed: "活动继续",
   weather_changed: "天气变化",
+  calendar_attention: "日程关注",
   idle_reminder: "空闲提醒",
 };
 

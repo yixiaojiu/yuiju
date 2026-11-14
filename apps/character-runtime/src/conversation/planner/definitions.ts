@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { recallSchema } from "../../memory/recall";
 import { queryTodayActivitiesTool } from "../../world/activities";
+import { calendarTools } from "../../world/calendar";
 import { stickerTools } from "../sticker/tools";
 
 /** Planner 从聊天 XHTML 中选择需要理解的媒体，不要求一次读取全部附件。 */
@@ -93,10 +94,7 @@ export const plannerTools = {
       "你可以提交值得记住的人物信息，程序会结合来源原文和旧画像生成、审查并保存。仅发过言、普通接话不需要记录；不把玩笑或猜测写成事实。返回实际更新结果，失败或审查未通过时不要重复提交同一内容。",
     inputSchema: personMemorySchema,
   }),
-  readPlans: tool({
-    description: "你可以查看角色已经接受的安排与进展。",
-    inputSchema: z.strictObject({}),
-  }),
+  query_calendar: calendarTools.query_calendar,
   understandMedia: tool({
     description:
       "你可以查看图片、聆听音频或观看视频。传入媒体类型和标签 src 中的完整地址，可附上关注的问题；返回的文字理解或读取失败信息，供后续判断和回复使用。长结果会省略中间内容，可减少本次媒体数量或提出更具体的问题。",

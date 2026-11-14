@@ -12,14 +12,6 @@ export type CharacterStatus = {
   world: WorldStatus | null;
   emotion: EmotionStatus | null;
   feelings?: { content: string; occurredAt: number }[];
-  plans?: {
-    id: string;
-    content: string;
-    background: string;
-    progress: string;
-    status: string;
-    plannedAt: number | null;
-  }[];
 };
 
 export const charactersApi = new Hono().get("/", async (c) => {
@@ -54,9 +46,6 @@ export const charactersApi = new Hono().get("/", async (c) => {
   };
   if (!publicDeployment) {
     status.feelings = storedEmotion === null ? [] : storedEmotion.feelings;
-    status.plans = Object.values(await redis.hgetall(`${characterKey}:plans`)).map((value) =>
-      JSON.parse(value),
-    );
   }
   return c.json(status);
 });

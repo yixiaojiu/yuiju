@@ -3,11 +3,22 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { load_config } from "@yuiju/shared/config/load";
 import { initializePrompts } from "@yuiju/shared/prompt/template";
+import type {
+  CalendarItem,
+  CalendarQuery,
+  CalendarQueryResult,
+  CalendarWrite,
+} from "@yuiju/shared/world/calendar";
+import type { WorldResult } from "@yuiju/shared/world/protocol";
 import type { ToolSet } from "ai";
 import { beforeAll, inject, vi } from "vitest";
+import {
+  createCalendarItem,
+  selectCalendarItems,
+  updateCalendarItem,
+} from "../../world-simulator/src/calendar/calendar";
 import type { CharacterEvent } from "../src/agent-loop/events";
 import type { AgentAction, AgentState } from "../src/agent-loop/storage";
-import type { Plan } from "../src/plan/plan";
 import type { ConversationQualityCase } from "./cases/conversation-quality";
 import { type EvaluationCase, type EvaluationResult, record, snapshot, traceScope } from "./report";
 
@@ -27,7 +38,7 @@ export const fixture = {
   events: [] as CharacterEvent[],
   agentState: null as AgentState | null,
   actions: [] as AgentAction[],
-  plans: [] as Plan[],
+  calendar: [] as CalendarItem[],
   complete: (_error?: unknown) => {},
 };
 
@@ -192,21 +203,74 @@ vi.mock("../src/memory/self-cognition", async (importOriginal) => ({
     lastBatchId: null,
   }),
 }));
-vi.mock("../src/plan/plan", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/plan/plan")>()),
-  signalPlansDue: async () => {},
-  nextPlanAttention: async () => null,
+export function queryEvaluationCalendar(
+  characterId: string,
+  query: CalendarQuery,
+): WorldResult<CalendarQueryResult> {
+  const result = selectCalendarItems(
+    fixture.calendar,
+    characterId,
+    query,
+    "Asia/Shanghai",
+    Date.now(),
+  );
+  return result === null
+    ? { ok: false, code: "calendar_item_not_found", message: "事项不存在" }
+    : { ok: true, value: result };
+}
+vi.mock("../src/world/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/world/client")>()),
+  queryWorldCalendar: async (characterId: string, query: CalendarQuery) =>
+    queryEvaluationCalendar(characterId, query),
 }));
-vi.mock("../src/plan/storage", () => ({
-  readPlans: async () => structuredClone(fixture.plans),
-  readPlan: async (_characterId: string, id: string) =>
-    structuredClone(fixture.plans.find((plan) => plan.id === id) ?? null),
-  commitPlan: async (_characterId: string, _previous: Plan | null, plan: Plan) => {
-    fixture.plans = [...fixture.plans.filter((item) => item.id !== plan.id), structuredClone(plan)];
-    record("effect", "保存计划（内存）", plan);
-    return true;
-  },
-}));
+
+export function writeEvaluationCalendar(
+  characterId: string,
+  input: CalendarWrite,
+  requestId: string,
+) {
+  let item: CalendarItem;
+  try {
+    if (input.operation === "create") {
+      const { operation: _operation, ...fields } = input;
+      item = createCalendarItem(characterId, requestId, fields, Date.now(), "Asia/Shanghai");
+    } else {
+      const previous = fixture.calendar.find(
+        (entry) => entry.id === input.itemId && entry.characterId === characterId,
+      );
+      if (!previous) {
+        return {
+          ok: false as const,
+          code: "calendar_item_not_found" as const,
+          message: "事项不存在",
+        };
+      }
+      if (previous.revision !== input.expectedRevision) {
+        return { ok: false as const, code: "request_conflict" as const, message: "版本不一致" };
+      }
+      item = updateCalendarItem(previous, input, Date.now(), "Asia/Shanghai");
+    }
+    fixture.calendar = [...fixture.calendar.filter((entry) => entry.id !== item.id), item];
+    record("effect", "写入日历（真实规则，内存）", item);
+    return {
+      ok: true as const,
+      value: {
+        id: item.id,
+        revision: item.revision,
+        createdAt: item.createdAt,
+        deleteAt: item.deleteAt,
+        expiresAt: item.kind === "task" ? item.expiresAt : null,
+        repeatUntilAt: item.kind === "event" ? item.repeatUntilAt : null,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      code: "invalid_request" as const,
+      message: (error as Error).message,
+    };
+  }
+}
 vi.mock("../src/agent-loop/events", async (importOriginal) => ({
   recordWorldExperiences: (await importOriginal<typeof import("../src/agent-loop/events")>())
     .recordWorldExperiences,
@@ -264,7 +328,7 @@ export async function runEvaluation(
   fixture.qualityToolResults = null;
   fixture.events = [];
   fixture.actions = [];
-  fixture.plans = [];
+  fixture.calendar = [];
   fixture.agentState = null;
   fixture.complete = () => {};
   vi.useFakeTimers({ toFake: ["Date"] });
