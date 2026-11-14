@@ -2,7 +2,7 @@ import { redisKeyPrefix } from "@yuiju/shared/database/environment";
 import { getRedis } from "@yuiju/shared/database/redis";
 import type { CalendarItem, CalendarWriteResult } from "@yuiju/shared/world/calendar";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
-import { createIORedisClient, type IRedisTransaction, Job } from "bullmq";
+import { createIORedisClient, type IRedisClient, type IRedisTransaction, Job } from "bullmq";
 import type { ChainableCommander } from "ioredis";
 import type { WorldEventQueues } from "../queue";
 import { worldRetentionMs } from "../storage";
@@ -64,10 +64,11 @@ export async function commitCalendar(
   },
 ): Promise<void> {
   const key = calendarKey();
-  const transaction = createIORedisClient(await getRedis()).multi() as ChainableCommander &
-    IRedisTransaction;
+  const client: IRedisClient = createIORedisClient(await getRedis());
+  const transaction = client.multi() as IRedisTransaction &
+    Pick<ChainableCommander, "hdel" | "zrem" | "zadd" | "set">;
   for (const { item, attentionAt, progress } of input.saves) {
-    transaction.hset(`${key}:items`, item.id, JSON.stringify(item));
+    transaction.hset(`${key}:items`, { [item.id]: JSON.stringify(item) });
     for (const index of ["attention", "expiry", "cleanup"]) {
       transaction.zrem(`${key}:${index}`, item.id);
     }
@@ -89,7 +90,7 @@ export async function commitCalendar(
       }
     }
     if (progress !== null) {
-      transaction.hset(`${key}:reminder-progress`, item.id, JSON.stringify(progress));
+      transaction.hset(`${key}:reminder-progress`, { [item.id]: JSON.stringify(progress) });
     }
   }
   for (const id of input.removals) {
@@ -109,7 +110,7 @@ export async function commitCalendar(
     );
   }
   if (input.initializeCharacterId !== undefined) {
-    transaction.hset(`${key}:initialized`, input.initializeCharacterId, now);
+    transaction.hset(`${key}:initialized`, { [input.initializeCharacterId]: now });
   }
   for (const event of input.notifications) {
     const queue = queues.notifications.get(event.characterId)!;

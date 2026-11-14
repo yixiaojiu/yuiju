@@ -10,6 +10,8 @@ import {
   inspectWorldSchema,
 } from "@yuiju/shared/world/protocol";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import type { HonoRequest } from "hono/request";
 import { z } from "zod";
 import type { World } from "../world";
 
@@ -22,13 +24,24 @@ const actionRequestSchema = executeActionSchema.extend({
   requestId: z.string().min(1),
 });
 
+async function readRequestJson(request: HonoRequest): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new HTTPException(400, { message: "请求正文必须是有效 JSON", cause: error });
+    }
+    throw error;
+  }
+}
+
 /** HTTP 入口只负责请求校验和响应，世界规则交给 World 执行。 */
 export function createWorldHttpApp(world: World) {
   const app = new Hono();
   app.post("/calendar/query", async (context) => {
     const parsed = z
       .strictObject({ characterId: z.string().min(1), query: calendarQuerySchema })
-      .safeParse(await context.req.json());
+      .safeParse(await readRequestJson(context.req));
     if (!parsed.success) {
       return context.json(
         { ok: false, code: "invalid_request", message: parsed.error.message },
@@ -45,7 +58,7 @@ export function createWorldHttpApp(world: World) {
         requestId: z.string().min(1),
         item: calendarCreateSchema,
       })
-      .safeParse(await context.req.json());
+      .safeParse(await readRequestJson(context.req));
     if (!parsed.success) {
       return context.json(
         { ok: false, code: "invalid_request", message: parsed.error.message },
@@ -63,7 +76,7 @@ export function createWorldHttpApp(world: World) {
     const parsed = calendarUpdateSchema
       .omit({ itemId: true })
       .extend({ characterId: z.string().min(1), requestId: z.string().min(1) })
-      .safeParse(await context.req.json());
+      .safeParse(await readRequestJson(context.req));
     if (!parsed.success) {
       return context.json(
         { ok: false, code: "invalid_request", message: parsed.error.message },
@@ -79,7 +92,7 @@ export function createWorldHttpApp(world: World) {
     return context.json(result, result.ok ? 200 : 400);
   });
   app.post("/inspect", async (context) => {
-    const parsed = inspectRequestSchema.safeParse(await context.req.json());
+    const parsed = inspectRequestSchema.safeParse(await readRequestJson(context.req));
     if (!parsed.success) {
       return context.json(
         { ok: false, code: "invalid_request", message: parsed.error.message },
@@ -90,7 +103,7 @@ export function createWorldHttpApp(world: World) {
     return context.json(result, result.ok ? 200 : 400);
   });
   app.post("/actions", async (context) => {
-    const parsed = actionRequestSchema.safeParse(await context.req.json());
+    const parsed = actionRequestSchema.safeParse(await readRequestJson(context.req));
     if (!parsed.success) {
       return context.json(
         { ok: false, code: "invalid_request", message: parsed.error.message },
@@ -104,7 +117,7 @@ export function createWorldHttpApp(world: World) {
   app.post("/activity-control", async (c) => {
     const parsed = z
       .object({ characterId: z.string().min(1), command: activityControlSchema })
-      .safeParse(await c.req.json());
+      .safeParse(await readRequestJson(c.req));
     if (!parsed.success) {
       return c.json({ ok: false, code: "invalid_request", message: parsed.error.message }, 400);
     }
@@ -112,10 +125,10 @@ export function createWorldHttpApp(world: World) {
     return c.json(result, result.ok ? 200 : 400);
   });
   app.onError((error, context) => {
-    if (error instanceof SyntaxError) {
+    if (error instanceof HTTPException) {
       return context.json(
-        { ok: false, code: "invalid_request", message: "请求正文必须是有效 JSON" },
-        400,
+        { ok: false, code: "invalid_request", message: error.message },
+        error.status,
       );
     }
     logger.error("世界 HTTP 请求失败", { error });
