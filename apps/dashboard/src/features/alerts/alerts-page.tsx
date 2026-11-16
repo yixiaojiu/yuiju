@@ -3,8 +3,8 @@
 import type { MonitoringAlertsResult } from "@yuiju/shared/monitoring/storage";
 import { useEffect, useState } from "react";
 import type { CharacterOption } from "@/components/character-select";
-import { AlertsFilterCard, type AlertsFilters } from "./alerts-filter-card";
-import { AlertsTableCard } from "./alerts-table-card";
+import { AlertsFilterBar, type AlertsFilters } from "./alerts-filter-bar";
+import { AlertsTable } from "./alerts-table";
 
 export function AlertsPage({
   initialDate,
@@ -70,14 +70,15 @@ export function AlertsPage({
   // 查询对象变化才读取；重复提交同一条件也可刷新，旧响应不能覆盖新查询。
   const current = result?.query === query ? result : undefined;
   return (
-    <div className="space-y-3.5">
-      <h1 className="mb-5 text-2xl font-bold">告警</h1>
-      <AlertsFilterCard
+    <div className="space-y-5">
+      <h1 className="text-xl font-semibold">告警</h1>
+      <AlertsFilterBar
         characters={characters}
         initialFilters={initialFilters}
+        filters={query.filters}
         onSubmit={(filters) => setQuery({ filters, page: 1 })}
       />
-      <AlertsTableCard
+      <AlertsTable
         key={JSON.stringify(query)}
         characters={characters}
         data={current?.data}

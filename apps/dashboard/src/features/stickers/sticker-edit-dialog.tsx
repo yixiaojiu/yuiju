@@ -6,7 +6,8 @@ import { Button } from "@yuiju/shared/ui/components/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@yuiju/shared/ui/components/sheet";
 import { useState } from "react";
 
-const inputStyle = "w-full rounded-lg border bg-background px-3 py-2 text-sm";
+const inputStyle =
+  "w-full rounded-lg border bg-card px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none";
 
 export function StickerEditDialog({
   sticker,
@@ -79,7 +80,7 @@ export function StickerEditDialog({
             await save();
           }}
         >
-          <label className="grid gap-1.5 text-sm">
+          <label className="grid gap-1.5 text-xs text-muted-foreground">
             ID
             <input
               className={inputStyle}
@@ -89,7 +90,7 @@ export function StickerEditDialog({
               disabled={saving}
             />
           </label>
-          <label className="grid gap-1.5 text-sm">
+          <label className="grid gap-1.5 text-xs text-muted-foreground">
             描述
             <textarea
               className={`${inputStyle} min-h-28`}
@@ -99,7 +100,7 @@ export function StickerEditDialog({
               disabled={saving}
             />
           </label>
-          <label className="grid gap-1.5 text-sm">
+          <label className="grid gap-1.5 text-xs text-muted-foreground">
             标签
             <input
               className={inputStyle}

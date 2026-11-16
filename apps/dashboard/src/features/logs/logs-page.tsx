@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@yuiju/shared/ui/components/button";
-import { Card } from "@yuiju/shared/ui/components/card";
+import { cn } from "@yuiju/shared/ui/utils";
 import { Pause, Play, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LogEntry } from "@/app/api/[[...route]]/routes/logs";
@@ -74,17 +74,27 @@ function LogContent({
     .join("\n");
   return (
     <section className="min-w-0 space-y-3">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <span className="break-all text-sm">{file}</span>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setFollowing(!following)}>
-            {following ? <Pause /> : <Play />}
-            {following ? "暂停" : "跟随"}
-          </Button>
-          <Button variant="outline" size="icon" aria-label="重新加载" onClick={onReload}>
-            <RotateCw />
-          </Button>
-        </div>
+      <header className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-mono text-sm" title={file}>
+          {file}
+        </span>
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-1.5 rounded-full",
+              following ? "animate-pulse bg-emerald-500" : "bg-muted-foreground/40",
+            )}
+          />
+          {following ? "实时跟随" : "已暂停"}
+        </span>
+        <Button variant="outline" size="sm" onClick={() => setFollowing(!following)}>
+          {following ? <Pause /> : <Play />}
+          {following ? "暂停" : "跟随"}
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="重新加载" onClick={onReload}>
+          <RotateCw />
+        </Button>
       </header>
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -103,10 +113,10 @@ export function LogsPage({ characters }: { characters: CharacterOption[] }) {
   }
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">日志</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">日志</h1>
         <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
-      </div>
+      </header>
       <LogsQuery key={characterId} characterId={characterId} />
     </div>
   );
@@ -116,21 +126,21 @@ function LogsQuery({ characterId }: { characterId: string }) {
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<LogFileSelection | null>(null);
   return (
-    <div className="space-y-5">
-      <div className="grid items-start gap-4 min-[1020px]:grid-cols-[280px_minmax(0,1fr)]">
-        <LogFileTree characterId={characterId} selected={selected} onSelect={setSelected} />
-        {selected ? (
-          <LogContent
-            characterId={characterId}
-            key={`${selected.app}/${selected.file}/${revision}`}
-            onReload={() => setRevision(revision + 1)}
-            app={selected.app}
-            file={selected.file}
-          />
-        ) : (
-          <Card className="py-20 text-center text-sm text-muted-foreground">选择日志文件</Card>
-        )}
-      </div>
+    <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <LogFileTree characterId={characterId} selected={selected} onSelect={setSelected} />
+      {selected ? (
+        <LogContent
+          characterId={characterId}
+          key={`${selected.app}/${selected.file}/${revision}`}
+          onReload={() => setRevision(revision + 1)}
+          app={selected.app}
+          file={selected.file}
+        />
+      ) : (
+        <div className="rounded-2xl border border-dashed py-20 text-center text-sm text-muted-foreground">
+          从左侧选择日志文件
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
-import { Button } from "@yuiju/shared/ui/components/button";
-import { Card } from "@yuiju/shared/ui/components/card";
+import { cn } from "@yuiju/shared/ui/utils";
 import type { WorldEvent } from "@yuiju/shared/world/protocol";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { NotificationState, WorldInteraction } from "@/app/api/[[...route]]/routes/world";
 import { formatTime } from "@/lib/date";
@@ -30,19 +30,23 @@ function EventContent({
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
         <span className="font-medium">{eventLabels[event.type]}</span>
-        <time className="text-muted-foreground">{formatTime(event.occurredAt, true)}</time>
+        <time
+          className="text-muted-foreground"
+          title={`距事件发生 ${Math.floor((now - event.occurredAt) / 60000)} 分钟`}
+        >
+          {formatTime(event.occurredAt, true)}
+        </time>
       </div>
-      <p className="whitespace-pre-wrap break-words text-xs leading-6">{event.description}</p>
-      <p className="text-xs text-muted-foreground">
-        距事件发生 {Math.floor((now - event.occurredAt) / 60000)} 分钟
+      <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+        {event.description}
       </p>
     </>
   );
 }
 
-/** 只展示未完成链路；已接收与已完成决策是两个独立阶段。 */
+/** 调试信息默认折叠；只展示未完成链路，已接收与已完成决策是两个独立阶段。 */
 export function HomeWorldInteraction({ data, now }: { data: WorldInteraction; now: number }) {
   const [notificationState, setNotificationState] = useState<NotificationState>("waiting");
   const group = data.notifications.find((item) => item.state === notificationState)!;
@@ -51,139 +55,152 @@ export function HomeWorldInteraction({ data, now }: { data: WorldInteraction; no
   const wait = data.activityWait;
 
   return (
-    <>
-      <Card className="gap-3 rounded-2xl p-3.5">
-        <h2 className="text-sm font-bold">世界通知</h2>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {data.notifications.map((item) => (
-            <Button
-              key={item.state}
-              variant={notificationState === item.state ? "secondary" : "outline"}
-              aria-pressed={notificationState === item.state}
-              className="h-auto flex-col gap-1 py-2.5"
-              onClick={() => setNotificationState(item.state)}
-            >
-              <span className="text-xs text-muted-foreground">
-                {notificationLabels[item.state]}
+    <details className="group rounded-2xl border bg-card">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-4 text-sm [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden="true"
+          className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
+        />
+        <span className="font-semibold">运行状态</span>
+        <span className="ml-auto flex flex-wrap justify-end gap-x-3 text-xs text-muted-foreground tabular-nums">
+          {data.notifications
+            .filter((item) => item.total > 0)
+            .map((item) => (
+              <span key={item.state} className={cn(item.state === "failed" && "text-destructive")}>
+                {notificationLabels[item.state]} {item.total}
               </span>
-              <span className="text-base font-semibold tabular-nums">{item.total}</span>
-            </Button>
-          ))}
-        </div>
-        <div className="max-h-80 space-y-2 overflow-y-auto">
-          {group.events.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
-              暂无{notificationLabels[group.state]}通知
+            ))}
+          {receivedCount > 0 && <span>未处理事件 {receivedCount}</span>}
+        </span>
+      </summary>
+      <div className="grid gap-6 border-t p-5 lg:grid-cols-3">
+        <section className="min-w-0">
+          <h3 className="text-xs font-medium text-muted-foreground">世界通知</h3>
+          <div className="mt-3 flex rounded-lg bg-secondary p-0.5">
+            {data.notifications.map((item) => (
+              <button
+                type="button"
+                key={item.state}
+                aria-pressed={notificationState === item.state}
+                onClick={() => setNotificationState(item.state)}
+                className={cn(
+                  "flex-1 rounded-md px-1 py-1 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  notificationState === item.state
+                    ? "bg-card font-medium shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {notificationLabels[item.state]} {item.total}
+              </button>
+            ))}
+          </div>
+          <ul className="mt-2 max-h-80 divide-y overflow-y-auto">
+            {group.events.length === 0 ? (
+              <li className="py-6 text-center text-xs text-muted-foreground">
+                暂无{notificationLabels[group.state]}通知
+              </li>
+            ) : (
+              group.events.map((event) => (
+                <li key={event.eventId} className="py-2.5">
+                  <EventContent event={event} now={now} />
+                  {(event.failures > 0 || event.retryAt !== null) && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {[
+                        event.failures > 0 && `失败 ${event.failures} 次`,
+                        event.retryAt !== null && `计划重试 ${formatTime(event.retryAt, true)}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {event.lastError && (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-xs text-destructive">
+                      {event.lastError}
+                    </p>
+                  )}
+                </li>
+              ))
+            )}
+          </ul>
+          {group.total > group.events.length && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              显示最早的 {group.events.length} 条
             </p>
-          ) : (
-            group.events.map((event) => (
-              <article
-                key={event.eventId}
-                className="space-y-2 rounded-xl border bg-secondary/30 p-3"
-              >
-                <EventContent event={event} now={now} />
-                {event.failures > 0 && (
-                  <p className="text-xs text-muted-foreground">失败 {event.failures} 次</p>
-                )}
-                {event.lastError && (
-                  <p className="whitespace-pre-wrap break-words text-xs text-destructive">
-                    {event.lastError}
-                  </p>
-                )}
-                {event.retryAt !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    计划重试 {formatTime(event.retryAt, true)}
-                  </p>
-                )}
-              </article>
-            ))
           )}
-        </div>
-        {group.total > group.events.length && (
-          <p className="text-xs text-muted-foreground">显示最早的 {group.events.length} 条</p>
-        )}
-      </Card>
+        </section>
 
-      <Card className="gap-3 rounded-2xl p-3.5">
-        <h2 className="text-sm font-bold">角色接收与处理</h2>
-        <div className="grid grid-cols-2 gap-2.5">
-          <div className="rounded-xl border bg-secondary/50 p-2.5">
-            <p className="text-xs text-muted-foreground">待下一轮处理</p>
-            <p className="mt-1.5 text-sm font-semibold">{data.received.pendingCount}</p>
-          </div>
-          <div className="rounded-xl border bg-secondary/50 p-2.5">
-            <p className="text-xs text-muted-foreground">当前未完成轮次</p>
-            <p className="mt-1.5 text-sm font-semibold">{data.received.roundCount}</p>
-          </div>
-        </div>
-        <div className="max-h-80 space-y-2 overflow-y-auto">
-          {data.received.events.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">暂无未完成的世界事件</p>
-          ) : (
-            data.received.events.map((event) => (
-              <article
-                key={event.eventId}
-                className="space-y-2 rounded-xl border bg-secondary/30 p-3"
-              >
-                <span className="inline-block rounded-full border bg-card px-2 py-1 text-xs text-muted-foreground">
-                  {event.inRound ? "已纳入当前轮次" : "待下一轮处理"}
-                </span>
-                <EventContent event={event} now={now} />
-              </article>
-            ))
+        <section className="min-w-0">
+          <h3 className="text-xs font-medium text-muted-foreground">
+            角色接收 · 待下一轮 {data.received.pendingCount} · 当前轮次 {data.received.roundCount}
+          </h3>
+          <ul className="mt-3 max-h-80 divide-y overflow-y-auto">
+            {data.received.events.length === 0 ? (
+              <li className="py-6 text-center text-xs text-muted-foreground">
+                暂无未完成的世界事件
+              </li>
+            ) : (
+              data.received.events.map((event) => (
+                <li key={event.eventId} className="py-2.5">
+                  <EventContent event={event} now={now} />
+                  <p className="mt-1 text-xs text-primary">
+                    {event.inRound ? "已纳入当前轮次" : "待下一轮处理"}
+                  </p>
+                </li>
+              ))
+            )}
+          </ul>
+          {receivedCount > data.received.events.length && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              显示最早的 {data.received.events.length} 条
+            </p>
           )}
-        </div>
-        {receivedCount > data.received.events.length && (
-          <p className="text-xs text-muted-foreground">
-            显示最早的 {data.received.events.length} 条
-          </p>
-        )}
-      </Card>
+        </section>
 
-      <Card className="gap-3 rounded-2xl p-3.5">
-        <h2 className="text-sm font-bold">活动等待</h2>
-        <div className="grid grid-cols-2 gap-2.5">
-          {[
-            ["当前活动", activity === null ? "暂无活动" : activity.actionId],
-            ["开始时间", activity === null ? "—" : formatTime(activity.startedAt, true)],
-            [
-              "预计结束",
-              activity?.pause
-                ? "恢复后重新计时"
-                : activity?.endsAt == null
-                  ? "无固定结束时间"
-                  : formatTime(activity.endsAt, true),
-            ],
-            [
-              "活动计时",
-              activity?.pause
-                ? activity.pause.remainingMs === null
-                  ? "已暂停"
-                  : `已暂停 · 剩余 ${Math.ceil(activity.pause.remainingMs / 60000)} 分钟`
-                : activity?.endsAt == null
-                  ? "—"
-                  : activity.endsAt > now
-                    ? `剩余 ${Math.ceil((activity.endsAt - now) / 60000)} 分钟`
-                    : `超时 ${Math.floor((now - activity.endsAt) / 60000)} 分钟`,
-            ],
-            [
-              "兜底状态",
-              wait === null ? "无需检查" : wait.checkAt === null ? "已触发" : "等待检查",
-            ],
-            ["兜底检查时间", wait?.checkAt == null ? "—" : formatTime(wait.checkAt, true)],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-xl border bg-secondary/50 p-2.5">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1.5 text-sm font-semibold">{value}</p>
-            </div>
-          ))}
-        </div>
-        {wait !== null && wait.endsAt !== activity?.endsAt && (
-          <p className="text-xs text-muted-foreground">
-            角色仍在等待预计 {formatTime(wait.endsAt, true)} 结束的活动
-          </p>
-        )}
-      </Card>
-    </>
+        <section className="min-w-0">
+          <h3 className="text-xs font-medium text-muted-foreground">活动等待</h3>
+          <dl className="mt-3 divide-y text-xs">
+            {[
+              ["当前活动", activity === null ? "暂无活动" : activity.actionId],
+              ["开始时间", activity === null ? "—" : formatTime(activity.startedAt, true)],
+              [
+                "预计结束",
+                activity?.pause
+                  ? "恢复后重新计时"
+                  : activity?.endsAt == null
+                    ? "无固定结束时间"
+                    : formatTime(activity.endsAt, true),
+              ],
+              [
+                "活动计时",
+                activity?.pause
+                  ? activity.pause.remainingMs === null
+                    ? "已暂停"
+                    : `已暂停 · 剩余 ${Math.ceil(activity.pause.remainingMs / 60000)} 分钟`
+                  : activity?.endsAt == null
+                    ? "—"
+                    : activity.endsAt > now
+                      ? `剩余 ${Math.ceil((activity.endsAt - now) / 60000)} 分钟`
+                      : `超时 ${Math.floor((now - activity.endsAt) / 60000)} 分钟`,
+              ],
+              [
+                "兜底状态",
+                wait === null ? "无需检查" : wait.checkAt === null ? "已触发" : "等待检查",
+              ],
+              ["兜底检查时间", wait?.checkAt == null ? "—" : formatTime(wait.checkAt, true)],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-3 py-2">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="text-right font-medium">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {wait !== null && wait.endsAt !== activity?.endsAt && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              角色仍在等待预计 {formatTime(wait.endsAt, true)} 结束的活动
+            </p>
+          )}
+        </section>
+      </div>
+    </details>
   );
 }

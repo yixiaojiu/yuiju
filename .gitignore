@@ -172,3 +172,6 @@ packages/source/aigc/pixel/generate/
 /apps/dashboard/public/extensions/
 /packages/yuiju-interaction/public/live2dcubismcore.min.js
 packages/yuiju-interaction/public/live2dcubismcore.min.js
+/apps/dashboard/public/large
+
+/packages/yuiju-assets

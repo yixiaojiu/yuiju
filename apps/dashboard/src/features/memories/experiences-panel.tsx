@@ -2,24 +2,9 @@
 
 import type { ExperienceDocument } from "@yuiju/shared/dashboard/types";
 import { Button } from "@yuiju/shared/ui/components/button";
-import { Card } from "@yuiju/shared/ui/components/card";
 import { DateRangePicker } from "@yuiju/shared/ui/components/date-picker";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@yuiju/shared/ui/components/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@yuiju/shared/ui/components/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@yuiju/shared/ui/components/table";
+import { X } from "lucide-react";
 import { useState } from "react";
 import type {
   ExperienceSummary,
@@ -27,13 +12,13 @@ import type {
 } from "@/app/api/[[...route]]/routes/memories";
 import { MonacoEditorPanel } from "@/components/monaco-editor-panel";
 import { QueryState } from "@/components/query-state";
+import { SearchInput } from "@/components/search-input";
+import { SegmentedControl } from "@/components/segmented-control";
 import { TablePagination } from "@/components/table-pagination";
 import { useQuery } from "@/lib/use-query";
 
 const grains = { day: "日", week: "周", month: "月", year: "年" };
 const initialFilters = { startDate: "", endDate: "", grain: "day", keyword: "" };
-const inputStyle =
-  "h-9 w-full min-w-0 rounded-lg border bg-background px-3 text-sm text-foreground";
 
 /** 全文只在打开抽屉时查询，不随分页列表一起加载。 */
 function ExperienceContent({ id, characterId }: { id: string; characterId: string }) {
@@ -47,6 +32,7 @@ function ExperienceContent({ id, characterId }: { id: string; characterId: strin
   );
 }
 
+/** 日期与周期选中即生效；关键词回车生效，生效时一并提交当前草稿。 */
 export function ExperiencesPanel({ characterId }: { characterId: string }) {
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);
@@ -59,140 +45,96 @@ export function ExperiencesPanel({ characterId }: { characterId: string }) {
     }
   }
   const { data, error } = useQuery<ExperiencesResponse>(`/api/memories/experiences?${params}`);
+  function apply(next: typeof initialFilters) {
+    setDraft(next);
+    setFilters(next);
+    setPage(1);
+  }
 
   return (
-    <div className="space-y-5">
-      <Card className="rounded-2xl p-3.5">
-        <form
-          className="space-y-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setFilters(draft);
-            setPage(1);
-          }}
-        >
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <label
-              htmlFor="memory-dateRange"
-              className="grid gap-1.5 text-xs text-muted-foreground sm:col-span-2"
-            >
-              日期范围
-              <DateRangePicker
-                id="memory-dateRange"
-                value={draft}
-                onChange={(range) => setDraft({ ...draft, ...range })}
-              />
-            </label>
-            <label htmlFor="memory-grain" className="grid gap-1.5 text-xs text-muted-foreground">
-              记忆周期
-              <Select
-                value={draft.grain || "__all__"}
-                onValueChange={(value) =>
-                  setDraft({ ...draft, grain: value === "__all__" ? "" : value })
-                }
-              >
-                <SelectTrigger id="memory-grain" className={inputStyle} aria-label="记忆周期">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  <SelectItem value="__all__">全部</SelectItem>
-                  {Object.entries(grains).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="grid gap-1.5 text-xs text-muted-foreground">
-              关键词
-              <input
-                className={inputStyle}
-                value={draft.keyword}
-                onChange={(event) => setDraft({ ...draft, keyword: event.target.value })}
-              />
-            </label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setDraft(initialFilters);
-                setFilters(initialFilters);
-                setPage(1);
-              }}
-            >
-              重置
-            </Button>
-            <Button type="submit">查询</Button>
-          </div>
-        </form>
-      </Card>
+    <div className="space-y-4">
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          apply(draft);
+        }}
+      >
+        <SegmentedControl
+          label="记忆周期"
+          value={draft.grain || "all"}
+          options={[
+            { value: "all", label: "全部" },
+            ...Object.entries(grains).map(([value, label]) => ({ value, label })),
+          ]}
+          onChange={(value) => apply({ ...draft, grain: value === "all" ? "" : value })}
+        />
+        <div className="w-full sm:w-60">
+          <DateRangePicker
+            id="memory-dateRange"
+            value={draft}
+            onChange={(range) => apply({ ...draft, ...range })}
+          />
+        </div>
+        <SearchInput
+          className="w-full sm:w-56"
+          aria-label="关键词"
+          placeholder="搜索内容，回车确认"
+          value={draft.keyword}
+          onChange={(event) => setDraft({ ...draft, keyword: event.target.value })}
+        />
+        {JSON.stringify(filters) !== JSON.stringify(initialFilters) && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => apply(initialFilters)}
+          >
+            <X aria-hidden="true" />
+            清除筛选
+          </Button>
+        )}
+      </form>
 
-      <Card className="gap-0 overflow-hidden rounded-2xl py-0">
-        <Table className="w-full text-left text-sm">
-          <TableHeader className="border-b bg-secondary/50 text-xs text-muted-foreground">
-            <TableRow className="hover:bg-transparent">
-              {["日期", "周期", "内容摘要", "操作"].map((title) => (
-                <TableHead
-                  key={title}
-                  className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground"
+      {!data ? (
+        <QueryState error={error} />
+      ) : data.memories.length === 0 ? (
+        <QueryState empty />
+      ) : (
+        <div className="overflow-hidden rounded-2xl border bg-card">
+          <ul className="divide-y">
+            {data.memories.map((memory) => (
+              <li key={memory.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(memory)}
+                  className="w-full px-5 py-4 text-left transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
                 >
-                  {title}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!data ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell
-                  colSpan={4}
-                  className={`whitespace-normal p-10 text-center ${error ? "text-destructive" : "text-muted-foreground"}`}
-                  role={error ? "alert" : "status"}
-                >
-                  {error || "加载中…"}
-                </TableCell>
-              </TableRow>
-            ) : data.memories.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={4} className="p-10 text-center text-muted-foreground">
-                  暂无记录
-                </TableCell>
-              </TableRow>
-            ) : (
-              data.memories.map((memory) => (
-                <TableRow key={memory.id} className="border-b last:border-0 hover:bg-secondary/30">
-                  <TableCell className="whitespace-nowrap px-4 py-4 align-top text-xs tabular-nums">
-                    {memory.startDate}
-                    {memory.startDate !== memory.endDate && ` — ${memory.endDate}`}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap px-4 py-4 align-top">
-                    {grains[memory.grain]}
-                  </TableCell>
-                  <TableCell className="min-w-64 whitespace-normal px-4 py-4 align-top text-xs leading-6 text-muted-foreground">
-                    <p className="line-clamp-2 break-words">{memory.excerpt}</p>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 align-top">
-                    <Button variant="ghost" size="sm" onClick={() => setSelected(memory)}>
-                      查看
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        {data && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="rounded-full bg-accent px-2 py-0.5 font-medium">
+                      {grains[memory.grain]}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {memory.startDate}
+                      {memory.startDate !== memory.endDate && ` — ${memory.endDate}`}
+                    </span>
+                  </div>
+                  <p className="mt-2 line-clamp-3 break-words text-sm leading-6">
+                    {memory.excerpt}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
           <TablePagination
             page={data.page}
             pageSize={data.pageSize}
             total={data.total}
             onPageChange={setPage}
           />
-        )}
-      </Card>
+        </div>
+      )}
 
       <Sheet
         open={selected !== null}

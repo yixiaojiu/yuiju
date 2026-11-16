@@ -1,12 +1,4 @@
-import { Card } from "@yuiju/shared/ui/components/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@yuiju/shared/ui/components/table";
+import { cn } from "@yuiju/shared/ui/utils";
 import type {
   AnalyticsEventName,
   AnalyticsSummary,
@@ -68,14 +60,21 @@ export function AnalyticsSummaryCards({
       },
     ];
   }
+  // 用 1px 间隙当分隔线，列数按指标个数整除，避免出现空格子。
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div
+      className={cn(
+        "grid gap-px overflow-hidden rounded-2xl border bg-border",
+        cards.length === 6 && "grid-cols-2 sm:grid-cols-3 xl:grid-cols-6",
+        cards.length === 3 && "sm:grid-cols-3",
+      )}
+    >
       {cards.map((card) => (
-        <Card key={card.label} className="gap-2 rounded-2xl p-4">
-          <span className="text-xs text-muted-foreground">{card.label}</span>
-          <span className="text-xl font-semibold tabular-nums">{card.value}</span>
-          {card.note && <span className="text-xs text-muted-foreground">{card.note}</span>}
-        </Card>
+        <div key={card.label} className="bg-card px-5 py-4">
+          <p className="text-xs text-muted-foreground">{card.label}</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">{card.value}</p>
+          {card.note && <p className="mt-0.5 text-xs text-muted-foreground">{card.note}</p>}
+        </div>
       ))}
     </div>
   );
@@ -84,49 +83,38 @@ export function AnalyticsSummaryCards({
 /** 与日期筛选使用相同的项目时区；按日期和场景聚合，分页不影响统计。 */
 export function CompressionDailyTable({ entries }: { entries: CompressionDaily[] }) {
   return (
-    <Card className="gap-0 overflow-hidden rounded-2xl py-0">
-      <div className="px-4 py-3 text-sm font-medium">每日压缩</div>
-      <Table>
-        <TableHeader className="border-b bg-secondary/50 text-xs text-muted-foreground">
-          <TableRow className="hover:bg-transparent">
-            {["日期", "场景", "触发次数", "平均占用（估算）", "最高占用（估算）"].map((label) => (
-              <TableHead key={label} className="whitespace-nowrap px-4 py-3">
-                {label}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {entries.length === 0 ? (
-            <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={5} className="p-10 text-center text-muted-foreground">
-                暂无记录
-              </TableCell>
-            </TableRow>
-          ) : (
-            entries.map((entry) => (
-              <TableRow
-                key={`${entry.date}-${entry.scene}`}
-                className="border-b last:border-0 hover:bg-secondary/30"
-              >
-                <TableCell className="px-4 py-3 text-xs tabular-nums">{entry.date}</TableCell>
-                <TableCell className="px-4 py-3 text-xs">
-                  {compressionSceneLabels[entry.scene]}
-                </TableCell>
-                <TableCell className="px-4 py-3 text-xs tabular-nums">
-                  {entry.total.toLocaleString("zh-CN")}
-                </TableCell>
-                <TableCell className="px-4 py-3 text-xs tabular-nums">
-                  {formatContextRatio(entry.averageContextRatio)}
-                </TableCell>
-                <TableCell className="px-4 py-3 text-xs tabular-nums">
-                  {formatContextRatio(entry.maxContextRatio)}
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </Card>
+    <section className="rounded-2xl border bg-card">
+      <h2 className="px-5 pt-4 pb-2 text-sm font-semibold">每日压缩</h2>
+      {entries.length === 0 ? (
+        <p className="px-5 pb-5 text-xs text-muted-foreground">暂无记录</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b text-left text-muted-foreground">
+                {["日期", "场景", "触发次数", "平均占用（估算）", "最高占用（估算）"].map(
+                  (label) => (
+                    <th key={label} className="h-9 px-5 font-normal whitespace-nowrap">
+                      {label}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {entries.map((entry) => (
+                <tr key={`${entry.date}-${entry.scene}`} className="border-b last:border-0">
+                  <td className="px-5 py-2.5">{entry.date}</td>
+                  <td className="px-5 py-2.5">{compressionSceneLabels[entry.scene]}</td>
+                  <td className="px-5 py-2.5">{entry.total.toLocaleString("zh-CN")}</td>
+                  <td className="px-5 py-2.5">{formatContextRatio(entry.averageContextRatio)}</td>
+                  <td className="px-5 py-2.5">{formatContextRatio(entry.maxContextRatio)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

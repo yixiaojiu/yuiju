@@ -25,7 +25,7 @@ export function CharacterSelect({
   }
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-48" aria-label="角色">
+      <SelectTrigger className="w-40 rounded-lg bg-card" aria-label="角色">
         <SelectValue />
       </SelectTrigger>
       <SelectContent position="popper">

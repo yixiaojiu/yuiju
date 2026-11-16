@@ -22,6 +22,47 @@ export function CalendarDetailSheet({
     calendarQueryUrl(characterId, { type: "item", itemId: selection.id }),
   );
   const item: CalendarItem | undefined = data?.type === "item" ? data.item : undefined;
+  const fields = !item
+    ? []
+    : item.kind === "event"
+      ? [
+          ["状态", calendarStatusLabels[item.status]],
+          [
+            "本次安排",
+            `${calendarTime(selection.kind === "event" ? selection.startAt : item.startAt, timezone, true)} – ${calendarTime(selection.kind === "event" ? selection.endAt : item.endAt, timezone, true)}`,
+          ],
+          [
+            "重复",
+            item.repeatWeekdays === null
+              ? "单次日程"
+              : `每周${item.repeatWeekdays.map((day) => ["一", "二", "三", "四", "五", "六", "日"][day - 1]).join("、")}`,
+          ],
+          [
+            "提醒",
+            item.remindBeforeStartMinutes === null
+              ? "不提醒"
+              : item.remindBeforeStartMinutes === 0
+                ? "开始时提醒"
+                : `开始前 ${item.remindBeforeStartMinutes} 分钟`,
+          ],
+          ...(item.repeatUntilAt === null
+            ? []
+            : [["规则有效至", calendarTime(item.repeatUntilAt, timezone, true)]]),
+        ]
+      : [
+          ["状态", calendarStatusLabels[item.status]],
+          [
+            "计划开始",
+            item.plannedAt === null ? "未安排" : calendarTime(item.plannedAt, timezone, true),
+          ],
+          ["截止", item.dueAt === null ? "未设置" : calendarTime(item.dueAt, timezone, true)],
+          [
+            "下次关注",
+            item.attentionAt === null ? "未安排" : calendarTime(item.attentionAt, timezone, true),
+          ],
+          ["进度", item.progress || "暂无"],
+          ["有效至", calendarTime(item.expiresAt, timezone, true)],
+        ];
   return (
     <Sheet
       open
@@ -31,74 +72,31 @@ export function CalendarDetailSheet({
         }
       }}
     >
-      <SheetContent className="overflow-y-auto sm:max-w-lg" aria-describedby={undefined}>
-        <SheetHeader>
-          <SheetTitle>{selection.title}</SheetTitle>
+      <SheetContent className="overflow-y-auto sm:max-w-md" aria-describedby={undefined}>
+        <SheetHeader className="gap-2">
+          <span className="w-fit rounded-full bg-primary/20 px-2 py-0.5 text-xs">
+            {selection.kind === "event" ? "日程" : "任务"}
+          </span>
+          <SheetTitle className="text-lg">{selection.title}</SheetTitle>
         </SheetHeader>
         {!item ? (
           <div className="p-4">
             <QueryState error={error} />
           </div>
         ) : (
-          <div className="space-y-5 px-4 pb-8 text-sm">
-            <p className="text-muted-foreground">
-              {item.kind === "event" ? "日程" : "任务"} · {calendarStatusLabels[item.status]}
-            </p>
-            <p className="whitespace-pre-wrap">{item.description}</p>
-            {item.kind === "event" ? (
-              <>
-                <p>
-                  本次安排：
-                  {calendarTime(
-                    selection.kind === "event" ? selection.startAt : item.startAt,
-                    timezone,
-                    true,
-                  )}{" "}
-                  —{" "}
-                  {calendarTime(
-                    selection.kind === "event" ? selection.endAt : item.endAt,
-                    timezone,
-                    true,
-                  )}
-                </p>
-                <p>
-                  {item.repeatWeekdays === null
-                    ? "单次日程"
-                    : `每周 ${item.repeatWeekdays.map((day) => ["一", "二", "三", "四", "五", "六", "日"][day - 1]).join("、")}`}
-                </p>
-                <p>
-                  {item.remindBeforeStartMinutes === null
-                    ? "不提醒"
-                    : item.remindBeforeStartMinutes === 0
-                      ? "开始时提醒"
-                      : `开始前 ${item.remindBeforeStartMinutes} 分钟提醒`}
-                </p>
-                {item.repeatUntilAt !== null && (
-                  <p>规则有效至 {calendarTime(item.repeatUntilAt, timezone, true)}</p>
-                )}
-              </>
-            ) : (
-              <>
-                <p>
-                  计划开始：
-                  {item.plannedAt === null
-                    ? "未安排"
-                    : calendarTime(item.plannedAt, timezone, true)}
-                </p>
-                <p>
-                  截止：{item.dueAt === null ? "未设置" : calendarTime(item.dueAt, timezone, true)}
-                </p>
-                <p>
-                  下次关注：
-                  {item.attentionAt === null
-                    ? "未安排"
-                    : calendarTime(item.attentionAt, timezone, true)}
-                </p>
-                <p>进度：{item.progress || "暂无"}</p>
-                <p>有效至 {calendarTime(item.expiresAt, timezone, true)}</p>
-              </>
+          <div className="space-y-6 px-4 pb-8">
+            {item.description && (
+              <p className="whitespace-pre-wrap text-sm leading-6">{item.description}</p>
             )}
-            <p className="border-t pt-3 text-xs text-muted-foreground">
+            <dl className="divide-y border-y text-sm">
+              {fields.map(([label, value]) => (
+                <div key={label} className="flex gap-4 py-2.5">
+                  <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+                  <dd className="min-w-0 flex-1 whitespace-pre-wrap">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="text-xs text-muted-foreground">
               记录保留至 {calendarTime(item.deleteAt, timezone, true)} · {timezone}
             </p>
           </div>

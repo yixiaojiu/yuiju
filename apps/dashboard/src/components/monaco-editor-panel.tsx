@@ -38,7 +38,7 @@ export function MonacoEditorPanel({
     }
   }
   return (
-    <div className="h-[calc(100dvh-220px)] min-h-[480px] min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
+    <div className="h-[calc(100dvh-14rem)] min-h-[480px] min-w-0 overflow-hidden rounded-2xl border bg-card">
       <Editor
         height="100%"
         theme="vs"

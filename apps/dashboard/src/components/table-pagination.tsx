@@ -6,9 +6,8 @@ import {
   PaginationEllipsis,
   PaginationItem,
   PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
 } from "@yuiju/shared/ui/components/pagination";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /** 只展示服务端返回的分页状态，翻页交由页面发起查询。 */
 export function TablePagination({
@@ -44,36 +43,52 @@ export function TablePagination({
   }
 
   return (
-    <footer className="flex flex-wrap items-center justify-between gap-3 border-t p-3.5">
-      <span className="text-xs text-muted-foreground">
-        共 {total} 条 · 第 {page} / {pageCount} 页
-      </span>
-      <Pagination className="mx-0 w-auto max-w-full">
-        <PaginationContent className="flex-wrap">
-          <PaginationItem>
-            <PaginationPrevious disabled={page <= 1} onClick={() => onPageChange(page - 1)} />
-          </PaginationItem>
-          {items.map((item) => (
-            <PaginationItem key={item}>
-              {typeof item === "number" ? (
-                <PaginationLink
-                  aria-label={`第 ${item} 页`}
-                  isActive={item === page}
-                  disabled={item === page || total === 0}
-                  onClick={() => onPageChange(item)}
-                >
-                  {item}
-                </PaginationLink>
-              ) : (
-                <PaginationEllipsis />
-              )}
+    <footer className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-2.5">
+      <span className="text-xs text-muted-foreground tabular-nums">共 {total} 条</span>
+      {pageCount > 1 && (
+        <Pagination className="mx-0 w-auto max-w-full">
+          <PaginationContent className="flex-wrap gap-0.5">
+            <PaginationItem>
+              <PaginationLink
+                size="icon-sm"
+                aria-label="上一页"
+                disabled={page <= 1}
+                onClick={() => onPageChange(page - 1)}
+              >
+                <ChevronLeft />
+              </PaginationLink>
             </PaginationItem>
-          ))}
-          <PaginationItem>
-            <PaginationNext disabled={page >= pageCount} onClick={() => onPageChange(page + 1)} />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
+            {items.map((item) => (
+              <PaginationItem key={item}>
+                {typeof item === "number" ? (
+                  <PaginationLink
+                    size="icon-sm"
+                    aria-label={`第 ${item} 页`}
+                    isActive={item === page}
+                    disabled={item === page}
+                    className="text-xs tabular-nums data-[active=true]:border-primary data-[active=true]:bg-accent disabled:opacity-100"
+                    onClick={() => onPageChange(item)}
+                  >
+                    {item}
+                  </PaginationLink>
+                ) : (
+                  <PaginationEllipsis className="size-8" />
+                )}
+              </PaginationItem>
+            ))}
+            <PaginationItem>
+              <PaginationLink
+                size="icon-sm"
+                aria-label="下一页"
+                disabled={page >= pageCount}
+                onClick={() => onPageChange(page + 1)}
+              >
+                <ChevronRight />
+              </PaginationLink>
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      )}
     </footer>
   );
 }

@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import type { AnalyticsResponse } from "@/app/api/[[...route]]/routes/analytics";
 import type { CharacterOption } from "@/components/character-select";
-import { AnalyticsFilterCard, type AnalyticsFilters } from "./analytics-filter-card";
+import { AnalyticsFilterBar, type AnalyticsFilters } from "./analytics-filter-bar";
 import { AnalyticsSummaryCards, CompressionDailyTable } from "./analytics-summary";
-import { AnalyticsTableCard } from "./analytics-table-card";
+import { AnalyticsTable } from "./analytics-table";
 
 type AnalyticsQuery = { filters: AnalyticsFilters; page: number };
 
@@ -94,11 +94,12 @@ export function AnalyticsPage({
   // 每次提交生成新的查询对象；相同条件也重新读取，旧响应不能覆盖新查询。
   const current = result?.query === query ? result : undefined;
   return (
-    <div className="space-y-3.5">
-      <h1 className="mb-5 text-2xl font-bold">埋点</h1>
-      <AnalyticsFilterCard
+    <div className="space-y-5">
+      <h1 className="text-xl font-semibold">埋点</h1>
+      <AnalyticsFilterBar
         characters={characters}
         initialFilters={initialFilters}
+        filters={query.filters}
         onSubmit={(filters) => setQuery({ filters, page: 1 })}
       />
       {current?.data && (
@@ -107,7 +108,7 @@ export function AnalyticsPage({
       {current?.data && query.filters.eventName === "agent.context_compression" && (
         <CompressionDailyTable entries={current.data.compressionDaily} />
       )}
-      <AnalyticsTableCard
+      <AnalyticsTable
         key={`${query.filters.eventName}:${query.filters.characterId}`}
         eventName={query.filters.eventName}
         data={current?.data}

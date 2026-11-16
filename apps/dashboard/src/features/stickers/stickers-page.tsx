@@ -2,7 +2,6 @@
 
 import type { ManagedSticker, StickersResponse } from "@yuiju/shared/character-runtime/protocol";
 import { Button } from "@yuiju/shared/ui/components/button";
-import { Card } from "@yuiju/shared/ui/components/card";
 import {
   Select,
   SelectContent,
@@ -10,9 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@yuiju/shared/ui/components/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@yuiju/shared/ui/components/sheet";
+import { RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type CharacterOption, CharacterSelect } from "@/components/character-select";
+import { QueryState } from "@/components/query-state";
+import { SearchInput } from "@/components/search-input";
+import { SegmentedControl } from "@/components/segmented-control";
 import { StickerCard, stickerStatusLabels } from "./sticker-card";
 import { StickerEditDialog } from "./sticker-edit-dialog";
 
@@ -20,10 +22,10 @@ export function StickersPage({ characters }: { characters: CharacterOption[] }) 
   const [characterId, setCharacterId] = useState(characters[0]?.id ?? "");
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">表情收藏</h1>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">表情收藏</h1>
         <CharacterSelect characters={characters} value={characterId} onChange={setCharacterId} />
-      </div>
+      </header>
       {characterId ? (
         <StickerCollectionPanel key={characterId} characterId={characterId} />
       ) : (
@@ -43,7 +45,6 @@ function StickerCollectionPanel({ characterId }: { characterId: string }) {
   const [tag, setTag] = useState("__all__");
   const [status, setStatus] = useState("__all__");
   const [editing, setEditing] = useState<ManagedSticker>();
-  const [removing, setRemoving] = useState<ManagedSticker>();
   const query = `characterId=${encodeURIComponent(characterId)}`;
   const [request, setRequest] = useState({ url: `/api/stickers?${query}` });
 
@@ -115,81 +116,64 @@ function StickerCollectionPanel({ characterId }: { characterId: string }) {
   );
 
   return (
-    <div className="space-y-3.5">
-      <Card className="rounded-2xl p-3.5">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="grid gap-1.5 text-xs text-muted-foreground">
-            关键词
-            <input
-              className="h-9 rounded-lg border bg-background px-3 text-sm text-foreground"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="ID、描述、标签"
-            />
-          </label>
-          <label htmlFor="sticker-tag" className="grid gap-1.5 text-xs text-muted-foreground">
-            标签
-            <Select value={tag} onValueChange={setTag}>
-              <SelectTrigger id="sticker-tag" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="__all__">全部</SelectItem>
-                {tags.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <label htmlFor="sticker-status" className="grid gap-1.5 text-xs text-muted-foreground">
-            状态
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="sticker-status" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="__all__">全部</SelectItem>
-                {Object.entries(stickerStatusLabels).map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchInput
+          className="w-full sm:w-56"
+          aria-label="关键词"
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+          placeholder="搜索 ID、描述、标签"
+        />
+        <Select value={tag} onValueChange={setTag}>
+          <SelectTrigger className="w-36 rounded-lg bg-card" aria-label="标签">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            <SelectItem value="__all__">全部标签</SelectItem>
+            {tags.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <SegmentedControl
+          label="状态"
+          value={status}
+          options={[
+            { value: "__all__", label: "全部" },
+            ...Object.entries(stickerStatusLabels).map(([value, label]) => ({ value, label })),
+          ]}
+          onChange={setStatus}
+        />
+        <div className="ml-auto flex items-center gap-2">
+          {data && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {data.stickers.length} / {data.limit}
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="刷新"
+            disabled={busy || loading}
+            onClick={() => setRequest({ url: request.url })}
+          >
+            <RotateCw />
+          </Button>
+          <Button size="sm" disabled={busy || loading} onClick={() => runAction("POST", "/sync")}>
+            {busy ? "处理中…" : "从 QQ 同步"}
+          </Button>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            {data && `${data.stickers.length} / ${data.limit}`}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              disabled={busy || loading}
-              onClick={() => setRequest({ url: request.url })}
-            >
-              刷新
-            </Button>
-            <Button disabled={busy || loading} onClick={() => runAction("POST", "/sync")}>
-              {busy ? "处理中…" : "从 QQ 同步"}
-            </Button>
-          </div>
-        </div>
-      </Card>
+      </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {loading && !data && (
-        <p className="py-10 text-center text-sm text-muted-foreground">加载中…</p>
-      )}
-      {!loading && stickers?.length === 0 && (
-        <p className="py-10 text-center text-sm text-muted-foreground">暂无表情</p>
-      )}
-      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {loading && !data ? <QueryState /> : stickers?.length === 0 && <QueryState empty />}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {stickers?.map((sticker) => (
           <StickerCard
             key={sticker.resId}
@@ -197,7 +181,7 @@ function StickerCollectionPanel({ characterId }: { characterId: string }) {
             characterId={characterId}
             busy={busy || loading}
             onEdit={() => setEditing(sticker)}
-            onRemove={() => setRemoving(sticker)}
+            onRemove={() => runAction("DELETE", `/${encodeURIComponent(sticker.resId)}`)}
           />
         ))}
       </div>
@@ -213,43 +197,6 @@ function StickerCollectionPanel({ characterId }: { characterId: string }) {
           }}
         />
       )}
-      <Sheet
-        open={removing !== undefined}
-        onOpenChange={(open) => {
-          if (!open && !busy) {
-            setRemoving(undefined);
-          }
-        }}
-      >
-        <SheetContent aria-describedby={undefined}>
-          <SheetHeader>
-            <SheetTitle>
-              取消收藏{removing?.annotation ? `「${removing.annotation.id}」` : "此表情"}？
-            </SheetTitle>
-          </SheetHeader>
-          <div className="flex justify-end gap-2 px-4">
-            <Button variant="outline" disabled={busy} onClick={() => setRemoving(undefined)}>
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={async () => {
-                if (await runAction("DELETE", `/${encodeURIComponent(removing!.resId)}`)) {
-                  setRemoving(undefined);
-                }
-              }}
-            >
-              确认
-            </Button>
-          </div>
-          {error && (
-            <p role="alert" className="px-4 text-sm text-destructive">
-              {error}
-            </p>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

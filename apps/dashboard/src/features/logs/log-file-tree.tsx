@@ -1,6 +1,6 @@
 "use client";
 
-import { Card } from "@yuiju/shared/ui/components/card";
+import { cn } from "@yuiju/shared/ui/utils";
 import { ChevronRight, FileText, Folder } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@/lib/use-query";
@@ -37,24 +37,35 @@ function LogFolder({
         aria-expanded={expanded}
         aria-controls={`logs-${app}`}
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground hover:bg-secondary"
+        className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm font-medium transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         <ChevronRight
-          className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+          aria-hidden="true"
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            expanded && "rotate-90",
+          )}
         />
-        <Folder className="size-4 shrink-0 text-primary" />
+        <Folder aria-hidden="true" className="size-4 shrink-0 text-primary" />
         {label}
       </button>
-      <div id={`logs-${app}`} hidden={!expanded} className="ml-3 border-l border-border pl-2">
+      <div
+        id={`logs-${app}`}
+        hidden={!expanded}
+        className="mt-0.5 ml-[15px] grid gap-0.5 border-l pl-2"
+      >
         {!data ? (
           <p
             role={error ? "alert" : "status"}
-            className={`px-3 py-2 text-xs ${error ? "text-destructive" : "text-muted-foreground"}`}
+            className={cn(
+              "px-2 py-1.5 text-xs",
+              error ? "text-destructive" : "text-muted-foreground",
+            )}
           >
             {error || "加载中…"}
           </p>
         ) : data.files.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">暂无日志</p>
+          <p className="px-2 py-1.5 text-xs text-muted-foreground">暂无日志</p>
         ) : (
           data.files.map((file) => (
             <button
@@ -63,9 +74,14 @@ function LogFolder({
               title={file}
               aria-pressed={selected?.app === app && selected.file === file}
               onClick={() => onSelect({ app, file })}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs ${selected?.app === app && selected.file === file ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-secondary"}`}
+              className={cn(
+                "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                selected?.app === app && selected.file === file
+                  ? "bg-accent font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              )}
             >
-              <FileText className="size-4 shrink-0" />
+              <FileText aria-hidden="true" className="size-3.5 shrink-0" />
               <span className="truncate font-mono">{file}</span>
             </button>
           ))
@@ -85,8 +101,8 @@ export function LogFileTree({
   onSelect: (file: LogFileSelection) => void;
 }) {
   return (
-    <Card className="max-h-[calc(100dvh-180px)] gap-1 overflow-auto rounded-xl p-3">
-      <nav aria-label="日志文件">
+    <div className="max-h-[calc(100dvh-10rem)] overflow-auto rounded-2xl border bg-card p-2">
+      <nav aria-label="日志文件" className="grid gap-1">
         <LogFolder
           characterId={characterId}
           app="character-runtime"
@@ -102,6 +118,6 @@ export function LogFileTree({
           onSelect={onSelect}
         />
       </nav>
-    </Card>
+    </div>
   );
 }

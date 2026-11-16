@@ -1,94 +1,62 @@
-"use client";
-
-import { Card } from "@yuiju/shared/ui/components/card";
-import type { WorldDashboardStatus } from "@/app/api/[[...route]]/routes/world";
-import { QueryState } from "@/components/query-state";
-import { HomeWorldInteraction } from "@/features/home/home-world-interaction";
+import type { WorldEnvironmentStatus } from "@yuiju/shared/dashboard/types";
+import { cn } from "@yuiju/shared/ui/utils";
 import { formatTime } from "@/lib/date";
-import { useQuery } from "@/lib/use-query";
 
-export function HomeWorldState({
-  characterId,
-  now,
-  publicDeployment,
-}: {
-  characterId: string;
-  now: number;
-  publicDeployment: boolean;
-}) {
-  const { data, error } = useQuery<WorldDashboardStatus>(
-    `/api/world?${new URLSearchParams({ characterId })}`,
-  );
-  const environment = data?.environment;
-
+export function HomeWorldState({ environment }: { environment: WorldEnvironmentStatus | null }) {
+  if (environment === null) {
+    return (
+      <section className="rounded-2xl border bg-card p-5 text-xs text-muted-foreground">
+        暂无世界环境数据
+      </section>
+    );
+  }
   return (
-    <section className="min-w-0 space-y-3.5">
-      {!data ? (
-        <QueryState error={error} />
-      ) : (
-        <>
-          {!publicDeployment && data.interaction && (
-            <HomeWorldInteraction data={data.interaction} now={now} />
-          )}
-          {environment ? (
-            <>
-              <Card className="gap-3 rounded-2xl p-3.5">
-                <h2 className="text-sm font-bold">世界环境</h2>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {[
-                    ["当前时间", formatTime(now, true)],
-                    ["天气", environment.weather.type],
-                    ["体感温度", environment.weather.temperatureLevel],
-                    ["天气时段起始", formatTime(environment.weatherPeriod, true)],
-                    ["资源刷新日期", environment.resourceDate],
-                    ["环境同步时间", formatTime(environment.updatedAt, true)],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-xl border bg-secondary/50 p-2.5">
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                      <p className="mt-1.5 text-sm font-semibold">{value}</p>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-              <Card className="gap-3 rounded-2xl p-3.5">
-                <h2 className="text-sm font-bold">地点与资源</h2>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  {environment.places.map((place) => (
-                    <article
-                      key={place.id}
-                      className="space-y-3 rounded-xl border bg-secondary/30 p-3"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="text-sm font-medium">{place.name}</h3>
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-xs ${place.isOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
-                        >
-                          {place.isOpen ? "开放" : "关闭"}
-                        </span>
-                      </div>
-                      {place.closed && <p className="text-xs text-destructive">临时关闭</p>}
-                      {place.resources.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {place.resources.map((resource) => (
-                            <span
-                              key={resource.name}
-                              className="rounded-lg border bg-card px-2 py-1 text-xs"
-                            >
-                              {resource.name} × {resource.quantity}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              </Card>
-            </>
-          ) : (
-            <Card className="p-6 text-center text-xs text-muted-foreground">暂无世界环境数据</Card>
-          )}
-        </>
-      )}
+    <section className="rounded-2xl border bg-card p-5">
+      <header className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold">世界</h2>
+        <span className="text-xs text-muted-foreground">
+          同步于 {formatTime(environment.updatedAt)}
+        </span>
+      </header>
+      <p className="mt-3 text-lg font-semibold">
+        {environment.weather.type}
+        <span className="ml-2 text-sm font-normal text-muted-foreground">
+          {environment.weather.temperatureLevel}
+        </span>
+      </p>
+      <ul className="mt-4 divide-y border-t">
+        {environment.places.map((place) => (
+          <li key={place.id} className="py-2.5">
+            <div className="flex items-center gap-2 text-sm">
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  place.isOpen ? "bg-emerald-500" : "bg-muted-foreground/40",
+                )}
+              />
+              <span className={cn("flex-1", !place.isOpen && "text-muted-foreground")}>
+                {place.name}
+              </span>
+              <span
+                className={cn(
+                  "text-xs",
+                  place.closed ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {place.closed ? "临时关闭" : place.isOpen ? "开放" : "关闭"}
+              </span>
+            </div>
+            {place.resources.length > 0 && (
+              <p className="mt-1 pl-3.5 text-xs text-muted-foreground">
+                {place.resources
+                  .map((resource) => `${resource.name} ×${resource.quantity}`)
+                  .join("、")}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
