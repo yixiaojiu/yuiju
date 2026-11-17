@@ -74,9 +74,16 @@ export function CalendarDetailSheet({
     >
       <SheetContent className="overflow-y-auto sm:max-w-md" aria-describedby={undefined}>
         <SheetHeader className="gap-2">
-          <span className="w-fit rounded-full bg-primary/20 px-2 py-0.5 text-xs">
-            {selection.kind === "event" ? "日程" : "任务"}
-          </span>
+          <div className="flex gap-1.5 text-xs">
+            <span className="rounded-full bg-primary/20 px-2 py-0.5">
+              {selection.kind === "event" ? "日程" : "任务"}
+            </span>
+            {selection.source === "system" && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                世界安排
+              </span>
+            )}
+          </div>
           <SheetTitle className="text-lg">{selection.title}</SheetTitle>
         </SheetHeader>
         {!item ? (
@@ -97,7 +104,10 @@ export function CalendarDetailSheet({
               ))}
             </dl>
             <p className="text-xs text-muted-foreground">
-              记录保留至 {calendarTime(item.deleteAt, timezone, true)} · {timezone}
+              {item.deleteAt === null
+                ? "长期有效"
+                : `记录保留至 ${calendarTime(item.deleteAt, timezone, true)}`}{" "}
+              · {timezone}
             </p>
           </div>
         )}

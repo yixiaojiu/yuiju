@@ -42,5 +42,8 @@ export function createCharacterState(
     phoneBattery: 100,
     inventory: {},
     currentActivity: createIdleActivity(now),
+    bodyClock: { satiety: now, stamina: now },
+    notifiedNeeds: [],
+    school: { date: "", checkedPeriods: [] },
   };
 }

@@ -29,7 +29,11 @@ export const inspectWorldSchema = z.discriminatedUnion("type", [
 ]);
 export const executeActionSchema = z.strictObject({
   actionId: z.string().min(1),
-  payload: z.string(),
+  // 省略表示行动不需要参数，按空对象校验；需要参数的行动会因缺字段被世界拒绝。
+  payload: z
+    .string()
+    .default("{}")
+    .describe("按行动参数 schema 填写的 JSON 字符串；不需要参数的行动可以省略"),
 });
 export type InspectWorldInput = z.infer<typeof inspectWorldSchema>;
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>;
@@ -189,7 +193,11 @@ export type WorldEvent = {
     | "activity_resumed"
     | "weather_changed"
     | "idle_reminder"
-    | "calendar_attention";
+    | "calendar_attention"
+    /** 饿了、累了等身体需求，跌破阈值时提醒一次。 */
+    | "body_signal"
+    /** 缺课通知。 */
+    | "school_notice";
   description: string;
   activity: ActivityView | null;
   position: PositionView;
@@ -214,6 +222,8 @@ export const worldClientMessageSchema = z.discriminatedUnion("type", [
         "weather_changed",
         "idle_reminder",
         "calendar_attention",
+        "body_signal",
+        "school_notice",
       ]),
     ),
   }),

@@ -233,7 +233,14 @@ export function writeEvaluationCalendar(
   try {
     if (input.operation === "create") {
       const { operation: _operation, ...fields } = input;
-      item = createCalendarItem(characterId, requestId, fields, Date.now(), "Asia/Shanghai");
+      item = createCalendarItem(
+        characterId,
+        requestId,
+        fields,
+        "character",
+        Date.now(),
+        "Asia/Shanghai",
+      );
     } else {
       const previous = fixture.calendar.find(
         (entry) => entry.id === input.itemId && entry.characterId === characterId,

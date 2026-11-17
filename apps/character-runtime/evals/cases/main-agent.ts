@@ -43,6 +43,9 @@ const world: WorldState = {
       phoneBattery: 90,
       inventory: { 百奇: 1 },
       currentActivity: null,
+      bodyClock: { satiety: now, stamina: now },
+      notifiedNeeds: [],
+      school: { date: "", checkedPeriods: [] },
     },
   },
 };

@@ -75,16 +75,20 @@ export type CalendarQuery = z.infer<typeof calendarQuerySchema>;
 export type CalendarBase = {
   id: string;
   characterId: string;
+  /** system 由世界维护（如学校课表、老师约谈），角色只能查看；character 由角色自己创建和修改。 */
+  source: "system" | "character";
   title: string;
   description: string;
   createdAt: number;
   updatedAt: number;
   revision: number;
-  deleteAt: number;
+  /** null 表示系统长期规则，不安排清理。 */
+  deleteAt: number | null;
 };
 export type CalendarEvent = CalendarBase &
   z.infer<typeof calendarEventInputSchema> & {
     status: "scheduled" | "cancelled";
+    /** 单次日程为 null；重复日程为规则停止时刻，系统长期规则为 null。 */
     repeatUntilAt: number | null;
   };
 export type CalendarTask = CalendarBase &

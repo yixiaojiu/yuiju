@@ -155,7 +155,7 @@ const cook = defineAction({
 
 const stayHome = defineAction({
   id: "待在家里",
-  description: "周末待在家中放松或学习，开始时恢复 20 点体力、消耗 10 点饱腹。",
+  description: "周末待在家中放松或学习，开始时恢复 20 点体力。",
   placeIds: homePlaceIds,
   identities: [],
   schema: emptyPayloadSchema,
@@ -169,7 +169,7 @@ const stayHome = defineAction({
     },
   ],
   start({ character }) {
-    changeBody(character, 20, -10);
+    changeBody(character, 20, 0);
     return { durationMinutes: 60, settlement: {}, description: "待在家里放松或学习" };
   },
   complete() {

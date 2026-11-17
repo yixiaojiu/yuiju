@@ -155,7 +155,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -165,7 +165,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -175,7 +175,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -185,7 +185,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -195,7 +195,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -205,7 +205,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -215,7 +215,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -225,7 +225,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -235,7 +235,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -245,7 +245,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -255,7 +255,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -265,7 +265,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -275,7 +275,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -285,7 +285,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -295,7 +295,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -305,7 +305,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -315,7 +315,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -325,7 +325,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -335,7 +335,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -345,7 +345,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -355,7 +355,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -365,7 +365,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 1, satiety: 1 },
+    cost: { money: 0, stamina: 1, satiety: 0 },
     conditions: [],
   },
   {
@@ -375,7 +375,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "train",
     durationMinutes: 15,
-    cost: { money: 3, stamina: 7, satiety: 5 },
+    cost: { money: 3, stamina: 3, satiety: 1 },
     conditions: [minimumMoney(6)],
   },
   {
@@ -385,7 +385,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime],
   },
   {
@@ -395,7 +395,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -405,7 +405,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -415,7 +415,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 5,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -425,7 +425,7 @@ const publicRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "train",
     durationMinutes: 15,
-    cost: { money: 3, stamina: 7, satiety: 5 },
+    cost: { money: 3, stamina: 3, satiety: 1 },
     conditions: [minimumMoney(3)],
   },
 ];
@@ -439,7 +439,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 20,
-    cost: { money: 0, stamina: 7, satiety: 5 },
+    cost: { money: 0, stamina: 4, satiety: 2 },
     conditions: [weekdayMorning],
   },
   {
@@ -449,7 +449,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -459,7 +459,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -469,7 +469,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -479,7 +479,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [daytime, minimumStamina(5)],
   },
   {
@@ -489,7 +489,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(3)],
   },
   {
@@ -499,7 +499,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [daytime, minimumStamina(3)],
   },
   {
@@ -509,7 +509,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 20,
-    cost: { money: 0, stamina: 7, satiety: 5 },
+    cost: { money: 0, stamina: 4, satiety: 2 },
     conditions: [afternoon, minimumStamina(10)],
   },
   {
@@ -519,7 +519,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [],
   },
   {
@@ -529,7 +529,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [],
   },
   {
@@ -539,7 +539,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [],
   },
   {
@@ -549,7 +549,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 5, satiety: 3 },
+    cost: { money: 0, stamina: 3, satiety: 1 },
     conditions: [],
   },
   {
@@ -559,7 +559,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
   {
@@ -569,7 +569,7 @@ const homeRoutes: RouteDefinition[] = [
     kind: "path",
     mode: "walk",
     durationMinutes: 10,
-    cost: { money: 0, stamina: 3, satiety: 2 },
+    cost: { money: 0, stamina: 2, satiety: 1 },
     conditions: [],
   },
 ];

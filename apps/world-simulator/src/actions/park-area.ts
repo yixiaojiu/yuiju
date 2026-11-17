@@ -128,7 +128,7 @@ const crepeStand = defineAction({
       sales[crepe.name] = (sales[crepe.name] ?? 0) + 1;
     }
     character.money += income;
-    changeBody(character, -10, -10);
+    changeBody(character, -8, -3);
     const sold = Object.entries(sales)
       .map(([name, quantity]) => `${name} ${quantity} 份`)
       .join("、");

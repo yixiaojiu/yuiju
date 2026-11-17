@@ -10,7 +10,7 @@ export function calendarOccurrences(
   timezone: string,
 ): CalendarOccurrence[] {
   if (event.repeatWeekdays === null) {
-    return event.startAt < to && event.endAt > from && event.endAt <= event.deleteAt
+    return event.startAt < to && event.endAt > from && event.endAt <= event.deleteAt!
       ? [{ ...event, occurrenceId: `${event.id}@${event.startAt}` }]
       : [];
   }
@@ -20,7 +20,11 @@ export function calendarOccurrences(
     .utc(end.format("YYYY-MM-DD"))
     .diff(dayjs.utc(start.format("YYYY-MM-DD")), "day");
   const first = Math.max(event.startAt, from - (dayOffset + 1) * 86_400_000);
-  const until = Math.min(to, event.repeatUntilAt!, event.deleteAt);
+  // 长期规则没有停止和清理时刻，只受查询区间限制。
+  const limits = [event.repeatUntilAt, event.deleteAt].filter(
+    (value): value is number => value !== null,
+  );
+  const until = Math.min(to, ...limits);
   const result: CalendarOccurrence[] = [];
   for (
     let date = dayjs.utc(worldTime(first, timezone).format("YYYY-MM-DD"));
@@ -47,8 +51,7 @@ export function calendarOccurrences(
       startAt >= event.startAt &&
       startAt < to &&
       endAt > from &&
-      endAt <= event.repeatUntilAt! &&
-      endAt <= event.deleteAt
+      limits.every((limit) => endAt <= limit)
     ) {
       result.push({ ...event, startAt, endAt, occurrenceId: `${event.id}@${startAt}` });
     }
@@ -66,11 +69,13 @@ export function nextEventReminder(
   if (
     event.status !== "scheduled" ||
     event.remindBeforeStartMinutes === null ||
-    event.deleteAt <= now
+    (event.deleteAt !== null && event.deleteAt <= now)
   ) {
     return null;
   }
-  const until = event.repeatUntilAt === null ? event.endAt : event.repeatUntilAt;
+  // 长期规则每周至少出现一次，向后找 8 天即可得到下一个实例。
+  const until =
+    event.repeatWeekdays === null ? event.endAt : (event.repeatUntilAt ?? now + 8 * 86_400_000);
   for (const occurrence of calendarOccurrences(event, now, until, timezone)) {
     if (handledStartAt !== null && occurrence.startAt <= handledStartAt) {
       continue;

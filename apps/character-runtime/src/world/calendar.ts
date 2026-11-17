@@ -108,7 +108,7 @@ export const calendarTools = {
   }),
   write_calendar: tool({
     description:
-      "你可以创建或更新自己的安排。event 填完整起止时间、repeatWeekdays（单次为 null）、remindBeforeStartMinutes（不提醒为 null）；task 填 plannedAt、dueAt、attentionAt（未安排为 null）。更新填准确 ID、查询版本及 changes，完成或取消通过 status 更新。任务固定有效7天，重复日程30天，不能延长；结束记录7天后清理。时间使用项目时区 YYYY-MM-DD HH:mm。",
+      "你可以创建或更新自己的安排。event 填完整起止时间、repeatWeekdays（单次为 null）、remindBeforeStartMinutes（不提醒为 null）；task 填 plannedAt、dueAt、attentionAt（未安排为 null）。更新填准确 ID、查询版本及 changes，完成或取消通过 status 更新。任务固定有效7天，重复日程30天，不能延长；结束记录7天后清理。source 为 system 的事项由世界安排，只能查看，不能更新。时间使用项目时区 YYYY-MM-DD HH:mm。",
     inputSchema: writeCalendarToolSchema,
   }),
 };

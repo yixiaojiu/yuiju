@@ -32,6 +32,8 @@ const allEventTypes: WorldEvent["type"][] = [
   "weather_changed",
   "idle_reminder",
   "calendar_attention",
+  "body_signal",
+  "school_notice",
 ];
 
 /** 世界通知确认前，主 agent 模式持久入队，聊天调试模式直接同步状态。 */

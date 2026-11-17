@@ -150,6 +150,26 @@ return 1
     this.wake();
   }
 
+  /** 世界中有后果的事实直接进入情绪处理；经历由世界事件另行记录，这里不再写入记忆。 */
+  async perceive(id: string, content: string, occurredAt: number): Promise<void> {
+    const key = characterKey(this.characterId);
+    const feeling: Feeling = { id, content, occurredAt };
+    await (await getRedis()).eval(
+      `
+if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
+redis.call('SET', KEYS[2], '1', 'PX', 2592000000)
+return 1
+`,
+      2,
+      `${key}:emotion:pending`,
+      `${key}:emotion:received:${encodeURIComponent(id)}`,
+      id,
+      JSON.stringify(feeling),
+    );
+    this.wake();
+  }
+
   private wake(): void {
     this.wakeRequested = true;
     if (this.active && !this.running) {

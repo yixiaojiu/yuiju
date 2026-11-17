@@ -86,7 +86,7 @@ export async function readCharacterEvents(characterId: string) {
 
 export type CharacterEventBatch = Awaited<ReturnType<typeof readCharacterEvents>>;
 
-/** 生活经历记录不依赖哪个 agent 掌握控制权，仍只记录完成活动与天气变化。 */
+/** 生活经历记录不依赖哪个 agent 掌握控制权，只记录完成活动、天气变化与学校通知。 */
 export async function recordWorldExperiences(
   characterId: string,
   events: CharacterEvent[],
@@ -94,7 +94,9 @@ export async function recordWorldExperiences(
   for (const event of events) {
     if (
       event.type !== "world" ||
-      (event.event.type !== "activity_completed" && event.event.type !== "weather_changed")
+      (event.event.type !== "activity_completed" &&
+        event.event.type !== "weather_changed" &&
+        event.event.type !== "school_notice")
     ) {
       continue;
     }

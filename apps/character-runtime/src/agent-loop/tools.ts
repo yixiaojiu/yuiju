@@ -131,7 +131,7 @@ export const agentTools = {
   }),
   execute_action: tool({
     description:
-      "你向世界提交行动选择，payload 是按 inspect_world 的 action 查询所提供 schema 填写的 JSON 字符串。世界检查实际条件并执行，返回拒绝原因或执行结果。持续活动返回开始信息与预计结束时间，完成结果由后续世界事件提供；进行中会占用你的世界活动，工具返回不表示活动已经结束。",
+      "你向世界提交行动选择，payload 是按 inspect_world 的 action 查询所提供 schema 填写的 JSON 字符串，不需要参数的行动可以省略。世界检查实际条件并执行，返回拒绝原因或执行结果。持续活动返回开始信息与预计结束时间，完成结果由后续世界事件提供；进行中会占用你的世界活动，工具返回不表示活动已经结束。",
     inputSchema: executeActionSchema,
   }),
   ...calendarTools,

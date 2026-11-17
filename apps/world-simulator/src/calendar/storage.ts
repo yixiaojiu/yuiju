@@ -72,7 +72,10 @@ export async function commitCalendar(
     for (const index of ["attention", "expiry", "cleanup"]) {
       transaction.zrem(`${key}:${index}`, item.id);
     }
-    transaction.zadd(`${key}:cleanup`, item.deleteAt, item.id);
+    // 世界维护的长期规则没有清理和失效时刻，只登记提醒。
+    if (item.deleteAt !== null) {
+      transaction.zadd(`${key}:cleanup`, item.deleteAt, item.id);
+    }
     const active =
       item.kind === "task"
         ? item.status === "pending" || item.status === "in_progress"
@@ -80,11 +83,13 @@ export async function commitCalendar(
     const expiryAt =
       item.kind === "task"
         ? item.expiresAt
-        : item.repeatUntilAt === null
+        : item.repeatWeekdays === null
           ? item.endAt
           : item.repeatUntilAt;
-    if (active && expiryAt > now) {
-      transaction.zadd(`${key}:expiry`, expiryAt, item.id);
+    if (active && (expiryAt === null || expiryAt > now)) {
+      if (expiryAt !== null) {
+        transaction.zadd(`${key}:expiry`, expiryAt, item.id);
+      }
       if (attentionAt !== null) {
         transaction.zadd(`${key}:attention`, attentionAt, item.id);
       }

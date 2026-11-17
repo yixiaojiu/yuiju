@@ -35,7 +35,7 @@ export function validateCalendarItem(item: CalendarItem): void {
     if (item.startAt >= item.endAt) {
       throw new Error("日程开始必须早于结束");
     }
-    if (item.endAt > item.deleteAt) {
+    if (item.deleteAt !== null && item.endAt > item.deleteAt) {
       throw new Error("日程不能超出已有删除时间");
     }
     if (
@@ -58,16 +58,19 @@ export function validateCalendarItem(item: CalendarItem): void {
   }
 }
 
+/** 角色创建的重复日程有效 30 天；世界维护的重复规则长期有效，直到被世界取消。 */
 export function createCalendarItem(
   characterId: string,
   id: string,
   input: CalendarCreate,
+  source: CalendarItem["source"],
   now: number,
   timezone: string,
 ): CalendarItem {
   const base = {
     id,
     characterId,
+    source,
     title: input.title,
     description: input.description,
     createdAt: now,
@@ -84,6 +87,11 @@ export function createCalendarItem(
       expiresAt: now + taskLifetimeMs,
       deleteAt: now + taskLifetimeMs + calendarRetentionMs,
     };
+  } else if (source === "system") {
+    if (input.repeatWeekdays === null) {
+      throw new Error("世界维护的日程只用于长期重复规则");
+    }
+    item = { ...base, ...input, status: "scheduled", repeatUntilAt: null, deleteAt: null };
   } else {
     const repeatUntilAt = input.repeatWeekdays === null ? null : now + repeatLifetimeMs;
     item = {
@@ -107,14 +115,20 @@ function validateEventWeekday(item: CalendarItem, timezone: string): void {
   }
 }
 
+/** 只处理角色自己的事项；世界维护的事项对角色只读。 */
 export function updateCalendarItem(
   previous: CalendarItem,
   input: CalendarUpdate,
   now: number,
   timezone: string,
 ): CalendarItem {
+  if (previous.source === "system") {
+    throw new Error("这是世界安排的事项，只能查看，不能修改");
+  }
+  // 角色事项创建时总会确定删除时间。
+  const deleteAt = previous.deleteAt!;
   if (
-    previous.deleteAt <= now ||
+    deleteAt <= now ||
     (previous.kind === "task"
       ? previous.expiresAt <= now
       : previous.repeatUntilAt !== null && previous.repeatUntilAt <= now)
@@ -127,7 +141,7 @@ export function updateCalendarItem(
     item = { ...previous, ...changes };
     if (item.status === "completed" || item.status === "cancelled") {
       item.attentionAt = null;
-      item.deleteAt = Math.min(item.deleteAt, now + calendarRetentionMs);
+      item.deleteAt = Math.min(deleteAt, now + calendarRetentionMs);
     }
   } else {
     const changes = calendarEventChangesSchema.parse(input.changes);
@@ -136,11 +150,10 @@ export function updateCalendarItem(
       throw new Error("不能切换单次与重复模式");
     }
     if (item.status === "cancelled") {
-      item.deleteAt = Math.min(item.deleteAt, now + calendarRetentionMs);
+      item.deleteAt = Math.min(deleteAt, now + calendarRetentionMs);
     } else if (item.repeatUntilAt === null) {
       // 普通单次改期可重新计算结束后的保留期；取消后的恢复不延长清理时钟。
-      item.deleteAt =
-        previous.status === "cancelled" ? previous.deleteAt : item.endAt + calendarRetentionMs;
+      item.deleteAt = previous.status === "cancelled" ? deleteAt : item.endAt + calendarRetentionMs;
     }
   }
   item.revision += 1;
@@ -158,7 +171,9 @@ export function selectCalendarItems(
   now: number,
 ): CalendarQueryResult | null {
   const visible = items
-    .filter((item) => item.characterId === characterId && item.deleteAt > now)
+    .filter(
+      (item) => item.characterId === characterId && (item.deleteAt === null || item.deleteAt > now),
+    )
     .map(
       (item): CalendarItem =>
         item.kind === "task" &&
@@ -278,13 +293,17 @@ export async function writeCalendar(
     }
     const { operation: _operation, ...fields } = input;
     try {
-      item = createCalendarItem(characterId, id, fields, now, timezone);
+      item = createCalendarItem(characterId, id, fields, "character", now, timezone);
     } catch (error) {
       return { ok: false, code: "invalid_request", message: (error as Error).message };
     }
   } else {
     const previous = await readCalendarItem(input.itemId);
-    if (previous === null || previous.characterId !== characterId || previous.deleteAt <= now) {
+    if (
+      previous === null ||
+      previous.characterId !== characterId ||
+      (previous.deleteAt !== null && previous.deleteAt <= now)
+    ) {
       return {
         ok: false,
         code: "calendar_item_not_found",

@@ -27,7 +27,9 @@ import {
   getHomePlaceIds,
   type WorldCharacterDefinition,
 } from "./content/characters";
+import { checkSchoolAttendance } from "./content/school-attendance";
 import { createSchoolCalendar } from "./content/school-calendar";
+import { BodyEvolution, checkBodyNeeds } from "./environment/body";
 import type { WorldAdvanceContext, WorldEvolution } from "./environment/evolution";
 import { isPlaceOpen, PlaceEvolution } from "./environment/places";
 import { ResourceEvolution, refreshResources } from "./environment/resources";
@@ -72,6 +74,7 @@ export class World {
     new WeatherEvolution(),
     new ResourceEvolution(),
     new PlaceEvolution(),
+    new BodyEvolution(),
   ];
   /** 按活动 ID 跟踪结算；提交失败时保留占位，避免 tick 反复调用模型，重启后重新检查世界状态。 */
   private readonly activityCompletionTasks = new Map<string, Promise<void>>();
@@ -537,29 +540,59 @@ export class World {
       }
       // 只在补算推进至当前时间后提醒；停机期间错过多少次，都只通知一次。
       const reminders: WorldEvent[] = [];
+      let recordsChanged = false;
       if (stepTime === targetTime) {
         for (const character of Object.values(draftState.characters)) {
+          const notify = (
+            type: "idle_reminder" | "body_signal" | "school_notice",
+            description: string,
+          ) =>
+            reminders.push({
+              eventId: randomUUID(),
+              occurredAt: targetTime,
+              characterId: character.characterId,
+              type,
+              description,
+              activity: activityView(character.currentActivity!),
+              position: positionView(character, this.map),
+            });
+          // 需求和出勤检查只修改提醒记录；记录有变化也要提交，避免下次重复判断。
+          const recordsBefore = JSON.stringify([character.notifiedNeeds, character.school]);
+          for (const description of checkBodyNeeds(character)) {
+            notify("body_signal", description);
+          }
+          if (
+            this.characterDefinitions.get(character.characterId)!.identities.includes("student")
+          ) {
+            for (const description of checkSchoolAttendance(character, targetTime, this.timezone)) {
+              notify("school_notice", description);
+            }
+          }
+          recordsChanged ||=
+            JSON.stringify([character.notifiedNeeds, character.school]) !== recordsBefore;
+
           const activity = character.currentActivity!;
           if (activity.actionId !== "空闲发呆" || activity.pause) {
             continue;
           }
-          const lastAttentionAt = activity.lastReminderAt ?? activity.startedAt;
-          if (targetTime - lastAttentionAt < 10 * 60_000) {
+          // 空闲越久提醒越稀疏：10、20、40 分钟后提醒，之后每 60 分钟一次。
+          const reminderCount = activity.reminderCount ?? 0;
+          const intervalMs = Math.min(10 * 2 ** reminderCount, 60) * 60_000;
+          if (targetTime - (activity.lastReminderAt ?? activity.startedAt) < intervalMs) {
             continue;
           }
           activity.lastReminderAt = targetTime;
-          reminders.push({
-            eventId: randomUUID(),
-            occurredAt: targetTime,
-            characterId: character.characterId,
-            type: "idle_reminder",
-            description: "你已经闲了一会儿，可以考虑接下来做什么。",
-            activity: activityView(activity),
-            position: positionView(character, this.map),
-          });
+          activity.reminderCount = reminderCount + 1;
+          notify("idle_reminder", "你已经闲了一会儿，可以考虑接下来做什么。");
         }
       }
-      if (activityRepaired || environmentChanged || facts.length || reminders.length) {
+      if (
+        activityRepaired ||
+        environmentChanged ||
+        facts.length ||
+        reminders.length ||
+        recordsChanged
+      ) {
         await this.commitStateAndFacts(draftState, facts, undefined, reminders);
       }
 

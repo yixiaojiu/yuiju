@@ -145,6 +145,16 @@ export class MainAgentLoop {
         }
       }
       await recordWorldExperiences(characterId, batch.events);
+      // 学校通知是有后果的事实，直接交给情绪处理，不依赖本轮是否表达感受。
+      for (const event of batch.events) {
+        if (event.type === "world" && event.event.type === "school_notice") {
+          await this.execution.emotion.perceive(
+            event.id,
+            `学校通知：${event.event.description}`,
+            event.occurredAt,
+          );
+        }
+      }
       let input = await this.describeInput(batch.events);
       // 活动相关输入才同步现状，不能将迟到的事件快照当作当前活动。
       if (

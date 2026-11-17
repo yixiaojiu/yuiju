@@ -168,7 +168,7 @@ const sell = defineAction({
 
 const work = defineAction({
   id: "打工",
-  description: "在薄暮咖啡打工一小时，收入 200 金币，消耗 10 点体力和饱腹。",
+  description: "在薄暮咖啡打工一小时，收入 200 金币，消耗 8 点体力和 3 点饱腹。",
   placeIds: ["cafe"],
   identities: [],
   schema: emptyPayloadSchema,
@@ -189,7 +189,7 @@ const work = defineAction({
   },
   complete({ character }, { income }) {
     character.money += income;
-    changeBody(character, -10, -10);
+    changeBody(character, -8, -3);
     return {
       description: `在咖啡店打工一小时，赚了 ${income} 金币`,
     };

@@ -19,6 +19,8 @@ const eventLabels: Record<WorldEvent["type"], string> = {
   weather_changed: "天气变化",
   calendar_attention: "日程关注",
   idle_reminder: "空闲提醒",
+  body_signal: "身体需求",
+  school_notice: "学校通知",
 };
 
 function EventContent({
