@@ -18,69 +18,7 @@ import {
   type Vector3,
 } from "three";
 import type { LitCafeHandles } from "./lit-cafe-builder";
-
-export type LightingPresetId = "afternoon" | "dusk";
-
-type PresetConfig = {
-  background: string;
-  hemiSky: string;
-  hemiGround: string;
-  hemiIntensity: number;
-  ambientColor: string;
-  ambientIntensity: number;
-  windowLightColor: string;
-  windowLightIntensity: number;
-  windowBackdropColor: string;
-  windowBackdropIntensity: number;
-  shaftColor: string;
-  shaftStrength: number;
-  pendantIntensity: number;
-  coneStrength: number;
-  accentColor: string;
-  accentIntensity: number;
-  exposure: number;
-};
-
-const PRESETS: Record<LightingPresetId, PresetConfig> = {
-  afternoon: {
-    background: "#10111a",
-    hemiSky: "#52628a",
-    hemiGround: "#332219",
-    hemiIntensity: 0.42,
-    ambientColor: "#2e3348",
-    ambientIntensity: 0.28,
-    windowLightColor: "#ffcb7d",
-    windowLightIntensity: 5.0,
-    windowBackdropColor: "#ffe5aa",
-    windowBackdropIntensity: 2.15,
-    shaftColor: "#ffd48c",
-    shaftStrength: 0.2,
-    pendantIntensity: 1.65,
-    coneStrength: 0.08,
-    accentColor: "#9bd0ff",
-    accentIntensity: 4.8,
-    exposure: 1.06,
-  },
-  dusk: {
-    background: "#0d0d16",
-    hemiSky: "#4d619c",
-    hemiGround: "#3b2214",
-    hemiIntensity: 0.36,
-    ambientColor: "#25263d",
-    ambientIntensity: 0.24,
-    windowLightColor: "#86abff",
-    windowLightIntensity: 3.4,
-    windowBackdropColor: "#9cbcff",
-    windowBackdropIntensity: 2.35,
-    shaftColor: "#8ab0ff",
-    shaftStrength: 0.18,
-    pendantIntensity: 2.35,
-    coneStrength: 0.105,
-    accentColor: "#ffab57",
-    accentIntensity: 3.4,
-    exposure: 1.1,
-  },
-};
+import type { LitTuning } from "./lit-tuning";
 
 function createWindowGodRays() {
   const material = new ShaderMaterial({
@@ -218,10 +156,16 @@ function createParticles(steamAnchors: Vector3[]) {
   dustGeo.setAttribute("position", new BufferAttribute(dustPos, 3));
   dustGeo.setAttribute("aPhase", new BufferAttribute(dustPhase, 1));
   const dustMat = new ShaderMaterial({
-    uniforms: { time: { value: 0 }, color: { value: new Color("#ffdfa8") } },
+    uniforms: {
+      time: { value: 0 },
+      color: { value: new Color("#ffdfa8") },
+      pointScale: { value: 1 },
+      strength: { value: 0.52 },
+    },
     vertexShader: `
       attribute float aPhase;
       uniform float time;
+      uniform float pointScale;
       varying float vAlpha;
       void main() {
         vec3 p = position;
@@ -229,15 +173,16 @@ function createParticles(steamAnchors: Vector3[]) {
         p.y += cos(time * 0.28 + aPhase * 1.3) * 0.1;
         vAlpha = 0.4 + 0.6 * sin(time * 1.1 + aPhase * 2.0);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = 2.5;
+        gl_PointSize = 2.5 * pointScale;
       }
     `,
     fragmentShader: `
       uniform vec3 color;
+      uniform float strength;
       varying float vAlpha;
       void main() {
         float soft = smoothstep(0.5, 0.08, length(gl_PointCoord - 0.5));
-        float a = soft * vAlpha * 0.52;
+        float a = soft * vAlpha * strength;
         gl_FragColor = vec4(color * a, a);
       }
     `,
@@ -265,10 +210,11 @@ function createParticles(steamAnchors: Vector3[]) {
   steamGeo.setAttribute("position", new BufferAttribute(steamPos, 3));
   steamGeo.setAttribute("aSeed", new BufferAttribute(steamSeed, 1));
   const steamMat = new ShaderMaterial({
-    uniforms: { time: { value: 0 } },
+    uniforms: { time: { value: 0 }, pointScale: { value: 1 } },
     vertexShader: `
       attribute float aSeed;
       uniform float time;
+      uniform float pointScale;
       varying float vFade;
       void main() {
         float life = fract(time * 0.22 + aSeed);
@@ -277,7 +223,7 @@ function createParticles(steamAnchors: Vector3[]) {
         p.x += sin(life * 5.2 + aSeed * 12.0) * 0.04;
         vFade = sin(life * 3.14159265) * (1.0 - life * 0.4);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        gl_PointSize = 3.2 + life * 4.0;
+        gl_PointSize = (3.2 + life * 4.0) * pointScale;
       }
     `,
     fragmentShader: `
@@ -385,52 +331,63 @@ export function createLitLighting(cafe: LitCafeHandles) {
   const particles = createParticles(cafe.steamAnchors);
   lightGroup.add(godRays.root, pendantCones.root, particles.root);
 
-  const background = new Color(PRESETS.afternoon.background);
-  let exposure = PRESETS.afternoon.exposure;
+  const background = new Color();
+  const shadowCasters = [windowLight, barSpot, accentLamp, leftTableSpot];
 
-  function applyPreset(id: LightingPresetId) {
-    const cfg = PRESETS[id];
-    background.set(cfg.background);
-    exposure = cfg.exposure;
+  function apply(tuning: LitTuning) {
+    background.set(tuning.background);
 
-    hemiLight.color.set(cfg.hemiSky);
-    hemiLight.groundColor.set(cfg.hemiGround);
-    hemiLight.intensity = cfg.hemiIntensity;
-    ambientLight.color.set(cfg.ambientColor);
-    ambientLight.intensity = cfg.ambientIntensity;
+    hemiLight.color.set(tuning.hemiSky);
+    hemiLight.groundColor.set(tuning.hemiGround);
+    hemiLight.intensity = tuning.hemiIntensity;
+    ambientLight.color.set(tuning.ambientColor);
+    ambientLight.intensity = tuning.ambientIntensity;
 
-    windowLight.color.set(cfg.windowLightColor);
-    windowLight.intensity = cfg.windowLightIntensity;
-    cafe.windowBackdropMaterial.color.set(cfg.windowBackdropColor);
-    cafe.windowBackdropMaterial.emissive.set(cfg.windowBackdropColor);
-    cafe.windowBackdropMaterial.emissiveIntensity = cfg.windowBackdropIntensity;
+    windowLight.color.set(tuning.windowLightColor);
+    windowLight.intensity = tuning.windowLightIntensity;
+    cafe.windowBackdropMaterial.color.set(tuning.windowBackdropColor);
+    cafe.windowBackdropMaterial.emissive.set(tuning.windowBackdropColor);
+    cafe.windowBackdropMaterial.emissiveIntensity = tuning.windowBackdropIntensity;
 
-    barSpot.intensity = cfg.pendantIntensity * 3.8;
-    leftTableSpot.intensity = cfg.pendantIntensity * 2.3;
+    barSpot.intensity = tuning.pendantIntensity * 3.8;
+    leftTableSpot.intensity = tuning.pendantIntensity * 2.3;
     for (const fill of fills) {
-      fill.light.intensity = cfg.pendantIntensity * 0.92 * fill.weight;
+      fill.light.intensity = tuning.pendantIntensity * 0.92 * fill.weight;
     }
-    accentLamp.color.set(cfg.accentColor);
-    accentLamp.intensity = cfg.accentIntensity;
-    cafe.accentShadeMaterial.emissive.set(cfg.accentColor);
+    accentLamp.color.set(tuning.accentColor);
+    accentLamp.intensity = tuning.accentIntensity;
+    cafe.accentShadeMaterial.emissive.set(tuning.accentColor);
+    for (const light of shadowCasters) {
+      light.shadow.radius = tuning.shadowSoftness;
+    }
 
-    godRays.material.uniforms.color.value.set(cfg.shaftColor);
-    godRays.material.uniforms.strength.value = cfg.shaftStrength;
-    pendantCones.material.uniforms.strength.value = cfg.coneStrength;
-    particles.dustMat.uniforms.color.value.set(cfg.shaftColor);
+    godRays.material.uniforms.color.value.set(tuning.shaftColor);
+    godRays.material.uniforms.strength.value = tuning.shaftStrength;
+    pendantCones.material.uniforms.strength.value = tuning.coneStrength;
+    particles.dustMat.uniforms.color.value.set(tuning.shaftColor);
+    particles.dustMat.uniforms.strength.value = tuning.dustStrength;
   }
-
-  applyPreset("afternoon");
 
   return {
     lightGroup,
-    get background() {
-      return background;
+    background,
+    apply,
+    /**
+     * 角色立牌受光要用的灯：环境光、天光、窗光，以及各盏点光源和聚光灯。
+     * 立牌着色器按和场景材质相同的公式计算，角色和家具受到的是同一套光。
+     */
+    characterLights: {
+      ambient: ambientLight,
+      hemi: hemiLight,
+      sun: windowLight,
+      points: [accentLamp, ...fills.map((fill) => fill.light)],
+      spots: [barSpot, leftTableSpot],
     },
-    get exposure() {
-      return exposure;
+    /** 粒子大小的倍率：像素网格渲染时一个画面像素更大，粒子要相应缩小。 */
+    setPointScale(scale: number) {
+      particles.dustMat.uniforms.pointScale.value = scale;
+      particles.steamMat.uniforms.pointScale.value = scale;
     },
-    applyPreset,
     update(time: number) {
       godRays.material.uniforms.time.value = time;
       particles.dustMat.uniforms.time.value = time;

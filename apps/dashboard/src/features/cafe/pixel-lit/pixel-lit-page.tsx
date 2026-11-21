@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { PixelActionName } from "../scene/pixel-actions";
-import type { LightingPresetId } from "./stage/lit-lighting";
+import type { PixelActionName } from "./character/pixel-actions";
 import { LitCafeStage } from "./stage/lit-stage";
+import { LIT_PRESETS, type LightingPresetId, type LitTuning } from "./stage/lit-tuning";
+import { LightingPanel } from "./ui/lighting-panel";
 
 export function PixelLitCafePage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<LitCafeStage | null>(null);
 
   const [preset, setPreset] = useState<LightingPresetId>("afternoon");
+  // 调光面板在当前预设的基础上实时修改；切换预设时载入那个预设的整套参数。
+  const [tuning, setTuning] = useState<LitTuning>(LIT_PRESETS.afternoon);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [activeLoop, setActiveLoop] = useState<PixelActionName>("idle");
 
   useEffect(() => {
@@ -26,12 +30,29 @@ export function PixelLitCafePage() {
   }, []);
 
   useEffect(() => {
-    stageRef.current?.setPreset(preset);
-  }, [preset]);
+    stageRef.current?.applyTuning(tuning);
+  }, [tuning]);
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0d0e16] select-none">
       <div ref={containerRef} className="absolute inset-0" />
+
+      <div className="pointer-events-none absolute top-4 right-4 flex flex-col items-end gap-2">
+        <button
+          type="button"
+          onClick={() => setPanelOpen(!panelOpen)}
+          className="pointer-events-auto cursor-pointer rounded-lg border border-amber-200/15 bg-[#121018]/80 px-3 py-1.5 text-xs text-amber-50 backdrop-blur-md hover:bg-amber-300/20"
+        >
+          {panelOpen ? "收起调光" : "调光"}
+        </button>
+        {panelOpen && (
+          <LightingPanel
+            tuning={tuning}
+            onChange={setTuning}
+            onReset={() => setTuning(LIT_PRESETS[preset])}
+          />
+        )}
+      </div>
 
       <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl border border-amber-200/15 bg-[#121018]/80 px-3.5 py-2 text-xs whitespace-nowrap text-amber-50 shadow-2xl backdrop-blur-md">
         <div className="flex items-center gap-1.5">
@@ -88,7 +109,10 @@ export function PixelLitCafePage() {
             <button
               key={id}
               type="button"
-              onClick={() => setPreset(id)}
+              onClick={() => {
+                setPreset(id);
+                setTuning(LIT_PRESETS[id]);
+              }}
               className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
                 preset === id
                   ? "bg-amber-300/25 font-medium text-amber-50"

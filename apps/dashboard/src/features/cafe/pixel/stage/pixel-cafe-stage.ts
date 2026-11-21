@@ -1,5 +1,6 @@
 import { CircleGeometry, Color, Group, Mesh, MeshBasicMaterial, Scene, Vector3 } from "three";
-import type { PixelActionName } from "../../scene/pixel-actions";
+import type { CafeSession, CafeState } from "../../session/state";
+import type { PixelActionName } from "../character/pixel-actions";
 import {
   aimPixelCamera,
   createPixelCamera,
@@ -8,8 +9,7 @@ import {
   HEAD_Y,
   PIXEL,
   snapToPixelGrid,
-} from "../../scene/pixel-character";
-import type { CafeSession, CafeState } from "../../session/state";
+} from "../character/pixel-character";
 import { BaristaDirector } from "./barista-director";
 import { buildFurniture } from "./furniture";
 import {

@@ -1,1 +1,1 @@
-export { PixelCharacterPreview as default } from "@/features/cafe/pixel-character-preview";
+export { PixelCharacterPreview as default } from "@/features/cafe/pixel-lit/character/pixel-character-preview";

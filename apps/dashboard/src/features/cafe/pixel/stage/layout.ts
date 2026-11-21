@@ -1,4 +1,4 @@
-import { servedCupPosition } from "../../scene/pixel-actions";
+import { servedCupPosition } from "../character/pixel-actions";
 
 /**
  * 像素咖啡馆的布局，单位是世界单位（像素角色身高约 1.6，一个屏幕像素是 0.04）。

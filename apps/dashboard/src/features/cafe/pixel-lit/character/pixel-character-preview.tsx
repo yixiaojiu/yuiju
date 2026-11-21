@@ -1,6 +1,6 @@
 "use client";
 
-import { MousePointer2, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Color,
@@ -16,7 +16,7 @@ import {
   WebGLRenderer,
   WebGLRenderTarget,
 } from "three";
-import { type PixelActionName, pixelActions } from "./scene/pixel-actions";
+import { type PixelActionName, pixelActions } from "./pixel-actions";
 import {
   characterSliders,
   createPixelCamera,
@@ -26,16 +26,17 @@ import {
   emotes,
   expressions,
   initialCharacterShape,
-} from "./scene/pixel-character";
+} from "./pixel-character";
 
 const width = 64,
   height = 64;
 const actionNames = Object.keys(pixelActions) as PixelActionName[];
+/** 游戏里只有四个朝向，角色也只保证这四个角度渲染正常。 */
 const views = [
   { label: "正面", angle: 0 },
-  { label: "斜侧", angle: 328 },
-  { label: "侧面", angle: 90 },
+  { label: "朝右", angle: 90 },
   { label: "背面", angle: 180 },
+  { label: "朝左", angle: 270 },
 ];
 const selectedButton = "bg-[#51453f] text-[#fff9ee]";
 const quietButton = "text-[#645a4e] hover:bg-[#e9e1d4]";
@@ -44,11 +45,10 @@ export function PixelCharacterPreview() {
   const mount = useRef<HTMLDivElement>(null);
   const character = useRef<ReturnType<typeof createPixelCharacter> | null>(null);
   const [shape, setShape] = useState(initialCharacterShape);
-  const [angle, setAngle] = useState(328);
+  const [angle, setAngle] = useState(0);
   const [looping, setLooping] = useState<PixelActionName>("idle");
   const [expression, setExpression] = useState<ExpressionName>("normal");
-  const angleRef = useRef(328);
-  const drag = useRef<{ pointer: number; x: number; angle: number } | null>(null);
+  const angleRef = useRef(0);
   useEffect(() => {
     angleRef.current = angle;
   }, [angle]);
@@ -167,44 +167,8 @@ export function PixelCharacterPreview() {
           <section className="overflow-hidden rounded-2xl border border-[#ccc6b8] bg-[#faf7f0]">
             <div
               ref={mount}
-              role="slider"
-              aria-label="角色朝向"
-              aria-valuenow={angle}
-              aria-valuemin={0}
-              aria-valuemax={359}
-              aria-valuetext={angle + " 度"}
-              tabIndex={0}
-              className="relative flex h-[min(58dvh,510px)] min-h-[290px] touch-none cursor-grab select-none items-center justify-center overflow-hidden bg-[#cbd7c3] outline-offset-[-4px] active:cursor-grabbing"
-              onPointerDown={(event) => {
-                event.currentTarget.setPointerCapture(event.pointerId);
-                drag.current = { pointer: event.pointerId, x: event.clientX, angle };
-              }}
-              onPointerMove={(event) => {
-                const start = drag.current;
-                if (start?.pointer === event.pointerId) {
-                  setAngle(
-                    ((Math.round(start.angle + (event.clientX - start.x) * 0.8) % 360) + 360) % 360,
-                  );
-                }
-              }}
-              onLostPointerCapture={() => {
-                drag.current = null;
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                  event.preventDefault();
-                  setAngle((angle + (event.key === "ArrowLeft" ? -5 : 5) + 360) % 360);
-                }
-              }}
-            >
-              <span className="pointer-events-none absolute top-4 left-4 rounded-md bg-[#eff3e8]/75 px-2 py-1 font-mono text-xs tabular-nums text-[#52604e]">
-                {angle}°
-              </span>
-              <span className="pointer-events-none absolute bottom-4 left-4 flex items-center gap-1.5 text-xs text-[#4e604d]">
-                <MousePointer2 size={14} />
-                拖动旋转
-              </span>
-            </div>
+              className="relative flex h-[min(58dvh,510px)] min-h-[290px] select-none items-center justify-center overflow-hidden bg-[#cbd7c3]"
+            />
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
               <div className="flex gap-1">
                 {views.map((view) => (

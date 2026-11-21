@@ -2,6 +2,7 @@ import {
   Color,
   DepthTexture,
   Mesh,
+  MeshNormalMaterial,
   NearestFilter,
   OrthographicCamera,
   PlaneGeometry,
@@ -12,13 +13,16 @@ import {
   type WebGLRenderer,
   WebGLRenderTarget,
 } from "three";
-import type { PixelActionName } from "../../scene/pixel-actions";
+import type { PixelActionName } from "../character/pixel-actions";
 import {
   createPixelCamera,
   createPixelCharacter,
+  ELEVATION,
   type EmoteName,
   type ExpressionName,
-} from "../../scene/pixel-character";
+  OVERLAY_LAYER,
+  PIXEL,
+} from "../character/pixel-character";
 
 export type Direction4 = "down" | "right" | "up" | "left";
 
@@ -33,12 +37,14 @@ const DIRECTION_YAW: Record<Direction4, number> = {
 
 /**
  * 将 3D 三渲二像素角色离屏渲染为 64×64 最近邻纹理：
- * 先按角色专用 35° 正交相机对齐脸部像素网格并附加 #3d2a36 描边，再交给喫茶店场景立牌投射 3D 阴影。
+ * 先按角色专用 30° 正交相机对齐脸部像素网格并附加 #3d2a36 描边，再交给喫茶店场景立牌投射 3D 阴影。
  */
 export function createLitCharacterCard() {
   const scene = new Scene();
   const camera = createPixelCamera(CARD_PIXELS, CARD_PIXELS);
   const character = createPixelCharacter(camera);
+  // 明暗由场景灯光决定（见 lit-stage 的立牌着色器），角色自带的固定两档明暗关掉。
+  character.setCelShading(false);
   scene.add(character.root);
 
   const rawTarget = new WebGLRenderTarget(CARD_PIXELS, CARD_PIXELS, {
@@ -47,6 +53,14 @@ export function createLitCharacterCard() {
     depthTexture: new DepthTexture(CARD_PIXELS, CARD_PIXELS),
   });
   rawTarget.texture.generateMipmaps = false;
+
+  // 每个像素的法线（相机空间），立牌着色器按它计算场景灯光的明暗和方向。
+  const normalTarget = new WebGLRenderTarget(CARD_PIXELS, CARD_PIXELS, {
+    minFilter: NearestFilter,
+    magFilter: NearestFilter,
+  });
+  normalTarget.texture.generateMipmaps = false;
+  const normalMaterial = new MeshNormalMaterial();
 
   const outlinedTarget = new WebGLRenderTarget(CARD_PIXELS, CARD_PIXELS, {
     minFilter: NearestFilter,
@@ -114,6 +128,9 @@ export function createLitCharacterCard() {
   const groundNdc = new Vector3(0, 0, 0).project(camera);
   // 脚底外侧还有 1px 轮廓描边，向下多扣 1 格让描边底沿正好落在地板平面。
   const groundRowFromBottom = ((groundNdc.y + 1) / 2) * CARD_PIXELS - 1;
+  // 角色脚底所在的竖直平面到相机的距离（沿视线方向），用来把深度贴图换算成「比这个平面靠前还是靠后多少」。
+  const forward = camera.getWorldDirection(new Vector3());
+  const rootDistance = new Vector3(0, 0, 0).sub(camera.position).dot(forward);
 
   const savedClearColor = new Color();
   let currentLoop: PixelActionName = "idle";
@@ -121,6 +138,21 @@ export function createLitCharacterCard() {
   return {
     texture: outlinedTarget.texture,
     groundRowFromBottom,
+    /** 角色这一层的深度贴图（描边像素没有深度，取相邻像素的）。 */
+    depthTexture: rawTarget.depthTexture!,
+    /** 角色这一层的法线贴图：相机空间的法线压到 0–1；透明的地方是描边或空白，不参与受光。 */
+    normalTexture: normalTarget.texture,
+    /**
+     * 把深度贴图换算回角色空间距离要用的参数：相机近远平面、脚底平面的距离、
+     * 一个贴图像素对应的角色空间尺寸、俯角的正切。立牌着色器据此按像素写入场景深度。
+     */
+    depthReconstruction: {
+      near: camera.near,
+      far: camera.far,
+      rootDistance,
+      pixel: PIXEL,
+      tanElevation: Math.tan(ELEVATION),
+    },
     setDirection(direction: Direction4) {
       character.root.rotation.y = DIRECTION_YAW[direction];
     },
@@ -152,6 +184,15 @@ export function createLitCharacterCard() {
       renderer.clear();
       renderer.render(scene, camera);
 
+      // 法线只要身体网格：情绪符号飘在头顶，不受光，排除在外。
+      scene.overrideMaterial = normalMaterial;
+      camera.layers.disable(OVERLAY_LAYER);
+      renderer.setRenderTarget(normalTarget);
+      renderer.clear();
+      renderer.render(scene, camera);
+      camera.layers.enable(OVERLAY_LAYER);
+      scene.overrideMaterial = null;
+
       renderer.setRenderTarget(outlinedTarget);
       renderer.clear();
       renderer.render(quadScene, quadCamera);
@@ -164,6 +205,8 @@ export function createLitCharacterCard() {
       quadGeo.dispose();
       outlineMaterial.dispose();
       rawTarget.dispose();
+      normalTarget.dispose();
+      normalMaterial.dispose();
       outlinedTarget.dispose();
     },
   };

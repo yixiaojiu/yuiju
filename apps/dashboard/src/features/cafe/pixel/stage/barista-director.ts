@@ -1,6 +1,6 @@
-import { type PixelActionName, pixelActions } from "../../scene/pixel-actions";
-import type { createPixelCharacter } from "../../scene/pixel-character";
 import type { CafeState } from "../../session/state";
+import { type PixelActionName, pixelActions } from "../character/pixel-actions";
+import type { createPixelCharacter } from "../character/pixel-character";
 import { BARISTA_HOME, BARISTA_MACHINE, baristaSeatSpot, type Spot } from "./layout";
 
 type Character = ReturnType<typeof createPixelCharacter>;
