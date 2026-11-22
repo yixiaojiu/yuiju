@@ -29,8 +29,12 @@ export const LIT_ROOM = {
   wallHeight: 3.05,
 } as const;
 
+/**
+ * 家具按角色的 Q 版比例做矮：角色约 1.8 头身、身高约 1.1 米，台面在她胸口，0.40 米。
+ * 墙、窗、墙上的置物架、吊灯保持原尺寸。
+ */
 export const LIT_BAR = {
-  top: 0.56,
+  top: 0.4,
   front: { minX: -2.0, maxX: 2.0, minZ: 0.45, maxZ: 1.1 },
   left: { minX: -2.0, maxX: -1.4, minZ: -2.35, maxZ: 0.45 },
   right: { minX: 1.4, maxX: 2.0, minZ: -2.35, maxZ: 0.45 },
@@ -46,12 +50,22 @@ export const LIT_WORKTOP = {
 export const LIT_WALKABLE = { minX: -5.2, maxX: 5.2, minZ: -3.4, maxZ: 3.05 } as const;
 export const LIT_CUSTOMER_RADIUS = 0.24;
 
+/**
+ * 走不过去的家具，按台面的外沿算。吧台拆成前台、左右两翼和后墙操作台四块，里面是店员的走动区；
+ * 左后角的腰门和右后角的缺口都不挡，可以走出吧台（腰门是实心木板，走过时直接穿过）。
+ */
 export const LIT_OBSTACLES = [
+  ...[LIT_BAR.front, LIT_BAR.left, LIT_BAR.right].map((part) => ({
+    minX: part.minX - 0.04,
+    maxX: part.maxX + 0.04,
+    minZ: part.minZ - 0.04,
+    maxZ: part.maxZ + 0.04,
+  })),
   {
-    minX: LIT_BAR.left.minX - 0.1,
-    maxX: LIT_BAR.right.maxX + 0.1,
+    minX: LIT_WORKTOP.minX - 0.04,
+    maxX: LIT_WORKTOP.maxX + 0.04,
     minZ: LIT_ROOM.minZ,
-    maxZ: LIT_BAR.front.maxZ + 0.1,
+    maxZ: LIT_WORKTOP.maxZ + 0.05,
   },
   { minX: LIT_ROOM.minX, maxX: -2.65, minZ: LIT_ROOM.minZ, maxZ: -3.05 },
   { minX: 2.8, maxX: 4.5, minZ: LIT_ROOM.minZ, maxZ: -3.15 },
@@ -343,8 +357,8 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
   }
 
   // 3. 窗下木长椅与方正像素座布团/靠垫
-  addBox(root, wood, [LIT_ROOM.minX + 0.06, -2.72], [0, 0.32], [backZ, -3.1]);
-  addBox(root, honey, [LIT_ROOM.minX + 0.06, -2.72], [0.32, 0.37], [backZ, -3.06]);
+  addBox(root, wood, [LIT_ROOM.minX + 0.06, -2.72], [0, 0.23], [backZ, -3.1]);
+  addBox(root, honey, [LIT_ROOM.minX + 0.06, -2.72], [0.23, 0.27], [backZ, -3.06]);
   for (const [bx, col] of [
     [-4.92, "#79a35b"],
     [-4.05, "#96453b"],
@@ -354,14 +368,14 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
       root,
       materials.material(col, { roughness: 0.92 }),
       [bx - 0.32, bx + 0.32],
-      [0.37, 0.45],
+      [0.27, 0.33],
       [-3.64, -3.14],
     );
     addBox(
       root,
       materials.material("#ede3c8", { roughness: 0.94 }),
       [bx - 0.28, bx + 0.28],
-      [0.45, 0.86],
+      [0.33, 0.62],
       [backZ + 0.02, -3.6],
     );
   }
@@ -460,14 +474,14 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     root,
     woodSlats,
     [LIT_WORKTOP.minX, LIT_WORKTOP.maxX],
-    [0, 0.5],
+    [0, LIT_BAR.top - 0.06],
     [backZ, LIT_WORKTOP.maxZ],
   );
   addBox(
     root,
     honey,
     [LIT_WORKTOP.minX - 0.04, LIT_WORKTOP.maxX + 0.04],
-    [0.5, LIT_BAR.top],
+    [LIT_BAR.top - 0.06, LIT_BAR.top],
     [backZ, LIT_WORKTOP.maxZ + 0.05],
   );
   const shelfRowMat = materials.spriteCardMaterial(textures.shelfRowItems);
@@ -513,12 +527,18 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
       [0, 0.1],
       [part.minZ + 0.05, part.maxZ - 0.05],
     );
-    addBox(root, woodSlats, [part.minX, part.maxX], [0.1, 0.5], [part.minZ, part.maxZ]);
+    addBox(
+      root,
+      woodSlats,
+      [part.minX, part.maxX],
+      [0.1, LIT_BAR.top - 0.06],
+      [part.minZ, part.maxZ],
+    );
     addBox(
       root,
       honey,
       [part.minX - 0.04, part.maxX + 0.04],
-      [0.5, LIT_BAR.top],
+      [LIT_BAR.top - 0.06, LIT_BAR.top],
       [part.minZ - 0.04, part.maxZ + 0.04],
     );
   }
@@ -536,20 +556,21 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     root,
     woodSlats,
     [LIT_BAR.left.minX + 0.16, LIT_BAR.left.maxX - 0.16],
-    [0, 0.28],
+    [0, LIT_BAR.top / 2],
     [LIT_WORKTOP.maxZ, LIT_BAR.left.minZ],
   );
   addBox(
     root,
     honey,
     [LIT_BAR.left.minX + 0.12, LIT_BAR.left.maxX - 0.12],
-    [0.48, LIT_BAR.top],
+    [LIT_BAR.top - 0.08, LIT_BAR.top],
     [LIT_WORKTOP.maxZ, LIT_BAR.left.minZ],
   );
 
   // 右前景杂货木台与高隔断
-  addBox(root, wood, [3.5, 5.05], [0, 0.54], [1.55, 2.3]);
-  addBox(root, honey, [3.46, 5.1], [0.54, 0.6], [1.51, 2.34]);
+  const displayTop = 0.43;
+  addBox(root, wood, [3.5, 5.05], [0, displayTop - 0.06], [1.55, 2.3]);
+  addBox(root, honey, [3.46, 5.1], [displayTop - 0.06, displayTop], [1.51, 2.34]);
   addBox(root, woodDark, [4.88, 5.18], [0, 1.55], [1.5, 2.4]);
 
   // --- 8. 纯 3D 块面家具、器皿与自发光灯具 ---
@@ -658,13 +679,19 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
   addDeskLamp(1.66, top, frontMidZ + 0.04, warmShadeMaterial);
 
   // 右前景陈列台：冷暖联动氛围台灯 + 咖啡豆袋与茶筒
-  addDeskLamp(3.85, 0.6, 1.95, accentShadeMaterial, 1.05);
+  addDeskLamp(3.85, displayTop, 1.95, accentShadeMaterial, 1.05);
   for (const bx of [4.22, 4.5]) {
-    addBox(root, kraft, [bx, bx + 0.2], [0.6, 0.9], [1.82, 2.04]);
-    addBox(root, woodDark, [bx + 0.05, bx + 0.15], [0.71, 0.79], [2.04, 2.055]);
+    addBox(root, kraft, [bx, bx + 0.2], [displayTop, displayTop + 0.3], [1.82, 2.04]);
+    addBox(
+      root,
+      woodDark,
+      [bx + 0.05, bx + 0.15],
+      [displayTop + 0.11, displayTop + 0.19],
+      [2.04, 2.055],
+    );
   }
-  addCylinder(root, matcha, 4.76, 1.88, [0.6, 0.78], 0.075);
-  addCylinder(root, azuki, 4.74, 2.12, [0.6, 0.82], 0.075);
+  addCylinder(root, matcha, 4.76, 1.88, [displayTop, displayTop + 0.18], 0.075);
+  addCylinder(root, azuki, 4.74, 2.12, [displayTop, displayTop + 0.22], 0.075);
 
   // 四张吧台高脚圆凳
   for (const [sx, sz] of [
@@ -674,43 +701,44 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     [2.56, -0.35],
   ] as const) {
     addCylinder(root, woodDark, sx, sz, [0, 0.045], 0.2);
-    addCylinder(root, woodDark, sx, sz, [0.045, 0.4], 0.055);
+    addCylinder(root, woodDark, sx, sz, [0.045, 0.29], 0.055);
     addCylinder(
       root,
       materials.material("#93583a", { roughness: 0.76 }),
       sx,
       sz,
-      [0.4, 0.47],
+      [0.29, 0.34],
       0.22,
     );
   }
 
   // 左右两张单柱圆桌 + 咖啡杯碟与烛光/花瓶
+  const tableTop = 0.39;
   for (const [tx, tz, hasCandle] of [
     [-4.1, -1.2, true],
     [4.1, -1.0, false],
   ] as const) {
     addCylinder(root, woodDark, tx, tz, [0, 0.05], 0.26);
-    addCylinder(root, woodDark, tx, tz, [0.05, 0.48], 0.07);
-    addCylinder(root, honey, tx, tz, [0.48, 0.54], 0.52);
-    addCylinder(root, porcelain, tx - 0.15, tz + 0.1, [0.54, 0.56], 0.13);
-    addCylinder(root, porcelain, tx - 0.15, tz + 0.1, [0.56, 0.68], 0.085);
+    addCylinder(root, woodDark, tx, tz, [0.05, tableTop - 0.06], 0.07);
+    addCylinder(root, honey, tx, tz, [tableTop - 0.06, tableTop], 0.52);
+    addCylinder(root, porcelain, tx - 0.15, tz + 0.1, [tableTop, tableTop + 0.02], 0.13);
+    addCylinder(root, porcelain, tx - 0.15, tz + 0.1, [tableTop + 0.02, tableTop + 0.14], 0.085);
     if (hasCandle) {
-      addCylinder(root, cream, tx + 0.18, tz - 0.1, [0.54, 0.68], 0.048);
+      addCylinder(root, cream, tx + 0.18, tz - 0.1, [tableTop, tableTop + 0.14], 0.048);
       addBox(
         root,
         candleFlameMaterial,
         [tx + 0.16, tx + 0.2],
-        [0.68, 0.76],
+        [tableTop + 0.14, tableTop + 0.22],
         [tz - 0.12, tz - 0.08],
         { cast: false, receive: false },
       );
     } else {
-      addCylinder(root, sage, tx + 0.18, tz - 0.08, [0.54, 0.72], 0.058);
+      addCylinder(root, sage, tx + 0.18, tz - 0.08, [tableTop, tableTop + 0.18], 0.058);
       addBlob(
         root,
         materials.material("#9b7cc8", { roughness: 0.78 }),
-        [tx + 0.18, 0.79, tz - 0.08],
+        [tx + 0.18, tableTop + 0.25, tz - 0.08],
         [0.08, 0.07, 0.08],
       );
     }

@@ -1,9 +1,11 @@
 import {
   ACESFilmicToneMapping,
   AgXToneMapping,
+  CircleGeometry,
   Color,
   HalfFloatType,
   Mesh,
+  MeshBasicMaterial,
   MeshDepthMaterial,
   MeshDistanceMaterial,
   NeutralToneMapping,
@@ -24,6 +26,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import type { OutfitName } from "../character/character-design";
 import type { PixelActionName } from "../character/pixel-actions";
 import type { EmoteName, ExpressionName } from "../character/pixel-character";
 import {
@@ -113,6 +116,8 @@ type CharacterEntity = {
   mesh: Mesh;
   material: ShaderMaterial;
   shadowMaterials: [MeshDepthMaterial, MeshDistanceMaterial];
+  /** 脚下的落地阴影。 */
+  footShadow: Mesh<CircleGeometry, MeshBasicMaterial>;
 };
 
 /**
@@ -139,7 +144,8 @@ export class LitCafeStage {
   private readonly characterGeo: PlaneGeometry;
   private readonly yuuno: CharacterEntity;
   private readonly heldMoves: { code: string; dir: Direction4 }[] = [];
-  private readonly self = { x: -0.16, z: 1.72, dir: "down" as Direction4 };
+  // 开局站在吧台里、前台后面，面朝顾客；左右避开台面上的蛋糕和面包篮。
+  private readonly self = { x: -0.5, z: 0.05, dir: "down" as Direction4 };
   private stationaryLoop: PixelActionName = "idle";
   private tuning: LitTuning = LIT_PRESETS.afternoon;
   private readonly onStationaryLoopChange?: (action: PixelActionName) => void;
@@ -149,7 +155,12 @@ export class LitCafeStage {
   private frameId = 0;
   private readonly resizeObserver: ResizeObserver;
 
-  constructor(container: HTMLElement, onStationaryLoopChange?: (action: PixelActionName) => void) {
+  /** outfit 是角色一开始穿的衣服，之后用 setOutfit 切换。 */
+  constructor(
+    container: HTMLElement,
+    outfit: OutfitName,
+    onStationaryLoopChange?: (action: PixelActionName) => void,
+  ) {
     this.container = container;
     this.onStationaryLoopChange = onStationaryLoopChange;
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -169,7 +180,7 @@ export class LitCafeStage {
 
     this.characterGeo = new PlaneGeometry(1, 1);
     this.characterGeo.translate(0, 0.5, 0);
-    this.yuuno = this.createCharacter();
+    this.yuuno = this.createCharacter(outfit);
 
     const composerTarget = new WebGLRenderTarget(2, 2, { type: HalfFloatType });
     this.composer = new EffectComposer(this.renderer, composerTarget);
@@ -209,6 +220,7 @@ export class LitCafeStage {
     this.pixelPass.enabled = tuning.renderMode === "pixel";
     // 像素网格下一个画面像素放大了好几倍，浮尘和蒸汽按 1 个像素格左右的大小画。
     this.lighting.setPointScale(tuning.renderMode === "pixel" ? 0.4 : 1);
+    this.yuuno.footShadow.material.opacity = tuning.characterContactShadow;
     this.updateCharacterLighting();
   }
 
@@ -233,6 +245,10 @@ export class LitCafeStage {
     this.yuuno.card.showEmote(emote);
   }
 
+  setOutfit(outfit: OutfitName) {
+    this.yuuno.card.setOutfit(outfit);
+  }
+
   dispose() {
     cancelAnimationFrame(this.frameId);
     this.resizeObserver.disconnect();
@@ -244,6 +260,8 @@ export class LitCafeStage {
     for (const material of this.yuuno.shadowMaterials) {
       material.dispose();
     }
+    this.yuuno.footShadow.geometry.dispose();
+    this.yuuno.footShadow.material.dispose();
     this.characterGeo.dispose();
     this.pixelPass.dispose();
     this.bloomPass.dispose();
@@ -265,8 +283,8 @@ export class LitCafeStage {
    * - 遮挡：按角色那一层的深度逐像素写入场景深度，手伸到台面上方、端着的杯子、被吧台挡住的下半身都按像素遮挡。
    * - 阴影：渲染阴影时立牌临时转过去正对那盏灯，每盏灯投出的都是完整的剪影，不会被侧光拉扯变形。
    */
-  private createCharacter(): CharacterEntity {
-    const card = createLitCharacterCard();
+  private createCharacter(outfit: OutfitName): CharacterEntity {
+    const card = createLitCharacterCard(outfit);
     const { near, far, rootDistance, pixel, tanElevation } = card.depthReconstruction;
     const { points, spots } = this.lighting.characterLights;
     const vectors = (count: number) => Array.from({ length: count }, () => new Vector3());
@@ -349,9 +367,14 @@ export class LitCafeStage {
           // 正交相机的深度和距离成正比，直接按距离差换算。
           gl_FragDepth=gl_FragCoord.z+offset/sceneDepthRange;
 
-          // 描边和头顶符号没有法线，保持原色；身体按法线受光。
+          // 身体按法线受光。描边像素自己没有法线，借相邻像素的法线一起受光，暗处变暗、灯下变暖；
+          // 头顶的情绪符号四周都没有法线，保持原色。
           vec3 shaded=color.rgb;
           vec4 packed=texture2D(normalMap,vUv);
+          if(packed.a<.5){packed=texture2D(normalMap,vUv+vec2(texel,0.));}
+          if(packed.a<.5){packed=texture2D(normalMap,vUv-vec2(texel,0.));}
+          if(packed.a<.5){packed=texture2D(normalMap,vUv+vec2(0.,texel));}
+          if(packed.a<.5){packed=texture2D(normalMap,vUv-vec2(0.,texel));}
           if(packed.a>.5){
             vec3 n=normalize(transpose(mat3(viewMatrix))*(packed.xyz*2.-1.));
             vec3 p=vWorld+cameraForward*offset;
@@ -417,7 +440,24 @@ export class LitCafeStage {
     mesh.customDepthMaterial = depthMaterial;
     mesh.customDistanceMaterial = distanceMaterial;
     this.scene.add(mesh);
-    return { card, mesh, material, shadowMaterials: [depthMaterial, distanceMaterial] };
+
+    // 落地阴影：贴在地板和地毯上方一点的半透明暗色椭圆，跟着角色走，角色才像站在地上。
+    // 灯光投下的剪影在多灯的地方会被冲淡，这块阴影不受灯光影响，始终压在脚下。
+    // 大小和角色预览页一致：屏幕上左右 9 像素、上下 3.5 像素；地面的前后方向在 30° 俯视下缩成 sin30。
+    const footShadow = new Mesh(
+      new CircleGeometry(1, 24).rotateX(-Math.PI / 2),
+      new MeshBasicMaterial({ color: "#000000", transparent: true, depthWrite: false }),
+    );
+    footShadow.scale.set(9 * LIT_PIXEL, 1, (3.5 * LIT_PIXEL) / LIT_SIN);
+    footShadow.position.y = 0.012;
+    this.scene.add(footShadow);
+    return {
+      card,
+      mesh,
+      material,
+      shadowMaterials: [depthMaterial, distanceMaterial],
+      footShadow,
+    };
   }
 
   /** 把当前各盏灯的位置、颜色、强度、照射范围写进角色立牌的受光参数。调光参数改变后调用。 */
@@ -465,6 +505,8 @@ export class LitCafeStage {
       -(entity.card.groundRowFromBottom * LIT_PIXEL) / LIT_COS,
       snappedZ,
     );
+    entity.footShadow.position.x = snappedX;
+    entity.footShadow.position.z = snappedZ;
   }
 
   private resize = () => {

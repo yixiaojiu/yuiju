@@ -7,17 +7,33 @@ import {
   Group,
   Mesh,
   NearestFilter,
+  type Object3D,
   OrthographicCamera,
   ShaderMaterial,
   SphereGeometry,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
+  Vector2,
   Vector3,
 } from "three";
+import {
+  type ArtGrid,
+  type CharacterDesign,
+  defaultCharacterDesign,
+  type EyeShape,
+  faceLetters,
+  type MouthShape,
+  type OutfitName,
+  type Part,
+  type PixelArt,
+  type Vec3,
+} from "./character-design";
+import { buildLolita } from "./outfits/lolita";
+import { buildUniform } from "./outfits/uniform";
 import { type PixelActionName, pixelActions } from "./pixel-actions";
 
-/** 一个屏幕像素对应的世界尺寸。角色总高约 2，渲染出来大约 44 个像素。 */
+/** 一个屏幕像素对应的世界尺寸。角色总高约 1.6，渲染出来大约 36 个像素。 */
 export const PIXEL = 0.04;
 /**
  * 相机俯角，和光影喫茶店场景的 30° 俯视一致，角色放进场景时透视不会对不上。
@@ -26,35 +42,33 @@ export const PIXEL = 0.04;
 export const ELEVATION = (30 * Math.PI) / 180;
 /** 身体整体上下移动 1 个屏幕像素需要的世界高度。上下起伏按它取整，脸部像素才不会错位。 */
 const PIXEL_RISE = PIXEL / Math.cos(ELEVATION);
-/** 头部中心离地的高度。约 2.1 头身：头放大到 115% 时下巴约在 1.01，身体约占 22 个像素，头约占 20 个像素。 */
-export const HEAD_Y = 1.32;
 /**
  * 情绪符号这类贴片所在的渲染层。角色相机默认能看到这一层；
  * 渲染法线这类只需要身体网格的场合，关掉这一层就能把贴片排除在外。
  */
 export const OVERLAY_LAYER = 1;
-/** 头部椭球的半宽，以及上下、前后两个方向的半径。 */
-const HEAD_HALF_WIDTH = 0.29,
-  HEAD_RADIUS = 0.27;
 /** 脸部贴图的边长（格），覆盖头部中心上下左右各 9 个像素的范围，头放大到 125% 也盖得住。 */
-const FACE_GRID = 18;
+export const FACE_GRID = 18;
 /** 上半身绕着转的腰部高度，鞠躬时上半身绕这里前倾。 */
-const WAIST_Y = 0.52;
-/** 肩膀位置（上半身空间，x 取绝对值），手臂从这里伸向手的位置。 */
-const SHOULDER: Vector3 = new Vector3(0.2, 0.88, 0);
-/** 马尾绕系结往里收拢的角度，两条马尾贴着身体两侧垂下。 */
-const TAIL_SPREAD = (-3 * Math.PI) / 180;
-/** 两条腿在胯部的转轴高度，藏在裙子里。 */
-const LEG_Y = 0.32;
+const WAIST_Y = 0.375;
 /**
  * 情绪符号中心相对头部中心投影位置的屏幕偏移（像素），在帽子右上方外面。
  * 按屏幕偏移而不是挂在头上，角色转到任何朝向时符号都在画面里同一个位置。
  */
 const EMOTE_OFFSET = { right: 11, up: 15 };
+/**
+ * 自选色描边（sel-out）：描边不用一种固定的深色，而是把它包住的那个部件的颜色压暗、略偏紫，
+ * 头发外是深棕、裙子外是深蓝；部件之间的内描边把靠后那一侧自己压暗（INNER_SHADE）。
+ * 渲染目标里存的是线性颜色，乘这个系数约等于屏幕上压到原色的四成多。
+ */
+export const OUTLINE_SHADE = new Color(0.17, 0.12, 0.16);
+/**
+ * 部件之间的内描边：靠后那一侧自己的颜色压暗一档，屏幕上约为原色的六成，
+ * 比外轮廓浅得多，头和衣服、手和裙子之间是同色系的过渡，不是一道黑线。
+ */
+export const INNER_SHADE = new Color(0.36, 0.3, 0.34);
 /** 一次性情绪符号显示的秒数。 */
 const EMOTE_SECONDS = 1.8;
-
-export type Vec3 = readonly [number, number, number];
 
 /** 动作每帧给出的姿势。坐标在上半身空间，脚底为原点，+Z 朝前。 */
 export type PixelPose = {
@@ -78,19 +92,6 @@ export type PixelPose = {
   /** 动作自带的情绪符号，比如思考时的「…」。 */
   emote: EmoteName | null;
 };
-
-export const characterSliders = [
-  { key: "headSize", label: "头部大小", initial: 115, min: 95, max: 125 },
-  { key: "eyeSpacing", label: "眼距", initial: 0, min: -1, max: 1 },
-  { key: "eyeHeight", label: "眼睛高度", initial: 0, min: -1, max: 1 },
-  { key: "tailLength", label: "马尾长度", initial: 100, min: 80, max: 120 },
-  { key: "hatTilt", label: "帽子倾斜", initial: 0, min: -20, max: 25 },
-] as const;
-
-export type CharacterShape = Record<(typeof characterSliders)[number]["key"], number>;
-export const initialCharacterShape = Object.fromEntries(
-  characterSliders.map(({ key, initial }) => [key, initial]),
-) as CharacterShape;
 
 /** 画面中心：x、z 是地面位置，up 是画面中心比该位置上的头部中心高出的像素数。 */
 export type PixelFocus = { x: number; z: number; up: number };
@@ -124,7 +125,14 @@ export function aimPixelCamera(
   camera.top = (height * PIXEL) / 2;
   camera.bottom = (-height * PIXEL) / 2;
   camera.updateProjectionMatrix();
-  const center = snapToPixelGrid(new Vector3(focus.x, HEAD_Y + focus.up * PIXEL_RISE, focus.z));
+  // 取景按默认设计的头部高度对准，编辑器改头的位置时画面不跟着跳。
+  const center = snapToPixelGrid(
+    new Vector3(
+      focus.x,
+      defaultCharacterDesign.parts.head.position[1] + focus.up * PIXEL_RISE,
+      focus.z,
+    ),
+  );
   camera.position.set(
     center.x,
     center.y + 15 * Math.sin(ELEVATION),
@@ -148,93 +156,6 @@ export function snapToPixelGrid(position: Vector3) {
     Math.round(position.z / depthStep) * depthStep,
   );
 }
-
-/**
- * 正面的脸部贴图，从上到下一行一格，沿正面视线投影到头上。头发外壳在额头上方退开，
- * 刘海整片画在贴图里：第 5 行以上藏在帽子下面，h 是发缕之间的细缝，第 9 行是长短不一的刘海尖，
- * 正好压在眼睛上沿，中间分开一道小缝露出额头；左右三列是鬓发。眼睛、腮红、嘴在 paintFace 里叠上去。
- * H 头发，h 发缝，. 皮肤。
- */
-const frontRows = [
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHhHHHHhHHHHHH",
-  "HHHHHhHHHHHHhHHHHH",
-  "HHHHhHHHH.HHHhHHHH",
-  "HHH.HHHH..HHHH.HHH",
-  "HHH............HHH",
-  "HHH............HHH",
-  "HHH............HHH",
-  "HHH............HHH",
-  "HHHH..........HHHH",
-  "HHHH..........HHHH",
-  "HHHHH........HHHHH",
-  "HHHHH........HHHHH",
-];
-/**
- * 侧面的脸部贴图，按脸朝屏幕右边画，最后一列朝前；脸朝左时左右翻转使用。
- * 刘海从额头往前垂到眼睛上方；鬓发后面都是头发，脸只露出最前面几列：一只眼睛、腮红和嘴角。
- */
-const sideRows = [
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHHHHHHH",
-  "HHHHHHHHHHHHhHHHHH",
-  "HHHHHHHHHHHHHhHHHH",
-  "HHHHHHHHHHHHHHhH..",
-  "HHHHHHHHHHHHHHHH..",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHH......",
-  "HHHHHHHHHHHHH.....",
-  "HHHHHHHHHHHHH.....",
-];
-/**
- * 正面的眼睛，3×4，两只眼睛用同一个图案（不镜像），高光都在左上，像光从左上方照来。
- * 最上一行是最深的睫毛线，下面是瞳孔，左上角 1 像素白色高光；不画眼白。
- * k 睫毛线和闭眼线，d 瞳孔深色，p 瞳孔，l 瞳孔下半的亮色，w 高光，. 不改动。
- */
-const eyeStamps = {
-  open: ["kkk", "wdd", "ppp", "lll"],
-  closed: ["...", "...", "kkk", "..."],
-  happy: ["...", ".k.", "k.k", "..."],
-  shy: ["...", "kkk", "wpp", "lll"],
-  surprised: ["kkk", "ddd", "dwd", "ddd"],
-};
-export type EyeShape = keyof typeof eyeStamps;
-/** 侧面看到的那只眼睛，2×4，按脸朝右画，画法和正面一致。 */
-const sideEyeStamps: Record<EyeShape, string[]> = {
-  open: ["kk", "wd", "pp", "ll"],
-  closed: ["..", "..", "kk", ".."],
-  happy: ["..", "kk", "k.", ".."],
-  shy: ["..", "kk", "wp", "ll"],
-  surprised: ["kk", "dd", "wd", "dd"],
-};
-/** 嘴的图案，以脸部贴图第 MOUTH_ROW 行、左右居中的位置为基准叠上去。q 接近肤色的浅嘴线，o 张开的嘴里。 */
-const mouthStamps = {
-  line: ["qq"],
-  smile: ["q..q", ".qq."],
-  open: ["oo"],
-};
-export type MouthShape = keyof typeof mouthStamps;
-/** 侧面的嘴只有嘴角一格，画在第 MOUTH_ROW 行、下巴前缘的 SIDE_MOUTH_COLUMN 列。 */
-const sideMouthStamps: Record<MouthShape, string[]> = {
-  line: ["q"],
-  smile: ["q"],
-  open: ["o"],
-};
-const MOUTH_ROW = 15,
-  SIDE_MOUTH_COLUMN = 12;
 
 /** 表情决定眼睛、嘴和腮红宽度；动作可以临时指定眼睛和嘴，比如点头时闭眼。 */
 export const expressions = {
@@ -267,34 +188,8 @@ export const emotes = {
   note: { label: "音符", frames: [[".nn.", ".n.n", ".n..", "nn..", "nn.."]] },
 } satisfies Record<string, { label: string; frames: string[][] }>;
 export type EmoteName = keyof typeof emotes;
-/** 眼睛最上一行（睫毛线）所在的贴图行，紧贴在刘海尖下面；正面左眼在默认眼距下的起始列；侧面那只眼睛的起始列。 */
-const EYE_ROW = 10,
-  EYE_COLUMN = 4,
-  EYE_WIDTH = 3,
-  SIDE_EYE_COLUMN = 13;
-
-const hair = "#e2b996",
-  /** 马尾比头发深一档：正面看鬓发压在马尾上时分得开层次。 */
-  tailHair = "#cfa27f",
-  skin = "#ffe6d5",
-  legSkin = "#f6cdb6",
-  pearl = "#fffaf3",
-  blue = "#8cc8ea",
-  cream = "#ffe2a3",
-  rib = "#f2c983",
-  gold = "#e8b65a",
-  brown = "#9c6340";
-const facePalette: Record<string, string> = {
-  H: hair,
-  h: tailHair,
-  ".": skin,
-  k: "#45263f",
-  d: "#563076",
-  p: "#7d4ea8",
-  l: "#c99be2",
-  b: "#f6aaa6",
-  q: "#e09a90",
-  o: "#b0606a",
+/** 情绪符号的颜色。 */
+const emotePalette: Record<string, string> = {
   r: "#ff6f96",
   R: "#ffc4d6",
   w: "#ffffff",
@@ -304,18 +199,43 @@ const facePalette: Record<string, string> = {
   S: "#d6f1ff",
   n: "#8a63c9",
 };
+const degree = Math.PI / 180;
+const still: Vec3 = [0, 0, 0];
+/** 不开放编辑的小部件（帽顶的小球、丝带结、发夹、杯子、围裙结）用固定的位置和尺寸。 */
+function fixed(position: Vec3, size: Vec3): Part {
+  return { position, size, rotation: still };
+}
+/** 按部件数据摆好 object；side 为 -1 时左右镜像：位置 x、绕 y 和 z 的旋转取反。 */
+function arrange<T extends Object3D>(object: T, part: Part, side = 1) {
+  object.position.set(part.position[0] * side, part.position[1], part.position[2]);
+  object.rotation.set(
+    part.rotation[0] * degree,
+    part.rotation[1] * degree * side,
+    part.rotation[2] * degree * side,
+  );
+  object.scale.set(...part.size);
+  return object;
+}
 
-// Each ring specifies height, center X/Z, and its two radii, from bottom to top.
-type Ring = [number, number, number, number, number];
+/** 一圈截面：高度、中心 x、中心 z、左右和前后两个半径。一个形状的截面从下往上排。 */
+export type Ring = [number, number, number, number, number];
 
-function volume(rings: Ring[], pleats = 0) {
+/** 裙子上一圈竖向的褶：count 道，半径起伏 depth（相对半径的比例）。 */
+export type Folds = { count: number; depth: number };
+
+/**
+ * 按一圈圈截面连成的闭合形状，上下封口。folds 让每圈半径按角度起伏出竖向的褶，
+ * 褶的朝向各不相同，受光后自然分出亮面和暗面的褶痕。正前方落在褶沟里：
+ * 落在褶峰上时，正前方最凸，裙摆底边正中会多顶出一个像素。
+ */
+function volume(rings: Ring[], folds: Folds) {
   const positions: number[] = [],
     indices: number[] = [];
   const segments = 40;
   for (const [row, [y, x, z, rx, rz]] of rings.entries()) {
     for (let i = 0; i <= segments; i++) {
       const angle = ((i / segments) * 2 - 1) * Math.PI;
-      const fold = 1 + pleats * Math.cos(angle * 12);
+      const fold = 1 - folds.depth * Math.cos(angle * folds.count);
       positions.push(x + Math.sin(angle) * rx * fold, y, z + Math.cos(angle) * rz * fold);
       if (row > 0 && i < segments) {
         const a = (row - 1) * (segments + 1) + i,
@@ -356,51 +276,126 @@ function pivot(parent: Group, x: number, y: number, z: number) {
   return group;
 }
 
-/** 把字符画变成像素贴图，. 是透明像素。 */
-function pixelTexture(stamp: readonly string[]) {
-  const width = stamp[0].length,
-    height = stamp.length;
-  const data = new Uint8Array(width * height * 4);
-  for (const [row, line] of stamp.entries()) {
-    for (const [column, cell] of [...line].entries()) {
-      if (cell !== ".") {
-        const rgb = parseInt(facePalette[cell].slice(1), 16);
-        data.set(
-          [rgb >> 16, (rgb >> 8) & 255, rgb & 255, 255],
-          ((height - 1 - row) * width + column) * 4,
-        );
-      }
-    }
-  }
-  const texture = new DataTexture(data, width, height);
-  texture.colorSpace = SRGBColorSpace;
-  texture.magFilter = texture.minFilter = NearestFilter;
-  texture.needsUpdate = true;
-  return texture;
-}
+/**
+ * 衣服搭建时能用的挂载点和建模函数。衣服的部件都挂在 attach 出来的组上，切换衣服时这些组整体显隐。
+ * upper 是上半身（随鞠躬前倾），skirt 是裙子的转轴（走路时左右扭），
+ * legs 是两条腿的胯部转轴（挂鞋），按画面左、右（side 为 -1、1）排。
+ * 坐标都以脚底为原点，+Z 朝前；左右对称的部件按画面右边那一个摆，side 为 -1 时镜像。
+ */
+export type OutfitKit = {
+  attach: (parent: Group) => Group;
+  upper: Group;
+  skirt: Group;
+  legs: Group[];
+  oval: (parent: Group, color: string, part: Part, variant?: "soft", side?: number) => Mesh;
+  block: (parent: Group, color: string, part: Part, side?: number) => Mesh;
+  place: (parent: Group, part: Part, side?: number) => Group;
+  sculpt: (parent: Group, color: string, rings: Ring[], variant?: "soft", folds?: Folds) => Mesh;
+  fixed: (position: Vec3, size: Vec3) => Part;
+  /**
+   * 给 mesh 贴一张像素画（贴花）：透明格露出 color，其他格按 palette 上色；anchor 是像素画中心在 mesh 自身坐标里的位置。
+   */
+  decal: (
+    mesh: Mesh,
+    color: string,
+    art: PixelArt,
+    palette: Record<string, string>,
+    anchor: Vec3,
+  ) => void;
+};
+/**
+ * 衣服搭好后交给角色的东西。
+ * showLegs 为 false 时整条腿不画：长到地面的裙子在走路起伏时会被抬起来，腿留在地上会从裙摆下露出来。
+ */
+export type OutfitBuild = { showLegs: boolean };
 
 /**
- * 搭建 2.5 头身的像素角色，脚底在原点，正面朝 +Z。只保证正面、背面、左右侧面四个朝向渲染正常。
- * camera 是 createPixelCamera 给出的相机，每帧用它把情绪符号对齐到像素网格。
+ * 按 design 搭建约 1.8 头身的像素角色，脚底在原点，正面朝 +Z。只保证正面、背面、左右侧面四个朝向渲染正常。
+ * 造型改了就重新创建一个。camera 是 createPixelCamera 给出的相机，每帧用它把情绪符号对齐到像素网格。
  */
-export function createPixelCharacter(camera: OrthographicCamera) {
+export function createPixelCharacter(
+  camera: OrthographicCamera,
+  design: CharacterDesign,
+  outfit: OutfitName,
+) {
+  const { colors, parts } = design;
   const root = new Group();
   // 身体（含头）整体按像素起伏；腿留在 root 上，起伏时脚不离地。
   const body = pivot(root, 0, 0, 0);
   // 上半身绕腰前倾：waist 在腰部高度转动，upper 再移回原点，上半身的部件仍按脚底为原点摆放。
   const waist = pivot(body, 0, WAIST_Y, 0);
   const upper = pivot(waist, 0, -WAIST_Y, 0);
-  const head = pivot(upper, 0, HEAD_Y, 0);
+  const head = arrange(new Group(), parts.head);
+  upper.add(head);
 
-  function faceTexture() {
-    const data = new Uint8Array(FACE_GRID * FACE_GRID * 4);
-    const texture = new DataTexture(data, FACE_GRID, FACE_GRID);
-    texture.colorSpace = SRGBColorSpace;
-    texture.magFilter = texture.minFilter = NearestFilter;
-    return { data, texture };
+  /** 这个角色建的所有像素画贴图，dispose 时一起释放。 */
+  const artTextures: DataTexture[] = [];
+  /**
+   * 把一张字符画写进贴图：palette 里有的字母画成对应颜色，没有的（比如 .）是透明格。
+   * DataTexture 的第一行在贴图底部，所以倒着写入。贴图已有时原地重写（脸随表情重画）。
+   */
+  function paintTexture(
+    rows: readonly string[],
+    palette: Record<string, string>,
+    existing?: DataTexture,
+  ) {
+    const width = rows[0].length,
+      height = rows.length;
+    const texture = existing ?? new DataTexture(new Uint8Array(width * height * 4), width, height);
+    if (!existing) {
+      texture.colorSpace = SRGBColorSpace;
+      texture.magFilter = texture.minFilter = NearestFilter;
+      artTextures.push(texture);
+    }
+    const data = texture.image.data as Uint8Array;
+    for (const [row, line] of rows.entries()) {
+      for (const [column, cell] of [...line].entries()) {
+        const color = palette[cell];
+        const rgb = color ? parseInt(color.slice(1), 16) : 0;
+        data.set(
+          [rgb >> 16, (rgb >> 8) & 255, rgb & 255, color ? 255 : 0],
+          ((height - 1 - row) * width + column) * 4,
+        );
+      }
+    }
+    texture.needsUpdate = true;
+    return texture;
   }
-  const frontFace = faceTexture(),
-    sideFace = faceTexture();
+  /** 一个朝向的贴图，它的格数，以及锚点落在画布上的位置（从左上角数，单位是格）。 */
+  type ArtView = { texture: DataTexture; size: Vector2; origin: Vector2 };
+  type ArtTextures = { front: ArtView; side: ArtView; back: ArtView };
+  function artViewOf(grid: ArtGrid, palette: Record<string, string>): ArtView {
+    return {
+      texture: paintTexture(grid.rows, palette),
+      size: new Vector2(grid.rows[0].length, grid.rows.length),
+      origin: new Vector2(...grid.origin),
+    };
+  }
+  function artTexturesOf(art: PixelArt, palette: Record<string, string>): ArtTextures {
+    return {
+      front: artViewOf(art.front, palette),
+      side: artViewOf(art.side, palette),
+      back: artViewOf(art.back, palette),
+    };
+  }
+
+  // 脸是一张 FACE_GRID 见方的像素画，随表情重画；背面被头发挡住，背面贴图直接用正面的。
+  const facePalette = Object.fromEntries(
+    Object.entries(faceLetters).map(([letter, name]) => [letter, colors[name]]),
+  );
+  const blankFace = Array.from({ length: FACE_GRID }, () => ".".repeat(FACE_GRID));
+  const frontFace = paintTexture(blankFace, facePalette),
+    sideFace = paintTexture(blankFace, facePalette);
+  const faceView = (texture: DataTexture): ArtView => ({
+    texture,
+    size: new Vector2(FACE_GRID, FACE_GRID),
+    origin: new Vector2(FACE_GRID / 2, FACE_GRID / 2),
+  });
+  const faceArt: ArtTextures = {
+    front: faceView(frontFace),
+    side: faceView(sideFace),
+    back: faceView(frontFace),
+  };
 
   /** 把字符画里不是 . 的格子盖到 grid 上，左上角在第 top 行、第 left 列。 */
   function stamp(grid: string[][], pattern: readonly string[], top: number, left: number) {
@@ -412,183 +407,244 @@ export function createPixelCharacter(camera: OrthographicCamera) {
       }
     }
   }
-  /** 把整张字符画写进脸部贴图。DataTexture 的第一行在贴图底部，所以倒着写入。 */
-  function upload(grid: string[][], face: ReturnType<typeof faceTexture>) {
-    for (const [row, cells] of grid.entries()) {
-      for (const [column, cell] of cells.entries()) {
-        const rgb = parseInt(facePalette[cell].slice(1), 16);
-        const offset = ((FACE_GRID - 1 - row) * FACE_GRID + column) * 4;
-        face.data.set([rgb >> 16, (rgb >> 8) & 255, rgb & 255, 255], offset);
-      }
-    }
-    face.texture.needsUpdate = true;
-  }
-  /** 按造型参数和当前的眼睛、嘴、腮红，重画正面和侧面两张脸。 */
-  function paintFace(next: CharacterShape, eyes: EyeShape, mouth: MouthShape, blush: number) {
-    const top = EYE_ROW - next.eyeHeight;
-    const left = EYE_COLUMN - next.eyeSpacing,
-      right = FACE_GRID - EYE_COLUMN - EYE_WIDTH + next.eyeSpacing;
+  /** 按当前的眼睛、嘴和腮红，重画正面和侧面两张脸。 */
+  function paintFace(eyes: EyeShape, mouth: MouthShape, blush: number) {
+    const { face } = design;
+    const eye = design.eyes[eyes];
+    const eyeWidth = eye.front[0].length;
+    const top = face.eyeRow,
+      left = face.eyeColumn,
+      right = FACE_GRID - face.eyeColumn - eyeWidth;
 
-    const front = frontRows.map((row) => [...row]);
-    // 腮红在眼睛下方，从外眼角外侧一格往里画 blush 格。
+    const front = face.front.map((row) => [...row]);
+    // 腮红在眼睛下面紧挨的一行，从外眼角外侧一格往里画 blush 格。
+    const blushRow = top + eye.front.length;
     for (let k = 0; k < blush; k++) {
-      front[top + 4][left - 1 + k] = front[top + 4][right + EYE_WIDTH - k] = "b";
+      front[blushRow][left - 1 + k] = front[blushRow][right + eyeWidth - k] = "b";
     }
-    stamp(front, eyeStamps[eyes], top, left);
-    stamp(front, eyeStamps[eyes], top, right);
-    const mouthStamp = mouthStamps[mouth];
-    stamp(front, mouthStamp, MOUTH_ROW, FACE_GRID / 2 - mouthStamp[0].length / 2);
-    upload(front, frontFace);
+    stamp(front, eye.front, top, left);
+    stamp(front, eye.front, top, right);
+    // 嘴按整数格左右居中，嘴宽是奇数时偏左半格。
+    const mouthStamp = design.mouths[mouth].front;
+    stamp(front, mouthStamp, face.mouthRow, Math.floor((FACE_GRID - mouthStamp[0].length) / 2));
+    paintTexture(
+      front.map((cells) => cells.join("")),
+      facePalette,
+      frontFace,
+    );
 
-    const side = sideRows.map((row) => [...row]);
-    // 侧面的腮红在眼睛下方，从眼睛前缘往后画 blush 格。
+    const side = face.side.map((row) => [...row]);
+    // 侧面的腮红在眼睛下面紧挨的一行，从眼睛前缘往后画 blush 格。
     for (let k = 0; k < blush; k++) {
-      side[top + 4][SIDE_EYE_COLUMN + 1 - k] = "b";
+      side[top + eye.side.length][face.sideEyeColumn + 1 - k] = "b";
     }
-    stamp(side, sideEyeStamps[eyes], top, SIDE_EYE_COLUMN);
-    stamp(side, sideMouthStamps[mouth], MOUTH_ROW, SIDE_MOUTH_COLUMN);
-    upload(side, sideFace);
+    stamp(side, eye.side, top, face.sideEyeColumn);
+    stamp(side, design.mouths[mouth].side, face.mouthRow, face.sideMouthColumn);
+    paintTexture(
+      side.map((cells) => cells.join("")),
+      facePalette,
+      sideFace,
+    );
   }
 
   const materials = new Map<string, ShaderMaterial>();
   /** 自带的两档明暗：1 打开，0 只输出底色（放进有真实灯光的场景时，由场景光照决定明暗）。所有材质共用。 */
   const celShading = { value: 1 };
+  /** 两档明暗共用的光照方向（相机空间，亮面始终在画面左上）和暗面颜色倍率。 */
+  const celLight = `
+    float d=dot(normalize(vNormal),normalize(vec3(-.45,.75,.5)));
+    vec3 shadow=vec3(.84,.74,.8);`;
   /**
    * 两档明暗的卡通材质。光照方向固定在相机空间，角色转身时亮面始终在画面左上。
-   * variant 为 face 时颜色取自脸部贴图；为 soft 时只在背光很重的边缘画暗色，头发、袖子基本是一整块纯色。
+   * variant 为 soft 时只在背光很重的边缘画暗色，头发、袖子基本是一整块纯色。
    */
-  function cel(color: string, variant?: "face" | "soft") {
+  function cel(color: string, variant?: "soft") {
     const key = variant ? variant + color : color;
     const existing = materials.get(key);
     if (existing) {
       return existing;
     }
     const material = new ShaderMaterial({
-      uniforms: {
-        pigment: { value: new Color(color) },
-        frontMap: { value: frontFace.texture },
-        sideMap: { value: sideFace.texture },
-        faceSpan: { value: FACE_GRID * PIXEL },
-        celShading,
-      },
-      defines: variant === "face" ? { FACE_MAP: 1 } : variant === "soft" ? { SOFT_SHADOW: 1 } : {},
+      uniforms: { pigment: { value: new Color(color) }, celShading },
+      defines: variant === "soft" ? { SOFT_SHADOW: 1 } : {},
       vertexShader: `
-        varying vec3 vNormal; varying vec3 vFace;
+        varying vec3 vNormal;
         void main(){
           vNormal=normalMatrix*normal;
-          #ifdef FACE_MAP
-          // 脸部贴图按屏幕像素查：xy 是这个点离头部中心的屏幕偏移，贴图一格正好是一个屏幕像素。
-          // 镜头从侧面看时改用侧面贴图（z 为 1），脸朝左时左右翻转，让侧面贴图的最后一列始终在脸的前面。
-          vec3 offset=mat3(modelViewMatrix)*position;
-          vec3 toCamera=vec3(modelViewMatrix[0][2],modelViewMatrix[1][2],modelViewMatrix[2][2]);
-          float side=step(abs(toCamera.z),abs(toCamera.x));
-          vFace=vec3(offset.x*mix(1.,sign(modelViewMatrix[2][0]),side),offset.y,side);
-          #endif
           gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
         }`,
       fragmentShader: `
-        uniform vec3 pigment; uniform sampler2D frontMap; uniform sampler2D sideMap; uniform float faceSpan;
-        uniform float celShading;
-        varying vec3 vNormal; varying vec3 vFace;
+        uniform vec3 pigment; uniform float celShading;
+        varying vec3 vNormal;
         void main(){
-          float d=dot(normalize(vNormal),normalize(vec3(-.45,.75,.5)));
-          vec3 shadow=vec3(.84,.74,.8);
-          #ifdef FACE_MAP
-          vec2 grid=vFace.xy/faceSpan+.5;
-          vec3 base=vFace.z>.5 ? texture2D(sideMap,grid).rgb : texture2D(frontMap,grid).rgb;
-          gl_FragColor=vec4(d < -.4 ? mix(base,base*shadow,celShading) : base,1.);
-          #else
+          ${celLight}
           float edge=.08;
           #ifdef SOFT_SHADOW
           edge=-.35;
           #endif
           gl_FragColor=vec4(d < edge ? mix(pigment,pigment*shadow,celShading) : pigment,1.);
-          #endif
           #include <colorspace_fragment>
         }`,
     });
     materials.set(key, material);
     return material;
   }
-  const sphere = new SphereGeometry(1, 24, 16);
-  function oval(
+
+  /**
+   * 投影像素画材质：一张像素画沿相机视线投影到部件上，贴图一格正好是一个屏幕像素，转身、做动作时跟着部件走。
+   * 脸、手、衣服上的图案都用它，比用几何体拼出 1 像素的细节准得多。
+   * - anchor：像素画中心在部件自身坐标里的位置。
+   * - 镜头从正面、侧面、背面看时分别用三张贴图；侧面朝左时左右翻转，让侧面图最后一列始终朝前。
+   *   mirror 为 -1 时正面和背面也左右翻转（画面左边那只手用右手的像素画）。
+   * - cutout 为 false 是贴花：透明格露出部件本来的颜色 color；为 true 是剪影：透明格挖空，形状完全由像素画决定。
+   * - edge 是两档明暗的分界，越小暗面越少。
+   */
+  function projected({
+    color,
+    art,
+    anchor,
+    cutout,
+    mirror,
+    edge,
+  }: {
+    color: string;
+    art: ArtTextures;
+    anchor: Vector3;
+    cutout: boolean;
+    mirror: number;
+    edge: number;
+  }) {
+    const material = new ShaderMaterial({
+      uniforms: {
+        pigment: { value: new Color(color) },
+        frontMap: { value: art.front.texture },
+        sideMap: { value: art.side.texture },
+        backMap: { value: art.back.texture },
+        sizes: { value: [art.front.size, art.side.size, art.back.size] },
+        origins: { value: [art.front.origin, art.side.origin, art.back.origin] },
+        pixel: { value: PIXEL },
+        anchor: { value: anchor },
+        mirror: { value: mirror },
+        edge: { value: edge },
+        celShading,
+      },
+      defines: cutout ? { CUTOUT: 1 } : {},
+      vertexShader: `
+        uniform vec3 anchor; uniform float mirror;
+        varying vec3 vNormal; varying vec3 vArt;
+        void main(){
+          vNormal=normalMatrix*normal;
+          // xy 是这个点离像素画中心的屏幕偏移；z 是用哪张图：0 正面、1 侧面、2 背面。
+          vec3 offset=mat3(modelViewMatrix)*(position-anchor);
+          vec3 toCamera=vec3(modelViewMatrix[0][2],modelViewMatrix[1][2],modelViewMatrix[2][2]);
+          float view=abs(toCamera.x)>=abs(toCamera.z) ? 1. : (toCamera.z>0. ? 0. : 2.);
+          float flip=view==1. ? sign(modelViewMatrix[2][0]) : mirror;
+          vArt=vec3(offset.x*flip,offset.y,view);
+          gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
+        }`,
+      fragmentShader: `
+        uniform vec3 pigment; uniform sampler2D frontMap; uniform sampler2D sideMap; uniform sampler2D backMap;
+        uniform vec2 sizes[3]; uniform vec2 origins[3]; uniform float pixel; uniform float edge; uniform float celShading;
+        varying vec3 vNormal; varying vec3 vArt;
+        void main(){
+          int view=int(vArt.z+.5);
+          // 这个点落在画布的哪一格：从锚点所在的位置按屏幕偏移数过去（画布 y 往下）。
+          vec2 cell=origins[view]+vec2(vArt.x,-vArt.y)/pixel;
+          vec2 uv=vec2(cell.x,sizes[view].y-cell.y)/sizes[view];
+          vec4 texel=view==0 ? texture2D(frontMap,uv) : view==1 ? texture2D(sideMap,uv) : texture2D(backMap,uv);
+          // 画布范围外的地方算透明。
+          float painted=uv.x>=0. && uv.x<1. && uv.y>=0. && uv.y<1. ? texel.a : 0.;
+          #ifdef CUTOUT
+          if(painted<.5)discard;
+          #endif
+          vec3 base=painted>.5 ? texel.rgb : pigment;
+          ${celLight}
+          gl_FragColor=vec4(d < edge ? mix(base,base*shadow,celShading) : base,1.);
+          #include <colorspace_fragment>
+        }`,
+    });
+    materials.set(`art${materials.size}`, material);
+    return material;
+  }
+  const sphere = new SphereGeometry(1, 24, 16),
+    box = new BoxGeometry(1, 1, 1);
+  function oval(parent: Group, color: string, part: Part, variant?: "soft", side = 1) {
+    const mesh = arrange(new Mesh(sphere, cel(color, variant)), part, side);
+    parent.add(mesh);
+    return mesh;
+  }
+  /** 方块部件：领片、领结、发夹、鞋子。 */
+  function block(parent: Group, color: string, part: Part, side = 1) {
+    const mesh = arrange(new Mesh(box, cel(color)), part, side);
+    parent.add(mesh);
+    return mesh;
+  }
+  /** 一组部件的转轴，按部件数据整体移动、旋转、缩放。 */
+  function place(parent: Group, part: Part, side = 1) {
+    const group = arrange(new Group(), part, side);
+    parent.add(group);
+    return group;
+  }
+  function sculpt(
     parent: Group,
     color: string,
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-    h: number,
-    d: number,
+    rings: Ring[],
     variant?: "soft",
+    folds: Folds = { count: 0, depth: 0 },
   ) {
-    const mesh = new Mesh(sphere, cel(color, variant));
-    mesh.position.set(x, y, z);
-    mesh.scale.set(w, h, d);
-    parent.add(mesh);
-    return mesh;
-  }
-  function sculpt(parent: Group, color: string, rings: Ring[], pleats = 0, variant?: "soft") {
-    const mesh = new Mesh(volume(rings, pleats), cel(color, variant));
-    parent.add(mesh);
-    return mesh;
-  }
-  /** 方块部件：水手领的领片、开衫前襟、领结、发夹、鞋子。 */
-  function block(
-    parent: Group,
-    color: string,
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-    h: number,
-    d: number,
-  ) {
-    const mesh = new Mesh(new BoxGeometry(w, h, d), cel(color));
-    mesh.position.set(x, y, z);
+    const mesh = new Mesh(volume(rings, folds), cel(color, variant));
     parent.add(mesh);
     return mesh;
   }
 
   // 头和脸：脸部贴图按屏幕像素投影在头部椭球上，头发外壳向后偏，正面只露出刘海以下。
   head.add(
-    new Mesh(
-      new SphereGeometry(1, 32, 24).scale(HEAD_HALF_WIDTH, HEAD_RADIUS, HEAD_RADIUS),
-      cel(skin, "face"),
+    arrange(
+      new Mesh(
+        new SphereGeometry(1, 32, 24),
+        projected({
+          color: colors.skin,
+          art: faceArt,
+          anchor: new Vector3(),
+          cutout: false,
+          mirror: 1,
+          edge: -0.4,
+        }),
+      ),
+      parts.face,
     ),
   );
   // 头发外壳在额头上方往后退开，额头到眼睛上方的刘海由脸部贴图画。
-  oval(head, hair, 0, 0.05, -0.13, 0.33, 0.31, 0.32, "soft");
-  // 后脑的短发只到后颈，背面能露出水手领和开衫；两侧在脸颊旁鼓出一点，头的轮廓是圆的。
-  oval(head, hair, 0, -0.15, -0.1, 0.3, 0.17, 0.23, "soft");
-  // 鬓发上宽下尖，从耳前垂到下巴并往里弯，侧面看挡在眼睛后面，脸只露出前面几列。
+  oval(head, colors.hair, parts.hairShell, "soft");
+  // 后脑的短发薄薄一层，下沿收在领口上方，背面不压住衣服，露出完整的领口和水手领；两侧在脸颊旁鼓出一点，头的轮廓是圆的。
+  oval(head, colors.hair, parts.nape, "soft");
+  // 鬓发上宽下尖，从耳前笔直垂到下巴下面，挂在脸颊外侧、不往里收，正面看下巴两边露出空隙；
+  // 侧面看挡在眼睛后面，脸只露出前面几列。
   for (const side of [-1, 1]) {
     sculpt(
-      head,
-      hair,
+      place(head, parts.sideLock, side),
+      colors.hair,
       [
-        [-0.3, side * 0.24, 0.07, 0.008, 0.008],
-        [-0.24, side * 0.25, 0.06, 0.025, 0.03],
-        [-0.12, side * 0.265, 0.05, 0.04, 0.045],
-        [0.02, side * 0.27, 0.04, 0.045, 0.05],
-        [0.14, side * 0.26, 0.03, 0.04, 0.045],
-        [0.2, side * 0.24, 0, 0.02, 0.02],
+        [-0.32, side * 0.29, 0.05, 0.008, 0.008],
+        [-0.26, side * 0.29, 0.05, 0.028, 0.03],
+        [-0.12, side * 0.29, 0.05, 0.04, 0.045],
+        [0.02, side * 0.285, 0.04, 0.045, 0.05],
+        [0.14, side * 0.27, 0.03, 0.04, 0.045],
+        [0.2, side * 0.25, 0, 0.02, 0.02],
       ],
-      0,
       "soft",
     );
   }
-  // 蓝色方形发夹别在屏幕右侧（角色的左边）、右眼外角上方的刘海上：2×2 像素的浅蓝方块，
-  // 外侧伸出 2 像素的白色夹子。整体按俯角转向镜头，正面看正好是方的，侧面看只剩一条细线。
-  const clip = pivot(head, 0.165, 0.16, 0.18);
-  clip.rotation.x = -ELEVATION;
-  block(clip, "#c4e8fb", 0, 0, 0, 0.07, 0.07, 0.02);
-  block(clip, pearl, 0.07, 0.017, 0, 0.07, 0.035, 0.015);
+  // 方形发夹别在屏幕右侧、右眼上方的刘海上：2×2 像素的浅蓝方块，外侧伸出 2 像素的白色夹子。
+  // 整体按俯角转向镜头，再顺着头的弧度往外侧转，贴住头的表面：白夹子悬空时和后面的头发前后差得远，
+  // 会被描上一圈深色内描边。侧面看只剩一条细线。
+  const clip = place(head, parts.clip);
+  block(clip, colors.clip, fixed(still, [0.07, 0.07, 0.02]));
+  block(clip, colors.pearl, fixed([0.07, 0.017, 0], [0.07, 0.035, 0.015]));
 
-  // 贝雷帽：蓬起来的圆顶，和头差不多宽，戴在头顶偏后，不压住额头和两侧，头的轮廓保持圆的。
-  const hat = pivot(head, 0, 0.27, -0.06);
-  hat.rotation.x = -0.2;
-  sculpt(hat, pearl, [
+  // 贝雷帽：蓬起来的圆顶，比头窄一点，平扣在头顶、稍微偏后，不压住额头和两侧，头的轮廓保持圆的。
+  const hat = place(head, parts.hat);
+  sculpt(hat, colors.pearl, [
     [-0.02, 0, 0, 0.27, 0.26],
     [0.03, 0, 0, 0.33, 0.32],
     [0.08, 0, 0, 0.34, 0.33],
@@ -596,107 +652,146 @@ export function createPixelCharacter(camera: OrthographicCamera) {
     [0.19, 0, 0, 0.2, 0.19],
     [0.22, 0, 0, 0.06, 0.06],
   ]);
-  oval(hat, pearl, 0, 0.22, 0, 0.025, 0.025, 0.025);
+  oval(hat, colors.pearl, fixed([0, 0.22, 0], [0.025, 0.025, 0.025]));
 
   const tails = [-1, 1].map((side) => {
-    // 马尾系在头顶两侧偏后、帽檐下面，先往外张开再垂下，到腰下面；颜色比头发深一档。
-    // 侧面看马尾在背后，不挡身体。
-    const tie = pivot(head, side * 0.27, 0.2, -0.13);
+    // 马尾系在头顶两侧偏后、帽檐下面，先往外张开再垂下，到裙子中段；颜色比头发深一档。
+    // 系结点决定位置和收拢角度，马尾本身按尺寸缩放（y 是长度）。马尾笔直下垂、不往后弯，侧面看挂在身体后半边。
+    const tie = arrange(new Group(), { ...parts.tail, size: [1, 1, 1] }, side);
+    head.add(tie);
     const tail = pivot(tie, 0, 0, 0);
+    tail.scale.set(...parts.tail.size);
     sculpt(
       tail,
-      tailHair,
+      colors.tailHair,
       [
-        [-0.95, side * 0.15, -0.18, 0.015, 0.015],
-        [-0.86, side * 0.17, -0.18, 0.045, 0.04],
-        [-0.6, side * 0.19, -0.17, 0.065, 0.055],
-        [-0.32, side * 0.17, -0.13, 0.07, 0.06],
-        [-0.08, side * 0.08, -0.05, 0.07, 0.06],
+        [-0.95, side * 0.15, -0.05, 0.015, 0.015],
+        [-0.86, side * 0.17, -0.05, 0.045, 0.04],
+        [-0.6, side * 0.19, -0.05, 0.065, 0.055],
+        [-0.32, side * 0.17, -0.05, 0.07, 0.06],
+        [-0.08, side * 0.08, -0.03, 0.07, 0.06],
         [0.04, side * 0.02, 0, 0.05, 0.045],
         [0.08, 0, 0, 0.02, 0.02],
       ],
-      0,
       "soft",
     );
-    // 马尾根部的蓝丝带：系结两边的小圈，正下方垂着一条 1 像素宽的丝带，挂在马尾上跟着一起摆。
+    // 马尾根部的蓝丝带：上下两个小圈比马尾根部稍粗，正面、侧面、背面都把根部盖住。
+    const bow = place(tie, parts.ribbonBow, side);
     for (const lobe of [-1, 1]) {
-      oval(tie, blue, side * 0.05, lobe * 0.05, 0.03, 0.035, 0.05, 0.05);
+      oval(bow, colors.ribbon, fixed([side * 0.035, lobe * 0.045, -0.01], [0.06, 0.05, 0.065]));
     }
-    sculpt(tail, blue, [
-      [-0.22, side * 0.05, 0.06, 0.016, 0.012],
-      [-0.03, side * 0.05, 0.05, 0.016, 0.012],
+    // 结下垂着前后两条 1 像素宽的丝带，顺着马尾的中线贴在前后表面上，背面也看得到；
+    // 后面那条短一点，两条不对齐。挂在马尾上跟着一起摆。
+    const strips = place(tail, parts.ribbonStrip, side);
+    sculpt(strips, colors.ribbon, [
+      [-0.22, side * 0.16, 0.04, 0.018, 0.012],
+      [-0.126, side * 0.11, 0.05, 0.018, 0.012],
+      [-0.031, side * 0.045, 0.065, 0.018, 0.012],
+    ]);
+    sculpt(strips, colors.ribbon, [
+      [-0.19, side * 0.145, -0.135, 0.018, 0.012],
+      [-0.126, side * 0.11, -0.125, 0.018, 0.012],
+      [-0.031, side * 0.045, -0.09, 0.018, 0.012],
     ]);
     return { side, tail };
   });
 
-  // 身体：黄色开衫、白色水手领、蓝色裙子。
-  // 裙子只有五六行高，褶子画不出来，做成干净的 A 字裙，靠裙摆上方的白边认出是制服裙。
+  // 裙子的转轴：走路时左右扭，各套衣服的裙子挂在它下面。
   const skirt = pivot(body, 0, 0, 0);
-  // 裙子长到鞋面上方：30° 俯视时裙摆前缘正好挡住整条腿，站着只露出两只鞋，走路时鞋在裙摆下前后交替。
-  sculpt(skirt, "#9fd1ee", [
-    [0.18, 0, 0, 0.27, 0.21],
-    [0.34, 0, 0, 0.23, 0.185],
-    [0.49, 0, 0, 0.19, 0.16],
-    [0.57, 0, 0, 0.17, 0.145],
-  ]);
-  // 白边离裙摆一个像素，下面只留一行蓝色。
-  sculpt(skirt, pearl, [
-    [0.22, 0, 0, 0.265, 0.209],
-    [0.265, 0, 0, 0.254, 0.201],
-  ]);
-  sculpt(upper, cream, [
-    [0.49, 0, 0, 0.21, 0.175],
-    [0.55, 0, 0, 0.205, 0.17],
-    [0.68, 0, 0, 0.19, 0.155],
-    [0.85, 0, 0, 0.19, 0.145],
-    [0.94, 0, 0, 0.15, 0.12],
-    [1.0, 0, 0, 0.06, 0.05],
-  ]);
-  // 开衫下摆的罗纹。
-  sculpt(upper, rib, [
-    [0.485, 0, 0, 0.218, 0.183],
-    [0.525, 0, 0, 0.214, 0.179],
-  ]);
-  // 上衣正面只有大块黄色、领口一道白、胸口一个 2 像素的蓝领结；V 领、开襟、纽扣、口袋都舍掉。
-  // 水手领：披在肩上的一圈白领，正面看是下巴下面的一道白边；背后垂下方形领片，
-  // 金色方块比领片低出一个像素，露出来就是领片下沿的金边。领子用柔和明暗，正面不会出现一排灰点。
-  oval(upper, pearl, 0, 0.93, -0.005, 0.185, 0.04, 0.155, "soft");
-  block(upper, blue, 0, 0.86, 0.17, 0.08, 0.05, 0.03);
-  block(upper, gold, 0, 0.84, -0.153, 0.3, 0.21, 0.012);
-  block(upper, pearl, 0, 0.865, -0.157, 0.3, 0.16, 0.02);
 
-  // 手臂是一节袖子、袖口罗纹加一只手：每帧把 arm 转向手的位置，袖子按肩到手的距离拉伸，手放在末端。
-  const arms = [-1, 1].map((side) => {
-    const arm = pivot(upper, side * SHOULDER.x, SHOULDER.y, SHOULDER.z);
-    const sleeve = oval(arm, cream, 0, 0, 0, 0.07, 1, 0.07, "soft");
-    const cuff = oval(arm, rib, 0, 0, 0, 0.075, 0.035, 0.075);
-    const hand = oval(arm, skin, 0, 0, 0, 0.045, 0.045, 0.045);
-    return { side, arm, sleeve, cuff, hand };
+  // 不画手臂，手是两个肤色小球，每帧直接放到动作给出的位置。
+  // 三十几个像素的角色上，两三像素宽的手臂看不清，横在身前只会添杂线；手是球，动作想放哪就放哪。
+  // 手的颜色和形状全由像素画决定（剪影），小球只管位置和前后遮挡；画面左边那只手用镜像的像素画。
+  const handArt = artTexturesOf(design.handArt, { s: colors.skin, S: colors.legSkin });
+  const hands = [-1, 1].map((side) => {
+    const hand = new Mesh(
+      sphere,
+      projected({
+        color: colors.skin,
+        art: handArt,
+        anchor: new Vector3(),
+        cutout: true,
+        mirror: side,
+        edge: -0.4,
+      }),
+    );
+    arrange(hand, fixed(still, parts.hand.size));
+    upper.add(hand);
+    return { side, hand };
   });
+
+  // 腿从裙子里的胯部开始，平时藏在裙子下面，走路、坐下抬腿时才露出来；
+  // 比脸深一档的肤色像是在裙子的阴影里。鞋由衣服提供。
+  const legs = [-1, 1].map((side) => {
+    const leg = place(root, parts.hip, side);
+    const skin = oval(leg, colors.legSkin, parts.leg, undefined, side);
+    return { side, leg, skin };
+  });
+
+  /** 搭一套衣服，记下它挂出来的组（切换时整体显隐）和它的袖子。 */
+  function wear(build: (kit: OutfitKit) => OutfitBuild) {
+    const groups: Group[] = [];
+    const { showLegs } = build({
+      attach(parent) {
+        const group = pivot(parent, 0, 0, 0);
+        groups.push(group);
+        return group;
+      },
+      upper,
+      skirt,
+      legs: legs.map(({ leg }) => leg),
+      oval,
+      block,
+      place,
+      sculpt,
+      fixed,
+      decal(mesh, color, art, palette, anchor) {
+        mesh.material = projected({
+          color,
+          art: artTexturesOf(art, palette),
+          anchor: new Vector3(...anchor),
+          cutout: false,
+          mirror: 1,
+          edge: 0.08,
+        });
+      },
+    });
+    return { groups, showLegs };
+  }
+  const outfits: Record<OutfitName, ReturnType<typeof wear>> = {
+    uniform: wear((kit) => buildUniform(kit, design.outfits.uniform)),
+    lolita: wear((kit) => buildLolita(kit, design.outfits.lolita)),
+  };
+  /** 当前穿的衣服：决定显示哪一组部件、腿要不要画，以及站着时手放在哪。 */
+  let wearing = outfit;
+  /** 只显示 name 这一套衣服。 */
+  function setOutfit(name: OutfitName) {
+    wearing = name;
+    for (const [key, { groups }] of Object.entries(outfits)) {
+      for (const group of groups) {
+        group.visible = key === name;
+      }
+    }
+    for (const { skin } of legs) {
+      skin.visible = outfits[name].showLegs;
+    }
+  }
+  setOutfit(outfit);
 
   // 杯子：白色杯身加咖啡色的液面，由动作决定放在哪。
   const cup = pivot(upper, 0, 0, 0);
   // 和咖啡馆台面上的杯子一样大：杯身高 0.16、半径 0.1，原点在杯底往上 0.05。
-  sculpt(cup, pearl, [
+  sculpt(cup, colors.pearl, [
     [-0.05, 0, 0, 0.085, 0.085],
     [0.11, 0, 0, 0.1, 0.1],
   ]);
-  oval(cup, "#7a4a32", 0, 0.11, 0, 0.085, 0.008, 0.085);
-
-  // 腿从裙子里的胯部开始，平时整条藏在长裙下面，只露出矮矮的长方形棕色乐福鞋；
-  // 走路、坐下抬腿时才露出来，比脸深一档的肤色像是在裙子的阴影里。
-  const legs = [-1, 1].map((side) => {
-    const leg = pivot(root, side * 0.08, LEG_Y, 0);
-    oval(leg, legSkin, 0, -0.15, 0, 0.05, 0.15, 0.05);
-    block(leg, brown, 0, -0.2975, 0.03, 0.11, 0.045, 0.12);
-    return { side, leg };
-  });
+  oval(cup, "#7a4a32", fixed([0, 0.11, 0], [0.085, 0.008, 0.085]));
 
   // 情绪符号是对齐像素的贴片，画在最上层，不被帽子挡住。
   const emoteTextures = Object.fromEntries(
     Object.entries(emotes).map(([name, { frames }]) => [
       name,
-      frames.map((frame) => pixelTexture(frame)),
+      frames.map((frame) => paintTexture(frame, emotePalette)),
     ]),
   ) as Record<EmoteName, DataTexture[]>;
   const emoteSprite = new Sprite(
@@ -721,7 +816,6 @@ export function createPixelCharacter(camera: OrthographicCamera) {
     emoteSprite.scale.set(width * PIXEL, height * PIXEL, 1);
   }
 
-  let shape = initialCharacterShape;
   let expression: ExpressionName = "normal";
   /** 当前循环的动作，以及正在播放的一次性动作；一次性动作播完回到循环动作。 */
   let looping: PixelActionName = "idle";
@@ -733,47 +827,31 @@ export function createPixelCharacter(camera: OrthographicCamera) {
   /** 脸部贴图上次画的眼睛、嘴和腮红，变了才重画。 */
   let painted = "";
 
-  function applyShape(next: CharacterShape) {
-    shape = next;
-    head.scale.setScalar(next.headSize / 100);
-    hat.rotation.z = (-next.hatTilt * Math.PI) / 180;
-    for (const { tail } of tails) {
-      tail.scale.y = next.tailLength / 100;
-    }
-    painted = "";
-  }
-  applyShape(shape);
-
   function applyPose(pose: PixelPose, time: number) {
     body.position.y = pose.rise * PIXEL_RISE;
     waist.rotation.x = pose.lean;
-    head.position.y = HEAD_Y - pose.headDrop * PIXEL_RISE;
+    head.position.y = parts.head.position[1] - pose.headDrop * PIXEL_RISE;
 
     const walk = pose.step === null ? 0 : 1;
     const beat = Math.sin(pose.step ?? 0);
     skirt.rotation.y = 0.08 * beat * walk;
     for (const { side, leg } of legs) {
       leg.rotation.x = pose.seated ? -1.45 : side * 0.55 * beat * walk;
-      leg.position.y = LEG_Y + 0.04 * Math.max(0, side * Math.cos(pose.step ?? 0)) * walk;
+      leg.position.y =
+        parts.hip.position[1] + 0.04 * Math.max(0, side * Math.cos(pose.step ?? 0)) * walk;
     }
     for (const { side, tail } of tails) {
       // 走路时马尾只往后仰一点、轻轻晃，不往后甩。
       tail.rotation.x =
         0.05 * Math.sin(time * 1.6 - side) * (1 - walk) +
         (0.06 + 0.04 * Math.sin(2 * (pose.step ?? 0) - 1.2)) * walk;
-      tail.rotation.z = side * (TAIL_SPREAD + 0.06 * Math.sin((pose.step ?? 0) - 0.8) * walk);
+      tail.rotation.z = side * 0.06 * Math.sin((pose.step ?? 0) - 0.8) * walk;
     }
 
-    for (const [index, { side, arm, sleeve, cuff, hand }] of arms.entries()) {
-      const reach = new Vector3(...pose.hands[index]).sub(arm.position);
-      const length = reach.length();
-      arm.quaternion.setFromUnitVectors(new Vector3(0, -1, 0), reach.normalize());
-      sleeve.position.y = -length * 0.42;
-      sleeve.scale.y = length * 0.45;
-      cuff.position.y = -length * 0.84;
-      hand.position.y = -length;
-      // 走路时手臂随步伐前后摆。
-      arm.rotateX(-side * 0.3 * beat * walk);
+    for (const [index, { side, hand }] of hands.entries()) {
+      hand.position.set(...pose.hands[index]);
+      // 走路时手和同侧的腿反着前后摆。
+      hand.position.z += side * 0.1 * beat * walk;
     }
 
     cup.visible = pose.cup !== null;
@@ -788,13 +866,12 @@ export function createPixelCharacter(camera: OrthographicCamera) {
     const eyes = wanted === "open" && time % 3.85 > 3.68 ? "closed" : wanted;
     if (painted !== eyes + mouth + look.blush) {
       painted = eyes + mouth + look.blush;
-      paintFace(shape, eyes, mouth, look.blush);
+      paintFace(eyes, mouth, look.blush);
     }
   }
 
   return {
     root,
-    applyShape,
     /** 播放动作：循环动作替换当前的循环；一次性动作立即播放，播完回到当前的循环。 */
     play(name: PixelActionName) {
       if (pixelActions[name].loop) {
@@ -805,6 +882,7 @@ export function createPixelCharacter(camera: OrthographicCamera) {
         oneShot = { name, start: now };
       }
     },
+    setOutfit,
     /** 打开或关闭自带的两档明暗。 */
     setCelShading(enabled: boolean) {
       celShading.value = enabled ? 1 : 0;
@@ -822,8 +900,8 @@ export function createPixelCharacter(camera: OrthographicCamera) {
         oneShot = null;
       }
       const pose = oneShot
-        ? pixelActions[oneShot.name].pose(time - oneShot.start)
-        : pixelActions[looping].pose(time - loopStart);
+        ? pixelActions[oneShot.name].pose(time - oneShot.start, design.outfits[wearing].restHand)
+        : pixelActions[looping].pose(time - loopStart, design.outfits[wearing].restHand);
       applyPose(pose, time);
 
       // 一次性的情绪符号优先，冒出来后 0.5 秒内往上飘 3 像素；动作自带的符号原地显示。
@@ -857,14 +935,10 @@ export function createPixelCharacter(camera: OrthographicCamera) {
       for (const material of materials.values()) {
         material.dispose();
       }
-      frontFace.texture.dispose();
-      sideFace.texture.dispose();
-      emoteSprite.material.dispose();
-      for (const frames of Object.values(emoteTextures)) {
-        for (const texture of frames) {
-          texture.dispose();
-        }
+      for (const texture of artTextures) {
+        texture.dispose();
       }
+      emoteSprite.material.dispose();
     },
   };
 }

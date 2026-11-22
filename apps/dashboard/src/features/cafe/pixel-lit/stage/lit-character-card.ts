@@ -13,6 +13,7 @@ import {
   type WebGLRenderer,
   WebGLRenderTarget,
 } from "three";
+import { defaultCharacterDesign, type OutfitName } from "../character/character-design";
 import type { PixelActionName } from "../character/pixel-actions";
 import {
   createPixelCamera,
@@ -20,6 +21,8 @@ import {
   ELEVATION,
   type EmoteName,
   type ExpressionName,
+  INNER_SHADE,
+  OUTLINE_SHADE,
   OVERLAY_LAYER,
   PIXEL,
 } from "../character/pixel-character";
@@ -37,12 +40,12 @@ const DIRECTION_YAW: Record<Direction4, number> = {
 
 /**
  * 将 3D 三渲二像素角色离屏渲染为 64×64 最近邻纹理：
- * 先按角色专用 30° 正交相机对齐脸部像素网格并附加 #3d2a36 描边，再交给喫茶店场景立牌投射 3D 阴影。
+ * 先按角色专用 30° 正交相机对齐脸部像素网格并附加自选色描边，再交给喫茶店场景立牌受光、遮挡、投射阴影。
  */
-export function createLitCharacterCard() {
+export function createLitCharacterCard(outfit: OutfitName) {
   const scene = new Scene();
   const camera = createPixelCamera(CARD_PIXELS, CARD_PIXELS);
-  const character = createPixelCharacter(camera);
+  const character = createPixelCharacter(camera, defaultCharacterDesign, outfit);
   // 明暗由场景灯光决定（见 lit-stage 的立牌着色器），角色自带的固定两档明暗关掉。
   character.setCelShading(false);
   scene.add(character.root);
@@ -73,7 +76,8 @@ export function createLitCharacterCard() {
       source: { value: rawTarget.texture },
       depth: { value: rawTarget.depthTexture },
       texel: { value: new Vector2(1 / CARD_PIXELS, 1 / CARD_PIXELS) },
-      outline: { value: new Color("#3d2a36") },
+      shade: { value: OUTLINE_SHADE },
+      innerShade: { value: INNER_SHADE },
       depthGap: { value: 0.1 / (camera.far - camera.near) },
     },
     vertexShader: `
@@ -87,30 +91,51 @@ export function createLitCharacterCard() {
       uniform sampler2D source;
       uniform sampler2D depth;
       uniform vec2 texel;
-      uniform vec3 outline;
+      uniform vec3 shade;
+      uniform vec3 innerShade;
       uniform float depthGap;
       varying vec2 vUv;
+      // 沿一个方向判断要不要画内描边：近的一侧比自己近出 depthGap 以上才算两个部件前后相叠。
+      // 同一个斜面上（比如压扁的帽顶、30° 俯视时几乎平行于视线），另一侧会远出差不多的量，
+      // 减掉它就不会误画线。另一侧是透明背景时不画：这个像素挨着外轮廓，
+      // 多半是曲面转到侧面的边缘，深度变化最陡，分不出是不是两个部件。
+      bool crease(vec2 uv, vec2 offset, float d) {
+        float a = texture2D(depth, uv + offset).r;
+        float b = texture2D(depth, uv - offset).r;
+        if (texture2D(source, a > b ? uv + offset : uv - offset).a < 0.5) {
+          return false;
+        }
+        return d - min(a, b) - max(max(a, b) - d, 0.0) > depthGap;
+      }
+      // 记下四邻里最靠前（深度最小）的不透明像素，外描边取它的颜色。
+      void closer(vec2 uv, inout vec4 picked, inout float pickedDepth) {
+        vec4 c = texture2D(source, uv);
+        float d = texture2D(depth, uv).r;
+        if (c.a > 0.5 && d < pickedDepth) {
+          picked = c;
+          pickedDepth = d;
+        }
+      }
       void main() {
         vec4 c = texture2D(source, vUv);
         vec2 dx = vec2(texel.x, 0.0);
         vec2 dy = vec2(0.0, texel.y);
         if (c.a < 0.5) {
-          float edge = max(
-            max(texture2D(source, vUv + dx).a, texture2D(source, vUv - dx).a),
-            max(texture2D(source, vUv + dy).a, texture2D(source, vUv - dy).a)
-          );
-          if (edge > 0.5) {
-            gl_FragColor = vec4(outline, 1.0);
+          vec4 picked = vec4(0.0);
+          float pickedDepth = 2.0;
+          closer(vUv + dx, picked, pickedDepth);
+          closer(vUv - dx, picked, pickedDepth);
+          closer(vUv + dy, picked, pickedDepth);
+          closer(vUv - dy, picked, pickedDepth);
+          if (picked.a > 0.5) {
+            gl_FragColor = vec4(picked.rgb * shade, 1.0);
           } else {
             gl_FragColor = vec4(0.0);
           }
         } else {
-          float nearest = min(
-            min(texture2D(depth, vUv + dx).r, texture2D(depth, vUv - dx).r),
-            min(texture2D(depth, vUv + dy).r, texture2D(depth, vUv - dy).r)
-          );
-          if (texture2D(depth, vUv).r - nearest > depthGap) {
-            c.rgb = mix(c.rgb, outline, 0.6);
+          float d = texture2D(depth, vUv).r;
+          if (crease(vUv, dx, d) || crease(vUv, dy, d)) {
+            c.rgb *= innerShade;
           }
           gl_FragColor = c;
         }
@@ -171,6 +196,9 @@ export function createLitCharacterCard() {
     },
     showEmote(emote: EmoteName) {
       character.showEmote(emote);
+    },
+    setOutfit(outfit: OutfitName) {
+      character.setOutfit(outfit);
     },
     render(renderer: WebGLRenderer, time: number) {
       character.animate(time);

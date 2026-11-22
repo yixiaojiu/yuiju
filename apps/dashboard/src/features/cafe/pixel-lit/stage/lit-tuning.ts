@@ -49,6 +49,8 @@ export type LitTuning = {
   characterMaxLight: number;
   /** 角色明暗分几档：0 平滑过渡，2–4 是分档的卡通明暗。 */
   characterBands: number;
+  /** 角色脚下落地阴影的浓度，0 关掉。 */
+  characterContactShadow: number;
 };
 
 const common = {
@@ -65,6 +67,7 @@ const common = {
   characterMinLight: 0.35,
   characterMaxLight: 1.2,
   characterBands: 3,
+  characterContactShadow: 0.6,
 } as const;
 
 export const LIT_PRESETS: Record<LightingPresetId, LitTuning> = {

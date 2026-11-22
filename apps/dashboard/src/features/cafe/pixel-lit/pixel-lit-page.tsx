@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { type OutfitName, outfitLabels } from "./character/character-design";
 import type { PixelActionName } from "./character/pixel-actions";
 import { LitCafeStage } from "./stage/lit-stage";
 import { LIT_PRESETS, type LightingPresetId, type LitTuning } from "./stage/lit-tuning";
 import { LightingPanel } from "./ui/lighting-panel";
+
+/** 进游戏时角色穿的衣服：咖啡馆营业，穿洛丽塔。 */
+const INITIAL_OUTFIT: OutfitName = "lolita";
 
 export function PixelLitCafePage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -15,13 +19,14 @@ export function PixelLitCafePage() {
   const [tuning, setTuning] = useState<LitTuning>(LIT_PRESETS.afternoon);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeLoop, setActiveLoop] = useState<PixelActionName>("idle");
+  const [outfit, setOutfit] = useState<OutfitName>(INITIAL_OUTFIT);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
-    const stage = new LitCafeStage(container, setActiveLoop);
+    const stage = new LitCafeStage(container, INITIAL_OUTFIT, setActiveLoop);
     stageRef.current = stage;
     return () => {
       stage.dispose();
@@ -98,6 +103,26 @@ export function PixelLitCafePage() {
         </div>
 
         <div className="h-4 w-px bg-white/15" />
+
+        <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5">
+          {(Object.keys(outfitLabels) as OutfitName[]).map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => {
+                setOutfit(name);
+                stageRef.current?.setOutfit(name);
+              }}
+              className={`cursor-pointer rounded-md px-2.5 py-1 transition ${
+                outfit === name
+                  ? "bg-amber-300/25 font-medium text-amber-50"
+                  : "text-amber-100/60 hover:text-amber-50"
+              }`}
+            >
+              {outfitLabels[name]}
+            </button>
+          ))}
+        </div>
 
         <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5">
           {(

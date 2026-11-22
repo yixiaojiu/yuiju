@@ -69,6 +69,7 @@ const groups: {
       { key: "characterMinLight", label: "最低亮度", min: 0, max: 1, step: 0.01 },
       { key: "characterMaxLight", label: "最高亮度", min: 0.5, max: 3, step: 0.01 },
       { key: "characterBands", label: "明暗分档", min: 0, max: 6, step: 1 },
+      { key: "characterContactShadow", label: "脚下阴影", min: 0, max: 1, step: 0.01 },
     ],
     colors: [],
   },
