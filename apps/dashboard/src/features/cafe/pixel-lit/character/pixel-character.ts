@@ -36,12 +36,15 @@ import { type PixelActionName, pixelActions } from "./pixel-actions";
 /** 一个屏幕像素对应的世界尺寸。角色总高约 1.6，渲染出来大约 36 个像素。 */
 export const PIXEL = 0.04;
 /**
- * 相机俯角，和光影喫茶店场景的 30° 俯视一致，角色放进场景时透视不会对不上。
+ * 默认的相机俯角，和光影喫茶店场景的 30° 俯视一致，角色放进场景时透视不会对不上。
  * 脸部贴图沿相机视线投影到头上，贴图格子和屏幕像素一一对应。
+ * 场景可以临时换俯角（调光面板的「俯视角」），角色相机跟着换，像素对齐按相机实际的俯角算。
  */
 export const ELEVATION = (30 * Math.PI) / 180;
-/** 身体整体上下移动 1 个屏幕像素需要的世界高度。上下起伏按它取整，脸部像素才不会错位。 */
-const PIXEL_RISE = PIXEL / Math.cos(ELEVATION);
+/** 俯角为 elevation 时，身体整体上下移动 1 个屏幕像素需要的世界高度。上下起伏按它取整，脸部像素才不会错位。 */
+function pixelRise(elevation: number) {
+  return PIXEL / Math.cos(elevation);
+}
 /**
  * 情绪符号这类贴片所在的渲染层。角色相机默认能看到这一层；
  * 渲染法线这类只需要身体网格的场合，关掉这一层就能把贴片排除在外。
@@ -106,7 +109,7 @@ export function createPixelCamera(
   focus: PixelFocus = { x: 0, z: 0, up: -10 },
 ) {
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 30);
-  aimPixelCamera(camera, width, height, focus);
+  aimPixelCamera(camera, width, height, focus, ELEVATION);
   return camera;
 }
 
@@ -119,6 +122,7 @@ export function aimPixelCamera(
   width: number,
   height: number,
   focus: PixelFocus,
+  elevation: number,
 ) {
   camera.left = (-width * PIXEL) / 2;
   camera.right = (width * PIXEL) / 2;
@@ -129,14 +133,15 @@ export function aimPixelCamera(
   const center = snapToPixelGrid(
     new Vector3(
       focus.x,
-      defaultCharacterDesign.parts.head.position[1] + focus.up * PIXEL_RISE,
+      defaultCharacterDesign.parts.head.position[1] + focus.up * pixelRise(elevation),
       focus.z,
     ),
+    elevation,
   );
   camera.position.set(
     center.x,
-    center.y + 15 * Math.sin(ELEVATION),
-    center.z + 15 * Math.cos(ELEVATION),
+    center.y + 15 * Math.sin(elevation),
+    center.z + 15 * Math.cos(elevation),
   );
   camera.lookAt(center);
   camera.layers.enable(OVERLAY_LAYER);
@@ -146,14 +151,15 @@ export function aimPixelCamera(
 
 /**
  * 把角色的摆放位置对齐到像素网格：左右移动整像素，高度和前后各自在屏幕上移动整像素。
- * 角色只在渲染时用对齐后的位置，逻辑位置可以连续变化。
+ * 0° 平视时前后移动不影响画面，前后不对齐。角色只在渲染时用对齐后的位置，逻辑位置可以连续变化。
  */
-export function snapToPixelGrid(position: Vector3) {
-  const depthStep = PIXEL / Math.sin(ELEVATION);
+export function snapToPixelGrid(position: Vector3, elevation: number) {
+  const depthStep = PIXEL / Math.sin(elevation);
+  const rise = pixelRise(elevation);
   return new Vector3(
     Math.round(position.x / PIXEL) * PIXEL,
-    Math.round(position.y / PIXEL_RISE) * PIXEL_RISE,
-    Math.round(position.z / depthStep) * depthStep,
+    Math.round(position.y / rise) * rise,
+    elevation > 0 ? Math.round(position.z / depthStep) * depthStep : position.z,
   );
 }
 
@@ -597,11 +603,28 @@ export function createPixelCharacter(
     return mesh;
   }
 
-  // 头和脸：脸部贴图按屏幕像素投影在头部椭球上，头发外壳向后偏，正面只露出刘海以下。
+  // 头和脸：脸部贴图按屏幕像素投影在脸上，头发外壳向后偏，正面只露出刘海以下。
+  // 脸是「麻薯」形：上半部分接近球（被头发和刘海盖着），下半部分加宽，最宽处在眼睛下面到嘴巴之间，
+  // 下巴是圆弧，30° 俯视时脸颊肉嘟嘟的，不会收成尖下巴。截面按单位大小给，parts.face 整体缩放。
   head.add(
     arrange(
       new Mesh(
-        new SphereGeometry(1, 32, 24),
+        volume(
+          [
+            [-1, 0.02],
+            [-0.97, 0.38],
+            [-0.9, 0.66],
+            [-0.75, 0.88],
+            [-0.5, 0.99],
+            [-0.2, 1.02],
+            [0.1, 1],
+            [0.4, 0.92],
+            [0.7, 0.71],
+            [0.9, 0.44],
+            [1, 0.02],
+          ].map(([y, radius]): Ring => [y, 0, 0, radius, radius]),
+          { count: 0, depth: 0 },
+        ),
         projected({
           color: colors.skin,
           art: faceArt,
@@ -828,9 +851,11 @@ export function createPixelCharacter(
   let painted = "";
 
   function applyPose(pose: PixelPose, time: number) {
-    body.position.y = pose.rise * PIXEL_RISE;
+    // 俯角按相机的实际朝向算：场景临时换俯角时，起伏仍是整像素。
+    const rise = pixelRise(Math.asin(-camera.getWorldDirection(new Vector3()).y));
+    body.position.y = pose.rise * rise;
     waist.rotation.x = pose.lean;
-    head.position.y = parts.head.position[1] - pose.headDrop * PIXEL_RISE;
+    head.position.y = parts.head.position[1] - pose.headDrop * rise;
 
     const walk = pose.step === null ? 0 : 1;
     const beat = Math.sin(pose.step ?? 0);

@@ -31,12 +31,11 @@ import type { PixelActionName } from "../character/pixel-actions";
 import type { EmoteName, ExpressionName } from "../character/pixel-character";
 import {
   buildLitCafe,
-  LIT_COS,
   LIT_CUSTOMER_RADIUS,
   LIT_OBSTACLES,
   LIT_PIXEL,
-  LIT_SIN,
   LIT_WALKABLE,
+  type LitWallSide,
 } from "./lit-cafe-builder";
 import {
   CARD_PIXELS,
@@ -57,6 +56,30 @@ const TONE_MAPPINGS: Record<ToneMappingName, ToneMapping> = {
   agx: AgXToneMapping,
 };
 const WALK_SPEED = 1.55;
+
+/** 四个视角：相机从店的正面开始，每档绕店中心转 90°（从上往下看是逆时针）。 */
+export type LitViewName = "front" | "right" | "back" | "left";
+/** 相机状态：水平视角和俯视角（度）。 */
+export type LitCameraState = { view: LitViewName; elevation: number };
+const VIEWS: readonly LitViewName[] = ["front", "right", "back", "left"];
+/** 每个视角下挡在镜头前面、要藏起来的墙；正面是敞开的。 */
+const NEAR_WALL: Record<LitViewName, LitWallSide | null> = {
+  front: null,
+  right: "right",
+  back: "back",
+  left: "left",
+};
+/**
+ * 俯视角的档位（度）：0° 是平视，像横版游戏只看到立面；30° 是默认，贴图和家具按它设计，
+ * 其他角度下地板、墙面贴图会有些拉伸。
+ */
+const ELEVATION_STEPS = [0, 15, 30, 45] as const;
+/** 开局的俯视角档位：30°。 */
+const DEFAULT_ELEVATION_INDEX = 2;
+/** 相机环绕的中心：正面视角时画面正中对着的点。 */
+const VIEW_CENTER = new Vector3(0, 1.04, -0.32);
+/** 世界方向按顺时针排（从上往下看）：上是 −z。屏幕方向换算成世界方向时按视角转过的档数移位。 */
+const WORLD_DIRECTIONS: readonly Direction4[] = ["up", "right", "down", "left"];
 const MAX_RENDER_WIDTH = 2200;
 
 const KEY_TO_DIRECTION: Partial<Record<string, Direction4>> = {
@@ -143,9 +166,13 @@ export class LitCafeStage {
 
   private readonly characterGeo: PlaneGeometry;
   private readonly yuuno: CharacterEntity;
+  /** 按住的移动键，dir 是屏幕方向（W 总是往屏幕上方走），移动时按当前视角换算成世界方向。 */
   private readonly heldMoves: { code: string; dir: Direction4 }[] = [];
-  // 开局站在吧台里、前台后面，面朝顾客；左右避开台面上的蛋糕和面包篮。
+  // 开局站在吧台里、前台后面，面朝顾客；左右避开台面上的蛋糕和面包篮。dir 是世界方向。
   private readonly self = { x: -0.5, z: 0.05, dir: "down" as Direction4 };
+  private viewIndex = 0;
+  private elevationIndex = DEFAULT_ELEVATION_INDEX;
+  private readonly onCameraChange?: (camera: LitCameraState) => void;
   private stationaryLoop: PixelActionName = "idle";
   private tuning: LitTuning = LIT_PRESETS.afternoon;
   private readonly onStationaryLoopChange?: (action: PixelActionName) => void;
@@ -160,9 +187,11 @@ export class LitCafeStage {
     container: HTMLElement,
     outfit: OutfitName,
     onStationaryLoopChange?: (action: PixelActionName) => void,
+    onCameraChange?: (camera: LitCameraState) => void,
   ) {
     this.container = container;
     this.onStationaryLoopChange = onStationaryLoopChange;
+    this.onCameraChange = onCameraChange;
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.shadowMap.enabled = true;
     // PCF 阴影才能按 shadow.radius 调软硬。
@@ -247,6 +276,33 @@ export class LitCafeStage {
 
   setOutfit(outfit: OutfitName) {
     this.yuuno.card.setOutfit(outfit);
+  }
+
+  /** 视角转一档：1 是相机往店的右侧转，-1 往左侧转。瞬间切换，像素始终对齐。 */
+  rotateView(step: 1 | -1) {
+    this.viewIndex = (this.viewIndex + step + VIEWS.length) % VIEWS.length;
+    this.aimCamera();
+    this.reportCamera();
+  }
+
+  /**
+   * 俯视角换一档：1 抬高（更俯瞰），-1 压低（更平视），到最高、最低档就停住。
+   * 场景相机和角色专用相机一起换，角色立牌按新角度换算脚底位置和深度。
+   */
+  tiltView(step: 1 | -1) {
+    const next = Math.min(Math.max(this.elevationIndex + step, 0), ELEVATION_STEPS.length - 1);
+    if (next === this.elevationIndex) {
+      return;
+    }
+    this.elevationIndex = next;
+    const { card, material } = this.yuuno;
+    card.setElevation(this.elevation);
+    const { rootDistance, tanElevation } = card.depthReconstruction;
+    material.uniforms.groundRow.value = card.groundRowFromBottom;
+    material.uniforms.cameraRange.value.z = rootDistance;
+    material.uniforms.tanElevation.value = tanElevation;
+    this.aimCamera();
+    this.reportCamera();
   }
 
   dispose() {
@@ -435,7 +491,7 @@ export class LitCafeStage {
     };
 
     const mesh = new Mesh(this.characterGeo, material);
-    mesh.scale.set(CARD_PIXELS * LIT_PIXEL, (CARD_PIXELS * LIT_PIXEL) / LIT_COS, 1);
+    mesh.scale.x = CARD_PIXELS * LIT_PIXEL;
     mesh.castShadow = true;
     mesh.customDepthMaterial = depthMaterial;
     mesh.customDistanceMaterial = distanceMaterial;
@@ -448,7 +504,7 @@ export class LitCafeStage {
       new CircleGeometry(1, 24).rotateX(-Math.PI / 2),
       new MeshBasicMaterial({ color: "#000000", transparent: true, depthWrite: false }),
     );
-    footShadow.scale.set(9 * LIT_PIXEL, 1, (3.5 * LIT_PIXEL) / LIT_SIN);
+    footShadow.scale.x = 9 * LIT_PIXEL;
     footShadow.position.y = 0.012;
     this.scene.add(footShadow);
     return {
@@ -496,17 +552,71 @@ export class LitCafeStage {
     uniforms.bands.value = this.tuning.characterBands;
   }
 
+  /** 当前俯视角（弧度）。 */
+  private get elevation() {
+    return (ELEVATION_STEPS[this.elevationIndex] * Math.PI) / 180;
+  }
+
+  private reportCamera() {
+    this.onCameraChange?.({
+      view: VIEWS[this.viewIndex],
+      elevation: ELEVATION_STEPS[this.elevationIndex],
+    });
+  }
+
+  /** 相机绕竖直轴转过的角度：正面为 0，每档 90°。 */
+  private get cameraYaw() {
+    return (this.viewIndex * Math.PI) / 2;
+  }
+
+  /**
+   * 落点对齐屏幕像素：沿屏幕左右方向对齐 1 个像素，沿地面朝镜头的方向对齐「1 像素 ÷ sin(俯角)」
+   * （在屏幕上正好 1 个像素），这两个方向跟着视角转。0° 平视时前后方向不影响画面，不对齐。
+   */
   private placeCharacter(entity: CharacterEntity, x: number, z: number) {
-    const depthStep = LIT_PIXEL / LIT_SIN;
-    const snappedX = Math.round(x / LIT_PIXEL) * LIT_PIXEL;
-    const snappedZ = Math.round(z / depthStep) * depthStep;
+    const sin = Math.sin(this.cameraYaw);
+    const cos = Math.cos(this.cameraYaw);
+    const depthStep = LIT_PIXEL / Math.sin(this.elevation);
+    const across = Math.round((x * cos - z * sin) / LIT_PIXEL) * LIT_PIXEL;
+    const towardRaw = x * sin + z * cos;
+    const toward = this.elevation > 0 ? Math.round(towardRaw / depthStep) * depthStep : towardRaw;
+    const snappedX = across * cos + toward * sin;
+    const snappedZ = -across * sin + toward * cos;
     entity.mesh.position.set(
       snappedX,
-      -(entity.card.groundRowFromBottom * LIT_PIXEL) / LIT_COS,
+      -(entity.card.groundRowFromBottom * LIT_PIXEL) / Math.cos(this.elevation),
       snappedZ,
     );
     entity.footShadow.position.x = snappedX;
     entity.footShadow.position.z = snappedZ;
+  }
+
+  /**
+   * 相机转到当前视角和俯角：距离不变，绕店中心转；角色立牌和脚下阴影转向镜头并按俯角缩放，
+   * 挡在镜头前的墙藏起来。
+   */
+  private aimCamera() {
+    const yaw = this.cameraYaw;
+    const cos = Math.cos(this.elevation);
+    const sin = Math.sin(this.elevation);
+    this.camera.position.set(
+      VIEW_CENTER.x + 16 * cos * Math.sin(yaw),
+      VIEW_CENTER.y + 16 * sin,
+      VIEW_CENTER.z + 16 * cos * Math.cos(yaw),
+    );
+    this.camera.lookAt(VIEW_CENTER);
+    this.camera.updateMatrixWorld();
+    this.camera.getWorldDirection(this.yuuno.material.uniforms.cameraForward.value);
+    this.yuuno.mesh.rotation.y = yaw;
+    // 立牌是竖直的平面，俯视下高度缩成 cos，放大回来正好一格对一个屏幕像素；脚下阴影同理按 sin。
+    this.yuuno.mesh.scale.y = (CARD_PIXELS * LIT_PIXEL) / cos;
+    this.yuuno.footShadow.rotation.y = yaw;
+    // 0° 平视时地面是一条线，脚下阴影看不到，藏起来。
+    this.yuuno.footShadow.visible = this.elevation > 0;
+    if (this.elevation > 0) {
+      this.yuuno.footShadow.scale.z = (3.5 * LIT_PIXEL) / sin;
+    }
+    this.cafe.cutAwayWall(NEAR_WALL[VIEWS[this.viewIndex]]);
   }
 
   private resize = () => {
@@ -525,11 +635,7 @@ export class LitCafeStage {
     this.camera.bottom = (-pixelH * LIT_PIXEL) / 2;
     this.camera.updateProjectionMatrix();
 
-    const center = new Vector3(0, 1.04, -0.32);
-    this.camera.position.set(center.x, center.y + 16 * LIT_SIN, center.z + 16 * LIT_COS);
-    this.camera.lookAt(center);
-    this.camera.updateMatrixWorld();
-    this.camera.getWorldDirection(this.yuuno.material.uniforms.cameraForward.value);
+    this.aimCamera();
 
     const cssW = pixelW * scale;
     const cssH = pixelH * scale;
@@ -561,7 +667,7 @@ export class LitCafeStage {
     this.lighting.update(this.time);
 
     const walking = this.moveFourWay(dt);
-    this.yuuno.card.setDirection(this.self.dir);
+    this.yuuno.card.setDirection(this.self.dir, this.cameraYaw);
     this.yuuno.card.setLoop(walking ? "walk" : this.stationaryLoop);
     this.placeCharacter(this.yuuno, this.self.x, this.self.z);
     this.yuuno.card.render(this.renderer, this.time);
@@ -575,12 +681,14 @@ export class LitCafeStage {
     if (!active) {
       return false;
     }
-    this.self.dir = active.dir;
+    // 屏幕方向换成世界方向：相机每转一档，屏幕上方对应的世界方向往回移一位。
+    const screenIndex = WORLD_DIRECTIONS.indexOf(active.dir);
+    this.self.dir = WORLD_DIRECTIONS[(screenIndex - this.viewIndex + 4) % 4];
     if (this.stationaryLoop !== "idle") {
       this.stationaryLoop = "idle";
       this.onStationaryLoopChange?.("idle");
     }
-    const [dx, dz] = DIRECTION_STEP[active.dir];
+    const [dx, dz] = DIRECTION_STEP[this.self.dir];
     const nextX = this.self.x + dx * WALK_SPEED * dt;
     const nextZ = this.self.z + dz * WALK_SPEED * dt;
     if (!this.blocked(nextX, nextZ)) {
@@ -620,7 +728,15 @@ export class LitCafeStage {
       return;
     }
     if (!event.repeat) {
-      if (event.code === "Digit1") {
+      if (event.code === "KeyQ") {
+        this.rotateView(-1);
+      } else if (event.code === "KeyE") {
+        this.rotateView(1);
+      } else if (event.code === "KeyR") {
+        this.tiltView(1);
+      } else if (event.code === "KeyF") {
+        this.tiltView(-1);
+      } else if (event.code === "Digit1") {
         this.playOneShot("wave");
       } else if (event.code === "Digit2") {
         this.playOneShot("bow");

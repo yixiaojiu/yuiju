@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { type OutfitName, outfitLabels } from "./character/character-design";
 import type { PixelActionName } from "./character/pixel-actions";
-import { LitCafeStage } from "./stage/lit-stage";
+import { LitCafeStage, type LitCameraState, type LitViewName } from "./stage/lit-stage";
 import { LIT_PRESETS, type LightingPresetId, type LitTuning } from "./stage/lit-tuning";
 import { LightingPanel } from "./ui/lighting-panel";
 
 /** 进游戏时角色穿的衣服：咖啡馆营业，穿洛丽塔。 */
 const INITIAL_OUTFIT: OutfitName = "lolita";
+
+const viewLabels: Record<LitViewName, string> = {
+  front: "正面",
+  right: "右侧",
+  back: "背面",
+  left: "左侧",
+};
 
 export function PixelLitCafePage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,13 +27,14 @@ export function PixelLitCafePage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeLoop, setActiveLoop] = useState<PixelActionName>("idle");
   const [outfit, setOutfit] = useState<OutfitName>(INITIAL_OUTFIT);
+  const [camera, setCamera] = useState<LitCameraState>({ view: "front", elevation: 30 });
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
-    const stage = new LitCafeStage(container, INITIAL_OUTFIT, setActiveLoop);
+    const stage = new LitCafeStage(container, INITIAL_OUTFIT, setActiveLoop, setCamera);
     stageRef.current = stage;
     return () => {
       stage.dispose();
@@ -149,8 +157,44 @@ export function PixelLitCafePage() {
           ))}
         </div>
 
+        <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5">
+          <button
+            type="button"
+            onClick={() => stageRef.current?.rotateView(-1)}
+            className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
+          >
+            ⟲ Q
+          </button>
+          <span className="min-w-8 text-center text-amber-50">{viewLabels[camera.view]}</span>
+          <button
+            type="button"
+            onClick={() => stageRef.current?.rotateView(1)}
+            className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
+          >
+            E ⟳
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5">
+          <button
+            type="button"
+            onClick={() => stageRef.current?.tiltView(-1)}
+            className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
+          >
+            F ▽
+          </button>
+          <span className="min-w-8 text-center text-amber-50">{camera.elevation}°</span>
+          <button
+            type="button"
+            onClick={() => stageRef.current?.tiltView(1)}
+            className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
+          >
+            △ R
+          </button>
+        </div>
+
         <span className="pl-1 text-[11px] text-amber-100/55">
-          WASD 四向移动 · 3D 三渲二像素小人
+          WASD 四向移动 · QE 转视角 · RF 俯视角 · 3D 三渲二像素小人
         </span>
       </div>
     </div>

@@ -74,7 +74,10 @@ export type LolitaDesign = {
   colors: Record<"dress" | "accent" | "trim" | "shoe", string>;
   /** 胸前像素画的中心（上身空间），像素画按相机方向投影到上身上。 */
   chestArt: PixelArt;
-  parts: Record<"dress" | "bodice" | "chest" | "collar" | "collarFlap" | "shoe", Part>;
+  parts: Record<
+    "dress" | "bodice" | "chest" | "collar" | "collarFlap" | "collarTrim" | "shoe",
+    Part
+  >;
 };
 
 /** 一个图案在正面、侧面各一份。侧面按脸朝屏幕右边画。 */
@@ -151,7 +154,7 @@ export const defaultCharacterDesign: CharacterDesign = {
     mouth: "#b0606a",
   },
   face: {
-    // 正面：第 5 行以上藏在帽子下面，h 是发缕之间的细缝，第 9 行是长短不一的刘海尖，
+    // 正面：第 6 行以上藏在帽子下面，h 是发缕之间的细缝，第 9、10 行是长短不一的刘海尖，
     // 发尖之间的几道缝露出额头；眼睛以下左右都只留两列鬓发，让出脸宽，两眼才分得开；
     // 下巴两角留皮肤色，脸的下缘是头的圆轮廓，不被头发包住。
     front: [
@@ -161,13 +164,13 @@ export const defaultCharacterDesign: CharacterDesign = {
       "HHHHHHHHHHHHHHHHHH",
       "HHHHHHHHHHHHHHHHHH",
       "HHHHHHHHHHHHHHHHHH",
-      "HHHHHHhHHHHhHhHHHH",
-      "HHHHHhHHHhHHhHhHHH",
-      "HHHHhHHhHhhHHhHHHH",
-      "HHh.Hh.HH.HhH.HhHH",
-      "HH..............HH",
-      "HH..............HH",
-      "HH..............HH",
+      "HHHHHHHHHHHHHHHHHH",
+      "HHHHHhHHhHHHhHHHHH",
+      "HHHHhHH.hHhHHhHHHH",
+      "HHh.HH.hHHHhHHHhHH",
+      "HH.....HH.HHH...HH",
+      "Hh..............HH",
+      "Hh..............HH",
       "HH..............HH",
       "HH..............HH",
       "HH..............HH",
@@ -204,13 +207,13 @@ export const defaultCharacterDesign: CharacterDesign = {
   },
   // 正面 3×4、侧面 2×4，两只眼睛用同一个图案。不画眼白和高光：最上一行睫毛色，往下两行紫、一行浅紫，
   // 从深到浅的渐变。小五官配大块头发，低分辨率下更精致。
-  // 闭眼和开心的线都用睫毛色；害羞是睫毛压下来一行；惊讶是空心的圆圈，同样上深下浅。
+  // 闭眼和开心的线都用睫毛色；害羞是睫毛压下来一行；惊讶是空心的圆圈，上沿睫毛色、其余一圈紫色。
   eyes: {
     open: { front: ["kkk", "ppp", "ppp", "lll"], side: ["kk", "pp", "pp", "ll"] },
     closed: { front: ["...", "...", "kkk", "..."], side: ["..", "..", "kk", ".."] },
     happy: { front: ["...", ".k.", "k.k", "..."], side: ["..", "kk", "k.", ".."] },
     shy: { front: ["...", "kkk", "ppp", "lll"], side: ["..", "kk", "pp", "ll"] },
-    surprised: { front: ["kkk", "p.p", "p.p", "lll"], side: ["kk", "p.", "p.", "ll"] },
+    surprised: { front: ["kkk", "p.p", "p.p", "ppp"], side: ["kk", "p.", "p.", "ll"] },
   },
   mouths: {
     line: { front: ["qq"], side: ["q"] },
@@ -274,12 +277,14 @@ export const defaultCharacterDesign: CharacterDesign = {
       restHand: [0.08, 0.3, 0.23],
       colors: {
         // 可可棕比头发深一档，和脸、头发的明暗拉得开；水蓝的蝴蝶结和丝带和马尾丝带、发夹同色，
-        // 和肤色的手是冷暖对比，分得开。其他配色在预览页的「配色对比」里比较。
+        // 和肤色的手是冷暖对比，分得开。
         dress: "#6b4a3e",
         accent: "#8cc8ea",
         // 圆翻领和裙摆下露出的衬裙蕾丝边，和帽子同一种奶白。
         trim: "#fffaf3",
-        shoe: "#5a3c3a",
+        // 焦糖棕小圆头鞋，和制服的乐福鞋同色：比裙子亮一档，看得出是皮鞋。
+        // 深色鞋只有 1～2 像素，看起来和描边一样黑；奶白会和蕾丝边混在一起。
+        shoe: "#9c6340",
       },
       // 领口下一个蝴蝶结：两边的圈、中间压暗的结；两条 1 像素的丝带从结下面垂下来，往两边斜着散开。
       // 领口附近上身只有约 7 像素宽，第一行要收窄，画到上身外面的格子不会显示。
@@ -330,12 +335,13 @@ export const defaultCharacterDesign: CharacterDesign = {
         bodice: { position: still, size: unit, rotation: still },
         // 胸前像素画的中心，在上身正面；像素画第一行落在领口下面。
         chest: { position: [0, 0.5, 0.165], size: unit, rotation: still },
-        // 圆翻领：脖子一圈，正面是下巴下面一道奶白边。
+        // 领口一圈，正面是下巴下面一道奶白边。
         collar: { position: [0, 0.68, 0], size: [0.15, 0.035, 0.14], rotation: still },
-        // 背后的两片半圆领片，左右镜像，贴在后背上。
-        collarFlap: { position: [0.08, 0.6, -0.125], size: [0.082, 0.08, 0.045], rotation: still },
-        // 小圆头鞋，相对胯，左右镜像。
-        shoe: { position: [0, -0.2, 0.025], size: [0.055, 0.035, 0.07], rotation: still },
+        // 背后的方形领片和下沿的水蓝边，和制服的领片同样大小、同样位置。
+        collarFlap: { position: [0, 0.623, -0.157], size: [0.24, 0.115, 0.02], rotation: still },
+        collarTrim: { position: [0, 0.6, -0.153], size: [0.24, 0.15, 0.012], rotation: still },
+        // 小圆头鞋，相对胯，左右镜像。比描边多出一圈，鞋的颜色才露得出来。
+        shoe: { position: [0, -0.2, 0.025], size: [0.06, 0.04, 0.075], rotation: still },
       },
     },
   },

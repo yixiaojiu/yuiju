@@ -52,7 +52,7 @@ const outfitColorLabels: Record<OutfitName, Record<string, string>> = {
   },
   lolita: {
     dress: "裙子和上身",
-    accent: "蝴蝶结和丝带",
+    accent: "蝴蝶结、丝带和领片边",
     trim: "翻领和蕾丝边",
     shoe: "鞋",
   },
@@ -421,8 +421,9 @@ const outfitParts: Record<OutfitName, PartInfo[]> = {
       size: "",
       note: "胸前像素画的中心（上身空间），图案本身在「像素画」页画。",
     },
-    { key: "collar", label: "圆翻领", fields: allFields, size: "半径" },
-    { key: "collarFlap", label: "背后领片", fields: allFields, size: "半径", note: "左右镜像。" },
+    { key: "collar", label: "领口", fields: allFields, size: "半径" },
+    { key: "collarFlap", label: "背后领片", fields: allFields, size: "长宽高" },
+    { key: "collarTrim", label: "领片水蓝边", fields: allFields, size: "长宽高" },
     { key: "shoe", label: "鞋", fields: allFields, size: "半径", note: "相对胯，左右镜像。" },
   ],
 };

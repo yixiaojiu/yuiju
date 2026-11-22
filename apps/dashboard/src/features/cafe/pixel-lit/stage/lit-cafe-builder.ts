@@ -76,6 +76,9 @@ export const LIT_OBSTACLES = [
   { minX: 3.4, maxX: 5.15, minZ: 1.45, maxZ: 2.4 },
 ] as const;
 
+/** 店里有墙的三面：正面敞开，没有墙。 */
+export type LitWallSide = "back" | "left" | "right";
+
 export type LitCafeHandles = {
   root: Group;
   fanBlades: Group;
@@ -84,6 +87,7 @@ export type LitCafeHandles = {
   accentShadeMaterial: MeshStandardMaterial;
   pendantPositions: Vector3[];
   steamAnchors: Vector3[];
+  cutAwayWall: (near: LitWallSide | null) => void;
   dispose: () => void;
 };
 
@@ -213,6 +217,47 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
 
   const backZ = LIT_ROOM.minZ;
 
+  // 三面墙各自一组，挂在墙上的窗、百叶、置物架、黑板、推拉门跟着墙放在同一组。
+  // 转动视角时，挡在镜头前面的那面墙整组藏起来，换成一道贴地的木收边，和正面敞开处的收边一样。
+  const walls: Record<LitWallSide, Group> = {
+    back: new Group(),
+    left: new Group(),
+    right: new Group(),
+  };
+  const wallTrims: Record<LitWallSide, Group> = {
+    back: new Group(),
+    left: new Group(),
+    right: new Group(),
+  };
+  for (const side of ["back", "left", "right"] as const) {
+    wallTrims[side].visible = false;
+    root.add(walls[side], wallTrims[side]);
+  }
+  addBox(
+    wallTrims.back,
+    woodDark,
+    [LIT_ROOM.minX - 0.24, LIT_ROOM.maxX + 0.24],
+    [-0.16, 0.01],
+    [backZ - 0.14, backZ],
+    { cast: false, receive: true },
+  );
+  addBox(
+    wallTrims.left,
+    woodDark,
+    [LIT_ROOM.minX - 0.14, LIT_ROOM.minX],
+    [-0.16, 0.01],
+    [backZ - 0.14, LIT_ROOM.maxZ + 0.14],
+    { cast: false, receive: true },
+  );
+  addBox(
+    wallTrims.right,
+    woodDark,
+    [LIT_ROOM.maxX, LIT_ROOM.maxX + 0.14],
+    [-0.16, 0.01],
+    [backZ - 0.14, LIT_ROOM.maxZ + 0.14],
+    { cast: false, receive: true },
+  );
+
   // 1. 地板与前沿木收边、织纹地毯
   addBox(
     root,
@@ -248,52 +293,52 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
 
   // 2. 镂空百叶窗的后墙 + 左右木框墙
   const win = { minX: -5.05, maxX: -2.75, minY: 1.18, maxY: 2.72 };
-  addBox(root, woodSlats, [LIT_ROOM.minX, LIT_ROOM.maxX], [0, 1.06], [backZ - 0.14, backZ]);
+  addBox(walls.back, woodSlats, [LIT_ROOM.minX, LIT_ROOM.maxX], [0, 1.06], [backZ - 0.14, backZ]);
   addBox(
-    root,
+    walls.back,
     woodDark,
     [LIT_ROOM.minX, LIT_ROOM.maxX],
     [1.06, 1.14],
     [backZ - 0.16, backZ + 0.04],
   );
   addBox(
-    root,
+    walls.back,
     wallMat,
     [LIT_ROOM.minX, win.minX],
     [1.14, LIT_ROOM.wallHeight],
     [backZ - 0.14, backZ],
   );
   addBox(
-    root,
+    walls.back,
     wallMat,
     [win.maxX, LIT_ROOM.maxX],
     [1.14, LIT_ROOM.wallHeight],
     [backZ - 0.14, backZ],
   );
-  addBox(root, wallMat, [win.minX, win.maxX], [1.14, win.minY], [backZ - 0.14, backZ]);
+  addBox(walls.back, wallMat, [win.minX, win.maxX], [1.14, win.minY], [backZ - 0.14, backZ]);
   addBox(
-    root,
+    walls.back,
     wallMat,
     [win.minX, win.maxX],
     [win.maxY, LIT_ROOM.wallHeight],
     [backZ - 0.14, backZ],
   );
   addBox(
-    root,
+    walls.back,
     woodDark,
     [LIT_ROOM.minX - 0.24, LIT_ROOM.maxX + 0.24],
     [LIT_ROOM.wallHeight, LIT_ROOM.wallHeight + 0.14],
     [backZ - 0.18, backZ + 0.08],
   );
   addBox(
-    root,
+    walls.left,
     woodDark,
     [LIT_ROOM.minX - 0.24, LIT_ROOM.minX],
     [-0.16, LIT_ROOM.wallHeight + 0.14],
     [backZ - 0.18, LIT_ROOM.maxZ + 0.14],
   );
   addBox(
-    root,
+    walls.right,
     woodDark,
     [LIT_ROOM.maxX, LIT_ROOM.maxX + 0.24],
     [-0.16, LIT_ROOM.wallHeight + 0.14],
@@ -303,42 +348,42 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
   // 左窗木框 + 发光底板 + 6 片百叶木条
   const winMidX = (win.minX + win.maxX) / 2;
   addBox(
-    root,
+    walls.back,
     woodDark,
     [win.minX - 0.08, win.maxX + 0.08],
     [win.minY - 0.08, win.minY],
     [backZ - 0.16, backZ + 0.1],
   );
   addBox(
-    root,
+    walls.back,
     woodDark,
     [win.minX - 0.08, win.maxX + 0.08],
     [win.maxY, win.maxY + 0.08],
     [backZ - 0.16, backZ + 0.08],
   );
   addBox(
-    root,
+    walls.back,
     woodDark,
     [win.minX - 0.08, win.minX],
     [win.minY, win.maxY],
     [backZ - 0.16, backZ + 0.08],
   );
   addBox(
-    root,
+    walls.back,
     woodDark,
     [win.maxX, win.maxX + 0.08],
     [win.minY, win.maxY],
     [backZ - 0.16, backZ + 0.08],
   );
   addBox(
-    root,
+    walls.back,
     woodDark,
     [winMidX - 0.045, winMidX + 0.045],
     [win.minY, win.maxY],
     [backZ - 0.14, backZ + 0.05],
   );
   addBox(
-    root,
+    walls.back,
     windowBackdropMaterial,
     [win.minX, win.maxX],
     [win.minY, win.maxY],
@@ -353,7 +398,7 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     slat.rotation.x = -0.3;
     slat.castShadow = true;
     slat.receiveShadow = false;
-    root.add(slat);
+    walls.back.add(slat);
   }
 
   // 3. 窗下木长椅与方正像素座布团/靠垫
@@ -408,15 +453,15 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
   // 5. 后墙右中：日式后厨推拉门 + 黑板菜单 + 像素挂画 + 2×2 像素方格串灯
   const door = { minX: 1.62, maxX: 2.68, top: 2.36 };
   addBox(
-    root,
+    walls.back,
     woodDark,
     [door.minX - 0.06, door.maxX + 0.06],
     [0, door.top + 0.06],
     [backZ, backZ + 0.06],
   );
-  addBox(root, woodSlats, [door.minX, door.maxX], [0.02, 1.02], [backZ + 0.03, backZ + 0.08]);
+  addBox(walls.back, woodSlats, [door.minX, door.maxX], [0.02, 1.02], [backZ + 0.03, backZ + 0.08]);
   addBox(
-    root,
+    walls.back,
     kitchenPaperMaterial,
     [door.minX + 0.04, door.maxX - 0.04],
     [1.06, door.top - 0.04],
@@ -424,11 +469,17 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     { cast: false, receive: false },
   );
   for (const x of [door.minX + 0.36, door.minX + 0.7]) {
-    addBox(root, woodDark, [x - 0.02, x + 0.02], [1.04, door.top], [backZ + 0.06, backZ + 0.095]);
+    addBox(
+      walls.back,
+      woodDark,
+      [x - 0.02, x + 0.02],
+      [1.04, door.top],
+      [backZ + 0.06, backZ + 0.095],
+    );
   }
   for (const y of [1.46, 1.88]) {
     addBox(
-      root,
+      walls.back,
       woodDark,
       [door.minX, door.maxX],
       [y - 0.02, y + 0.02],
@@ -438,7 +489,7 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
 
   // 黑板与挂画（严格按像素尺寸换算！）
   addBox(
-    root,
+    walls.back,
     materials.material("#ffffff", { map: textures.chalkboardColor, roughness: 0.88 }),
     [3.0, 4.28],
     [1.46, 2.29],
@@ -446,7 +497,7 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     { cast: false, receive: true },
   );
   addBox(
-    root,
+    walls.back,
     materials.material("#ffffff", { map: textures.paintingWarm, roughness: 0.82 }),
     [4.56, 5.28],
     [1.52, 2.16],
@@ -460,7 +511,7 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     const x = Math.round((1.65 + t * 3.65) / LIT_PIXEL) * LIT_PIXEL;
     const y = 2.82 - Math.sin(t * Math.PI) * 0.14;
     addBox(
-      root,
+      walls.back,
       fairyBulbMaterial,
       [x - LIT_PIXEL, x + LIT_PIXEL],
       [y - LIT_PIXEL, y + LIT_PIXEL],
@@ -487,14 +538,14 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
   const shelfRowMat = materials.spriteCardMaterial(textures.shelfRowItems);
   for (const y of [1.46, 1.98, 2.5]) {
     addBox(
-      root,
+      walls.back,
       woodDark,
       [LIT_WORKTOP.minX, LIT_WORKTOP.maxX],
       [y - 0.06, y],
       [backZ, backZ + 0.32],
     );
     addBox(
-      root,
+      walls.back,
       shelfStripMaterial,
       [LIT_WORKTOP.minX + 0.08, LIT_WORKTOP.maxX - 0.08],
       [y - 0.076, y - 0.06],
@@ -506,11 +557,11 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     strip.scale.set(57 * LIT_PIXEL * 2.48, ((8 * LIT_PIXEL) / LIT_COS) * 2.48, 1);
     strip.castShadow = true;
     strip.receiveShadow = true;
-    root.add(strip);
+    walls.back.add(strip);
   }
   for (const x of [LIT_WORKTOP.minX, -1.02, 0.22, LIT_WORKTOP.maxX]) {
     addBox(
-      root,
+      walls.back,
       woodDark,
       [x - 0.045, x + 0.045],
       [LIT_BAR.top, LIT_ROOM.wallHeight],
@@ -855,6 +906,13 @@ export function buildLitCafe(textures: LitTextures, materials: LitMaterials): Li
     accentShadeMaterial,
     pendantPositions,
     steamAnchors,
+    /** 把挡在镜头前面的那面墙换成贴地收边，其余两面墙照常显示；null 表示镜头在敞开的正面。 */
+    cutAwayWall(near: LitWallSide | null) {
+      for (const side of ["back", "left", "right"] as const) {
+        walls[side].visible = side !== near;
+        wallTrims[side].visible = side === near;
+      }
+    },
     dispose() {
       unitBox.dispose();
       unitCylinder.dispose();

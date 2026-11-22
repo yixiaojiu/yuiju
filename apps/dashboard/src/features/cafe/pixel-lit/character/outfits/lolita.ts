@@ -26,7 +26,7 @@ export function buildLolita(
   kit: OutfitKit,
   { colors, chestArt, parts }: LolitaDesign,
 ): OutfitBuild {
-  const { attach, oval, place, sculpt, decal } = kit;
+  const { attach, oval, block, place, sculpt, decal } = kit;
 
   // 蓬蓬裙：扁扁的一层，腰下立刻往外张开，最宽处在裙摆附近、和头差不多宽；
   // 30° 俯视时裙摆前沿挡住脚，走路时偶尔露出鞋。
@@ -75,12 +75,12 @@ export function buildLolita(
   // 胸前的蝴蝶结和丝带画在上身上。
   decal(bodiceMesh, colors.dress, chestArt, chestPalette(colors.accent), parts.chest.position);
 
-  // 奶白圆翻领：脖子一圈的领边把头和衣服隔开；背后两片半圆领片，背面一眼看出上衣和裙子。
+  // 奶白水手领，做法和制服一样：脖子一圈领边，正面是下巴下面一道奶白，把头和衣服隔开；
+  // 背后垂下方形领片，水蓝方块比领片低出一个像素，露出来就是领片下沿的水蓝边。
   const collar = attach(kit.upper);
   oval(collar, colors.trim, parts.collar, "soft");
-  for (const side of [-1, 1]) {
-    oval(collar, colors.trim, parts.collarFlap, "soft", side);
-  }
+  block(collar, colors.accent, parts.collarTrim);
+  block(collar, colors.trim, parts.collarFlap);
 
   // 小圆头鞋。
   for (const [index, side] of [-1, 1].entries()) {

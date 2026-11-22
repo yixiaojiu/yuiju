@@ -16,6 +16,7 @@ import {
 import { defaultCharacterDesign, type OutfitName } from "../character/character-design";
 import type { PixelActionName } from "../character/pixel-actions";
 import {
+  aimPixelCamera,
   createPixelCamera,
   createPixelCharacter,
   ELEVATION,
@@ -25,11 +26,14 @@ import {
   OUTLINE_SHADE,
   OVERLAY_LAYER,
   PIXEL,
+  type PixelFocus,
 } from "../character/pixel-character";
 
 export type Direction4 = "down" | "right" | "up" | "left";
 
 export const CARD_PIXELS = 64;
+/** 角色在 64×64 画面里的取景：画面中心比头部中心低 10 个像素。 */
+const CARD_FOCUS: PixelFocus = { x: 0, z: 0, up: -10 };
 
 const DIRECTION_YAW: Record<Direction4, number> = {
   down: 0,
@@ -44,7 +48,7 @@ const DIRECTION_YAW: Record<Direction4, number> = {
  */
 export function createLitCharacterCard(outfit: OutfitName) {
   const scene = new Scene();
-  const camera = createPixelCamera(CARD_PIXELS, CARD_PIXELS);
+  const camera = createPixelCamera(CARD_PIXELS, CARD_PIXELS, CARD_FOCUS);
   const character = createPixelCharacter(camera, defaultCharacterDesign, outfit);
   // 明暗由场景灯光决定（见 lit-stage 的立牌着色器），角色自带的固定两档明暗关掉。
   character.setCelShading(false);
@@ -150,19 +154,21 @@ export function createLitCharacterCard(outfit: OutfitName) {
   quadScene.add(quadMesh);
   const quadCamera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
 
-  const groundNdc = new Vector3(0, 0, 0).project(camera);
-  // 脚底外侧还有 1px 轮廓描边，向下多扣 1 格让描边底沿正好落在地板平面。
-  const groundRowFromBottom = ((groundNdc.y + 1) / 2) * CARD_PIXELS - 1;
+  let elevation = ELEVATION;
+  // 脚底在画面里的行（从下往数）。脚底外侧还有 1px 轮廓描边，向下多扣 1 格让描边底沿正好落在地板平面。
+  const groundRow = () => ((new Vector3(0, 0, 0).project(camera).y + 1) / 2) * CARD_PIXELS - 1;
   // 角色脚底所在的竖直平面到相机的距离（沿视线方向），用来把深度贴图换算成「比这个平面靠前还是靠后多少」。
-  const forward = camera.getWorldDirection(new Vector3());
-  const rootDistance = new Vector3(0, 0, 0).sub(camera.position).dot(forward);
+  const rootDistance = () =>
+    new Vector3(0, 0, 0).sub(camera.position).dot(camera.getWorldDirection(new Vector3()));
 
   const savedClearColor = new Color();
   let currentLoop: PixelActionName = "idle";
 
   return {
     texture: outlinedTarget.texture,
-    groundRowFromBottom,
+    get groundRowFromBottom() {
+      return groundRow();
+    },
     /** 角色这一层的深度贴图（描边像素没有深度，取相邻像素的）。 */
     depthTexture: rawTarget.depthTexture!,
     /** 角色这一层的法线贴图：相机空间的法线压到 0–1；透明的地方是描边或空白，不参与受光。 */
@@ -171,15 +177,26 @@ export function createLitCharacterCard(outfit: OutfitName) {
      * 把深度贴图换算回角色空间距离要用的参数：相机近远平面、脚底平面的距离、
      * 一个贴图像素对应的角色空间尺寸、俯角的正切。立牌着色器据此按像素写入场景深度。
      */
-    depthReconstruction: {
-      near: camera.near,
-      far: camera.far,
-      rootDistance,
-      pixel: PIXEL,
-      tanElevation: Math.tan(ELEVATION),
+    get depthReconstruction() {
+      return {
+        near: camera.near,
+        far: camera.far,
+        rootDistance: rootDistance(),
+        pixel: PIXEL,
+        tanElevation: Math.tan(elevation),
+      };
     },
-    setDirection(direction: Direction4) {
-      character.root.rotation.y = DIRECTION_YAW[direction];
+    /** 换俯角：角色专用相机跟着场景相机一起换，脚底的行和深度换算参数随之变化。 */
+    setElevation(next: number) {
+      elevation = next;
+      aimPixelCamera(camera, CARD_PIXELS, CARD_PIXELS, CARD_FOCUS, next);
+    },
+    /**
+     * direction 是角色在店里朝哪个方向（世界方向），cameraYaw 是场景相机绕竖直轴转过的角度。
+     * 角色专用相机不动，角色反过来转 cameraYaw：朝向场景镜头时总是正面。
+     */
+    setDirection(direction: Direction4, cameraYaw: number) {
+      character.root.rotation.y = DIRECTION_YAW[direction] - cameraYaw;
     },
     setLoop(action: PixelActionName) {
       if (currentLoop === action) {
