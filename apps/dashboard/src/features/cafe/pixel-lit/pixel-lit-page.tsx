@@ -194,7 +194,7 @@ export function PixelLitCafePage() {
         </div>
 
         <span className="pl-1 text-[11px] text-amber-100/55">
-          WASD 四向移动 · QE 转视角 · RF 俯视角 · 3D 三渲二像素小人
+          WASD 四向移动 · Shift 跑步 · QE 转视角 · RF 俯视角 · 3D 三渲二像素小人
         </span>
       </div>
     </div>

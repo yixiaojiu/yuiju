@@ -174,6 +174,12 @@ export function PixelCharacterPreview() {
   const [design, setDesign] = useState(defaultCharacterDesign);
   const [angle, setAngle] = useState(0);
   const [elevation, setElevation] = useState(30);
+  // 右边「渲染前的 3D 模型」是否显示；关掉时像素结果占满整行，3D 模型也不再渲染。
+  const [showModel, setShowModel] = useState(true);
+  const showModelRef = useRef(true);
+  useEffect(() => {
+    showModelRef.current = showModel;
+  }, [showModel]);
   const [looping, setLooping] = useState<PixelActionName>("idle");
   const [expression, setExpression] = useState<ExpressionName>("normal");
   const [outfit, setOutfit] = useState<OutfitName>("uniform");
@@ -251,7 +257,9 @@ export function PixelCharacterPreview() {
       model.root.rotation.y = (angleRef.current * Math.PI) / 180;
       model.animate(time);
       ink.render(renderer, scene);
-      view.render();
+      if (showModelRef.current) {
+        view.render();
+      }
     });
     return () => {
       renderer.setAnimationLoop(null);
@@ -295,15 +303,17 @@ export function PixelCharacterPreview() {
         </header>
         <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_340px]">
           <section className="overflow-hidden rounded-2xl border border-[#ccc6b8] bg-[#faf7f0]">
-            <div className="grid h-[min(58dvh,510px)] min-h-[290px] grid-cols-2 bg-[#cbd7c3]">
-              <div className="relative min-w-0 border-r border-[#b7c4ae]">
+            <div
+              className={`grid h-[min(58dvh,510px)] min-h-[290px] bg-[#cbd7c3] ${showModel ? "grid-cols-2" : "grid-cols-1"}`}
+            >
+              <div className={`relative min-w-0 ${showModel ? "border-r border-[#b7c4ae]" : ""}`}>
                 <span className="absolute left-3 top-2 text-xs text-[#5d6b57]">像素结果 64×64</span>
                 <div
                   ref={mount}
                   className="flex h-full select-none items-center justify-center overflow-hidden"
                 />
               </div>
-              <div className="relative min-w-0">
+              <div className={`relative min-w-0 ${showModel ? "" : "hidden"}`}>
                 <div className="absolute inset-x-3 top-2 z-10 flex flex-wrap items-center justify-between gap-1 text-xs text-[#5d6b57]">
                   <span>渲染前的 3D 模型</span>
                   <div className="flex flex-wrap gap-1">
@@ -374,6 +384,14 @@ export function PixelCharacterPreview() {
                 ))}
               </div>
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-pressed={showModel}
+                  className={`mr-2 rounded-md px-2.5 py-1.5 text-sm ${showModel ? selectedButton : quietButton}`}
+                  onClick={() => setShowModel(!showModel)}
+                >
+                  3D 模型
+                </button>
                 <span className="text-xs text-[#786c60]">俯视角</span>
                 {elevations.map((value) => (
                   <button

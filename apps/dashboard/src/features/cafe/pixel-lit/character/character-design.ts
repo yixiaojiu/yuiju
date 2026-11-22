@@ -12,8 +12,17 @@ export type Vec3 = readonly [number, number, number];
  */
 export type Part = { position: Vec3; size: Vec3; rotation: Vec3 };
 
-export type EyeShape = "open" | "closed" | "happy" | "shy" | "surprised";
-export type MouthShape = "line" | "smile" | "open";
+export type EyeShape =
+  | "open"
+  | "closed"
+  | "happy"
+  | "shy"
+  | "surprised"
+  | "droop"
+  | "sharp"
+  | "sleepy"
+  | "narrow";
+export type MouthShape = "line" | "smile" | "open" | "laugh" | "frown";
 
 /** 身体的颜色：发色、肤色、贝雷帽和发夹、马尾丝带，以及脸部贴图用到的颜色。 */
 export type BodyColorName =
@@ -214,11 +223,24 @@ export const defaultCharacterDesign: CharacterDesign = {
     happy: { front: ["...", ".k.", "k.k", "..."], side: ["..", "kk", "k.", ".."] },
     shy: { front: ["...", "kkk", "ppp", "lll"], side: ["..", "kk", "pp", "ll"] },
     surprised: { front: ["kkk", "p.p", "p.p", "ppp"], side: ["kk", "p.", "p.", "ll"] },
+    // 下面几种眼睛有方向：正面按画面左边那只眼睛画（外眼角在左），右眼镜像；侧面眼睛朝右，外眼角在左。
+    // 下垂：外眼角往下垂，难过。
+    droop: { front: ["...", ".kk", "kpp", "lll"], side: ["..", ".k", "kp", "ll"] },
+    // 上挑：内眼角往下压，鼓着脸生气。
+    sharp: { front: ["...", "kk.", "ppk", "lll"], side: ["..", "k.", "pk", "ll"] },
+    // 半睁：上眼皮落到一半，困倦。
+    sleepy: { front: ["...", "...", "kkk", "ppp"], side: ["..", "..", "kk", "pp"] },
+    // 细眼：上下都收一行，专注做事。
+    narrow: { front: ["...", "kkk", "ppp", "..."], side: ["..", "kk", "pp", ".."] },
   },
   mouths: {
     line: { front: ["qq"], side: ["q"] },
     smile: { front: ["q..q", ".qq."], side: ["q"] },
     open: { front: ["oo"], side: ["o"] },
+    // 大笑：上面一道浅色嘴线，下面露 2 格嘴里，张开的笑嘴；深色多了脸会显得在大喊。
+    laugh: { front: ["qqqq", ".oo."], side: ["q", "o"] },
+    // 撇嘴：倒过来的微笑。
+    frown: { front: [".qq.", "q..q"], side: ["q"] },
   },
   // 正面每只手 4×3：最靠内一列挖空，两只手之间露出 1 像素衣服的颜色；挨着它的一列和底行压暗，
   // 外下角留一格亮色，手看起来是圆的。
@@ -240,9 +262,9 @@ export const defaultCharacterDesign: CharacterDesign = {
     // 贝雷帽比头小一圈、上下压扁，几乎平扣在头顶，只往后偏一点：侧面看帽檐和眼睛之间露出一截刘海。
     hat: { position: [0, 0.255, -0.06], size: [0.9, 0.555, 0.9], rotation: [-6, 0, 0] },
     // 马尾的系结点：往里收拢 3°，前后在头的中线稍后，尺寸 y 是马尾长度，垂到裙子中段。
-    tail: { position: [0.27, 0.2, -0.07], size: [1, 1, 1], rotation: [0, 0, -3] },
-    ribbonBow: { position: [0, -0.03, 0], size: unit, rotation: still },
-    ribbonStrip: { position: [0.03, 0.045, 0], size: [1, 1.27, 1], rotation: [0, 0, -19] },
+    tail: { position: [0.27, 0.2, -0.07], size: [1, 1, 1.23], rotation: [0, 0, -3] },
+    ribbonBow: { position: [0, -0.03, 0], size: [1, 1, 1.29], rotation: still },
+    ribbonStrip: { position: [0.03, 0.045, -0.005], size: [1, 1.27, 1], rotation: [-4, 0, -19] },
     // 手的小球比 4×3 的像素画略大一圈，像素画才完整；位置由动作决定。
     hand: { position: still, size: [0.085, 0.08, 0.04], rotation: still },
     hip: { position: [0.08, 0.23, 0], size: unit, rotation: still },

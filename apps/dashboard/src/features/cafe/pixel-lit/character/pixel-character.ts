@@ -90,11 +90,22 @@ export type PixelPose = {
   /** 动作要求的眼睛和嘴，为 null 时用当前表情的。 */
   eyes: EyeShape | null;
   mouth: MouthShape | null;
-  /** 杯子的位置，为 null 时不显示杯子。 */
-  cup: Vec3 | null;
+  /** 手里拿的道具、它的位置和绕前后轴的倾斜（弧度，扫帚左右扫），为 null 时手里没东西。 */
+  prop: { kind: PropName; at: Vec3; tilt: number } | null;
+  /** 头左右平移的像素数（歪头）。头不倾斜，否则按屏幕贴的脸部像素画会和 3D 头发错开。 */
+  headShift: number;
+  /** 整个人在外面给的朝向上再多转的角度（弧度），转身看一眼。 */
+  turn: number;
+  /** 整个人连腿一起离地的像素数（跳起来）；rise 只抬身体，脚不离地。 */
+  jump: number;
   /** 动作自带的情绪符号，比如思考时的「…」。 */
   emote: EmoteName | null;
+  /** 马尾往后飘的程度：0 是站着、走路时的轻晃，1 是跑步时往后扬、随落脚颤动。 */
+  tailFlow: number;
 };
+
+/** 动作里用到的道具：杯子、手机、小面包。 */
+export type PropName = "cup" | "phone" | "bun" | "broom" | "notepad";
 
 /** 画面中心：x、z 是地面位置，up 是画面中心比该位置上的头部中心高出的像素数。 */
 export type PixelFocus = { x: number; z: number; up: number };
@@ -163,17 +174,49 @@ export function snapToPixelGrid(position: Vector3, elevation: number) {
   );
 }
 
-/** 表情决定眼睛、嘴和腮红宽度；动作可以临时指定眼睛和嘴，比如点头时闭眼。 */
-export const expressions = {
+export type ExpressionName =
+  | "normal"
+  | "smile"
+  | "happy"
+  | "laugh"
+  | "shy"
+  | "surprised"
+  | "sad"
+  | "pout"
+  | "sleepy"
+  | "focused"
+  | "wink";
+/**
+ * 一个表情：眼睛、嘴和腮红格数。rightEyes 只有眨眼这类左右眼不一样的表情才写，指画面右边那只眼睛；
+ * 不写时两只眼睛相同（右眼是左眼的镜像）。动作可以临时指定眼睛和嘴，比如点头时闭眼。
+ */
+type Expression = {
+  label: string;
+  eyes: EyeShape;
+  rightEyes?: EyeShape;
+  mouth: MouthShape;
+  blush: number;
+};
+export const expressions: Record<ExpressionName, Expression> = {
   normal: { label: "普通", eyes: "open", mouth: "line", blush: 2 },
+  // 迎客、服务时的笑脸。
+  smile: { label: "微笑", eyes: "open", mouth: "smile", blush: 2 },
   happy: { label: "开心", eyes: "happy", mouth: "smile", blush: 2 },
+  laugh: { label: "大笑", eyes: "happy", mouth: "laugh", blush: 3 },
   shy: { label: "害羞", eyes: "shy", mouth: "line", blush: 3 },
   surprised: { label: "惊讶", eyes: "surprised", mouth: "open", blush: 2 },
-} satisfies Record<string, { label: string; eyes: EyeShape; mouth: MouthShape; blush: number }>;
-export type ExpressionName = keyof typeof expressions;
+  sad: { label: "难过", eyes: "droop", mouth: "frown", blush: 0 },
+  // Q 版的生气：内眼角压下来，鼓着脸，腮红拉满。
+  pout: { label: "生气", eyes: "sharp", mouth: "line", blush: 3 },
+  sleepy: { label: "困倦", eyes: "sleepy", mouth: "line", blush: 1 },
+  // 做饮品、擦杯子时。
+  focused: { label: "专注", eyes: "narrow", mouth: "line", blush: 1 },
+  wink: { label: "眨眼", eyes: "open", rightEyes: "closed", mouth: "smile", blush: 2 },
+};
 
 /**
- * 头顶的情绪符号，一个符号可以有几帧轮流显示。r/R 爱心，w/g 气泡和点，y 感叹号，s/S 汗滴，n 音符。
+ * 头顶的情绪符号，一个符号可以有几帧轮流显示。r/R 爱心，w/g 气泡和点（w 也是问号），y 感叹号和怒筋，
+ * s/S 汗滴，n 音符和睡觉的 Z。
  * 符号外圈的深色描边由后处理统一画。
  */
 export const emotes = {
@@ -192,6 +235,12 @@ export const emotes = {
   exclaim: { label: "!", frames: [["yy", "yy", "yy", "yy", "..", "yy"]] },
   sweat: { label: "汗滴", frames: [["..s", ".ss", "sSs", "sss", ".s."]] },
   note: { label: "音符", frames: [[".nn.", ".n.n", ".n..", "nn..", "nn.."]] },
+  // 白色问号，外圈的深色描边把它勾出来。
+  question: { label: "？", frames: [[".ww.", "w..w", "...w", "..w.", "....", "..w."]] },
+  // 四个拐角都朝着中心，拼成十字怒筋。
+  anger: { label: "怒筋", frames: [[".y.y.", "yy.yy", ".....", "yy.yy", ".y.y."]] },
+  // 一个 5 格的大 Z：再高会超出 64×64 画面的上沿，3 格的小 z 斜线会被描边吃掉。
+  sleep: { label: "Z", frames: [["nnnnn", "...n.", "..n..", ".n...", "nnnnn"]] },
 } satisfies Record<string, { label: string; frames: string[][] }>;
 export type EmoteName = keyof typeof emotes;
 /** 情绪符号的颜色。 */
@@ -326,8 +375,10 @@ export function createPixelCharacter(
 ) {
   const { colors, parts } = design;
   const root = new Group();
-  // 身体（含头）整体按像素起伏；腿留在 root 上，起伏时脚不离地。
-  const body = pivot(root, 0, 0, 0);
+  // 整个人（身体和腿）的转轴：跳起来时整体离地，转身看时整体多转一个角度；朝向由外面设在 root 上。
+  const whole = pivot(root, 0, 0, 0);
+  // 身体（含头）整体按像素起伏；腿留在 whole 上，起伏时脚不离地。
+  const body = pivot(whole, 0, 0, 0);
   // 上半身绕腰前倾：waist 在腰部高度转动，upper 再移回原点，上半身的部件仍按脚底为原点摆放。
   const waist = pivot(body, 0, WAIST_Y, 0);
   const upper = pivot(waist, 0, -WAIST_Y, 0);
@@ -413,8 +464,11 @@ export function createPixelCharacter(
       }
     }
   }
-  /** 按当前的眼睛、嘴和腮红，重画正面和侧面两张脸。 */
-  function paintFace(eyes: EyeShape, mouth: MouthShape, blush: number) {
+  /**
+   * 按当前的眼睛、嘴和腮红，重画正面和侧面两张脸。eyes 是画面左边那只眼睛，rightEyes 是右边那只，
+   * 右眼按镜像盖上去，下垂、上挑这类有方向的眼睛两边对称。侧面只看得到一只眼睛，用 eyes。
+   */
+  function paintFace(eyes: EyeShape, rightEyes: EyeShape, mouth: MouthShape, blush: number) {
     const { face } = design;
     const eye = design.eyes[eyes];
     const eyeWidth = eye.front[0].length;
@@ -429,7 +483,12 @@ export function createPixelCharacter(
       front[blushRow][left - 1 + k] = front[blushRow][right + eyeWidth - k] = "b";
     }
     stamp(front, eye.front, top, left);
-    stamp(front, eye.front, top, right);
+    stamp(
+      front,
+      design.eyes[rightEyes].front.map((row) => [...row].reverse().join("")),
+      top,
+      right,
+    );
     // 嘴按整数格左右居中，嘴宽是奇数时偏左半格。
     const mouthStamp = design.mouths[mouth].front;
     stamp(front, mouthStamp, face.mouthRow, Math.floor((FACE_GRID - mouthStamp[0].length) / 2));
@@ -746,7 +805,7 @@ export function createPixelCharacter(
   // 腿从裙子里的胯部开始，平时藏在裙子下面，走路、坐下抬腿时才露出来；
   // 比脸深一档的肤色像是在裙子的阴影里。鞋由衣服提供。
   const legs = [-1, 1].map((side) => {
-    const leg = place(root, parts.hip, side);
+    const leg = place(whole, parts.hip, side);
     const skin = oval(leg, colors.legSkin, parts.leg, undefined, side);
     return { side, leg, skin };
   });
@@ -801,7 +860,8 @@ export function createPixelCharacter(
   }
   setOutfit(outfit);
 
-  // 杯子：白色杯身加咖啡色的液面，由动作决定放在哪。
+  // 道具都挂在上半身上，跟着前倾；动作每帧决定显示哪一个、放在哪。
+  // 杯子：白色杯身加咖啡色的液面。
   const cup = pivot(upper, 0, 0, 0);
   // 和咖啡馆台面上的杯子一样大：杯身高 0.16、半径 0.1，原点在杯底往上 0.05。
   sculpt(cup, colors.pearl, [
@@ -809,6 +869,24 @@ export function createPixelCharacter(
     [0.11, 0, 0, 0.1, 0.1],
   ]);
   oval(cup, "#7a4a32", fixed([0, 0.11, 0], [0.085, 0.008, 0.085]));
+  // 手机：竖着的小方块，屏幕朝着她自己，镜头看到的是粉色手机壳；上沿往她那边倾。约 2×3 像素。
+  const phone = pivot(upper, 0, 0, 0);
+  phone.rotation.x = -0.5;
+  block(phone, "#f4a6c0", fixed(still, [0.08, 0.12, 0.015]));
+  // 小圆面包：焦糖色的扁圆，约 2×2 像素。
+  const bun = pivot(upper, 0, 0, 0);
+  oval(bun, "#d9944f", fixed(still, [0.05, 0.035, 0.05]));
+  // 扫帚：原点在两只手之间，细木杆往下伸到脚边，末端是浅色的扫帚头；绕原点左右倾斜就是在扫地。
+  const broom = pivot(upper, 0, 0, 0);
+  // 下端往前斜：扫帚头落在裙摆前面，不被蓬蓬裙盖住。
+  broom.rotation.x = -0.35;
+  block(broom, "#9c6b45", fixed([0, -0.17, 0], [0.025, 0.5, 0.025]));
+  block(broom, "#d8b878", fixed([0, -0.43, 0.01], [0.13, 0.07, 0.05]));
+  // 小本子：奶白色的小方块，和手机一样往她那边倾，约 2×3 像素。
+  const notepad = pivot(upper, 0, 0, 0);
+  notepad.rotation.x = -0.5;
+  block(notepad, colors.pearl, fixed(still, [0.1, 0.11, 0.015]));
+  const props: Record<PropName, Group> = { cup, phone, bun, broom, notepad };
 
   // 情绪符号是对齐像素的贴片，画在最上层，不被帽子挡住。
   const emoteTextures = Object.fromEntries(
@@ -855,43 +933,59 @@ export function createPixelCharacter(
     const rise = pixelRise(Math.asin(-camera.getWorldDirection(new Vector3()).y));
     body.position.y = pose.rise * rise;
     waist.rotation.x = pose.lean;
+    // 头跟着上身移到前面，但自己保持竖直：脸部像素画按屏幕贴在头上，不跟着头转，
+    // 头一倾斜，3D 的头发、鬓毛和脸部像素画就会错开半格，五官缺行少列。
+    head.rotation.x = -pose.lean;
     head.position.y = parts.head.position[1] - pose.headDrop * rise;
+    head.position.x = parts.head.position[0] + pose.headShift * PIXEL;
+    whole.position.y = pose.jump * rise;
+    whole.rotation.y = pose.turn;
 
     const walk = pose.step === null ? 0 : 1;
     const beat = Math.sin(pose.step ?? 0);
-    skirt.rotation.y = 0.08 * beat * walk;
+    // 小碎步：腿前后摆得小、脚抬得低，裙子跟着轻轻扭。
+    skirt.rotation.y = 0.05 * beat * walk;
     for (const { side, leg } of legs) {
-      leg.rotation.x = pose.seated ? -1.45 : side * 0.55 * beat * walk;
+      leg.rotation.x = pose.seated ? -1.45 : side * 0.3 * beat * walk;
       leg.position.y =
-        parts.hip.position[1] + 0.04 * Math.max(0, side * Math.cos(pose.step ?? 0)) * walk;
+        parts.hip.position[1] + 0.025 * Math.max(0, side * Math.cos(pose.step ?? 0)) * walk;
     }
+    const step = pose.step ?? 0;
+    const flow = pose.tailFlow;
     for (const { side, tail } of tails) {
-      // 走路时马尾只往后仰一点、轻轻晃，不往后甩。
-      tail.rotation.x =
-        0.05 * Math.sin(time * 1.6 - side) * (1 - walk) +
-        (0.06 + 0.04 * Math.sin(2 * (pose.step ?? 0) - 1.2)) * walk;
-      tail.rotation.z = side * 0.06 * Math.sin((pose.step ?? 0) - 0.8) * walk;
+      // 站着时马尾轻轻晃；走路时只往后仰一点、跟着步子晃，不往后甩；
+      // 跑步时往后扬，每落一次脚（步伐相位的两倍）上下颤一下，左右两条错开一点。
+      const stood = 0.05 * Math.sin(time * 1.6 - side);
+      const walked = 0.06 + 0.04 * Math.sin(2 * step - 1.2);
+      const ran = 0.3 + 0.08 * Math.sin(2 * step - 1.2 + side * 0.4);
+      tail.rotation.x = stood * (1 - walk) + (walked * (1 - flow) + ran * flow) * walk;
+      tail.rotation.z = side * (0.06 + 0.03 * flow) * Math.sin(step - 0.8) * walk;
     }
 
-    for (const [index, { side, hand }] of hands.entries()) {
+    // 手直接放到动作给出的位置；走路时也不摆。
+    for (const [index, { hand }] of hands.entries()) {
       hand.position.set(...pose.hands[index]);
-      // 走路时手和同侧的腿反着前后摆。
-      hand.position.z += side * 0.1 * beat * walk;
     }
 
-    cup.visible = pose.cup !== null;
-    if (pose.cup) {
-      cup.position.set(...pose.cup);
+    for (const [name, prop] of Object.entries(props)) {
+      prop.visible = pose.prop?.kind === name;
+    }
+    if (pose.prop) {
+      props[pose.prop.kind].position.set(...pose.prop.at);
+      props[pose.prop.kind].rotation.z = pose.prop.tilt;
     }
 
     const look = expressions[expression];
     const mouth = pose.mouth ?? look.mouth;
-    // 睁眼时每 3.85 秒眨一次。
-    const wanted = pose.eyes ?? look.eyes;
-    const eyes = wanted === "open" && time % 3.85 > 3.68 ? "closed" : wanted;
-    if (painted !== eyes + mouth + look.blush) {
-      painted = eyes + mouth + look.blush;
-      paintFace(eyes, mouth, look.blush);
+    // 睁眼时每 3.85 秒眨一次；动作指定了眼睛时两只眼睛都用它。
+    const blinking = time % 3.85 > 3.68;
+    const blink = (wanted: EyeShape) => (wanted === "open" && blinking ? "closed" : wanted);
+    const eyes = blink(pose.eyes ?? look.eyes);
+    const rightEyes = blink(pose.eyes ?? look.rightEyes ?? look.eyes);
+    const key = [eyes, rightEyes, mouth, look.blush].join();
+    if (painted !== key) {
+      painted = key;
+      paintFace(eyes, rightEyes, mouth, look.blush);
     }
   }
 

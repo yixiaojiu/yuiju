@@ -109,8 +109,18 @@ const eyeLabels: Record<EyeShape, string> = {
   happy: "开心",
   shy: "害羞",
   surprised: "惊讶",
+  droop: "下垂",
+  sharp: "上挑",
+  sleepy: "半睁",
+  narrow: "细眼",
 };
-const mouthLabels: Record<MouthShape, string> = { line: "平嘴", smile: "微笑", open: "张嘴" };
+const mouthLabels: Record<MouthShape, string> = {
+  line: "平嘴",
+  smile: "微笑",
+  open: "张嘴",
+  laugh: "大笑",
+  frown: "撇嘴",
+};
 const views: View[] = ["front", "side"];
 const artViews: ArtView[] = ["front", "side", "back"];
 const artTargets: { group: string; label: string; target: ArtTarget }[] = [

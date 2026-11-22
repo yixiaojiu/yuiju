@@ -55,7 +55,9 @@ const TONE_MAPPINGS: Record<ToneMappingName, ToneMapping> = {
   aces: ACESFilmicToneMapping,
   agx: AgXToneMapping,
 };
-const WALK_SPEED = 1.55;
+/** 走路、跑步（按住 Shift）的移动速度，米每秒。都是小碎步，速度和步频对得上，脚下不打滑。 */
+const WALK_SPEED = 1.15;
+const RUN_SPEED = 2.4;
 
 /** 四个视角：相机从店的正面开始，每档绕店中心转 90°（从上往下看是逆时针）。 */
 export type LitViewName = "front" | "right" | "back" | "left";
@@ -168,6 +170,8 @@ export class LitCafeStage {
   private readonly yuuno: CharacterEntity;
   /** 按住的移动键，dir 是屏幕方向（W 总是往屏幕上方走），移动时按当前视角换算成世界方向。 */
   private readonly heldMoves: { code: string; dir: Direction4 }[] = [];
+  /** 按住 Shift 时跑步。 */
+  private running = false;
   // 开局站在吧台里、前台后面，面朝顾客；左右避开台面上的蛋糕和面包篮。dir 是世界方向。
   private readonly self = { x: -0.5, z: 0.05, dir: "down" as Direction4 };
   private viewIndex = 0;
@@ -668,7 +672,7 @@ export class LitCafeStage {
 
     const walking = this.moveFourWay(dt);
     this.yuuno.card.setDirection(this.self.dir, this.cameraYaw);
-    this.yuuno.card.setLoop(walking ? "walk" : this.stationaryLoop);
+    this.yuuno.card.setLoop(walking ? (this.running ? "run" : "walk") : this.stationaryLoop);
     this.placeCharacter(this.yuuno, this.self.x, this.self.z);
     this.yuuno.card.render(this.renderer, this.time);
 
@@ -689,8 +693,9 @@ export class LitCafeStage {
       this.onStationaryLoopChange?.("idle");
     }
     const [dx, dz] = DIRECTION_STEP[this.self.dir];
-    const nextX = this.self.x + dx * WALK_SPEED * dt;
-    const nextZ = this.self.z + dz * WALK_SPEED * dt;
+    const speed = this.running ? RUN_SPEED : WALK_SPEED;
+    const nextX = this.self.x + dx * speed * dt;
+    const nextZ = this.self.z + dz * speed * dt;
     if (!this.blocked(nextX, nextZ)) {
       this.self.x = nextX;
       this.self.z = nextZ;
@@ -715,6 +720,7 @@ export class LitCafeStage {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
+    this.running = event.shiftKey;
     const target = event.target as HTMLElement;
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
       return;
@@ -751,6 +757,7 @@ export class LitCafeStage {
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {
+    this.running = event.shiftKey;
     const index = this.heldMoves.findIndex((item) => item.code === event.code);
     if (index !== -1) {
       this.heldMoves.splice(index, 1);
@@ -759,5 +766,6 @@ export class LitCafeStage {
 
   private handleBlur = () => {
     this.heldMoves.length = 0;
+    this.running = false;
   };
 }
