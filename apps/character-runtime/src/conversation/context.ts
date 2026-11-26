@@ -14,7 +14,11 @@ export type ContextSummary = { text: string; coveredThrough: number };
 export type ContextUnit = { sequence: number; messages: ModelMessage[] };
 
 type ContextOptions = {
-  scope: ConversationScope;
+  scope: {
+    characterId: string;
+    platform: ConversationScope["platform"];
+    channelId?: string;
+  };
   stage: "planner" | "replyer";
   system: string;
   compressionPrompt: string;
@@ -234,7 +238,9 @@ export class ConversationContext {
         eventData: {
           scene: stage,
           characterId: this.options.scope.characterId,
-          channelId: this.options.scope.channelId,
+          ...(this.options.scope.channelId !== undefined && {
+            channelId: this.options.scope.channelId,
+          }),
           trigger,
           contextTokens,
           windowTokens,

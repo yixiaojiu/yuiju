@@ -56,11 +56,10 @@ const groups: {
     sliders: [
       { key: "pendantIntensity", label: "吊灯和补光", min: 0, max: 4, step: 0.01 },
       { key: "coneStrength", label: "灯下光锥", min: 0, max: 0.3, step: 0.005 },
-      { key: "accentIntensity", label: "点缀灯", min: 0, max: 10, step: 0.1 },
       { key: "shadowSoftness", label: "阴影柔和", min: 0, max: 6, step: 0.1 },
       { key: "dustStrength", label: "浮尘", min: 0, max: 1, step: 0.01 },
     ],
-    colors: [{ key: "accentColor", label: "点缀灯" }],
+    colors: [],
   },
   {
     title: "角色受光",

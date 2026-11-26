@@ -1,8 +1,8 @@
 import { h } from "@satorijs/core";
 import { logger } from "@yuiju/shared/logger/logger";
-import type { ConversationInputEvent } from "../events";
+import type { ConversationWait } from "../loop";
 import { type ConversationMessage, visibleText } from "../message";
-import type { ConversationRuntime } from "../storage/redis";
+import type { ChannelRuntime, PlannerAgentEvent } from "../storage/redis";
 
 export const RECHECK_INTERVAL_MS = 30_000;
 // 第二次连续沉默开始退避，后续按顺序增长，最多五分钟。
@@ -157,7 +157,7 @@ export type NextRound = {
     messages: ConversationMessage[];
     history: ConversationMessage[];
     throughSequence: number;
-    agentEvents: ConversationInputEvent[];
+    agentEvents: PlannerAgentEvent[];
   };
   /** 等待实际秒数；0 也表示结束等待。 */
   waitedSeconds?: number;
@@ -168,21 +168,25 @@ export function getNextRound(input: {
   now: number;
   pending: ConversationMessage[];
   history: ConversationMessage[];
-  runtime: ConversationRuntime;
+  channelRuntime: ChannelRuntime;
+  currentRound?: { throughSequence: number; sendAttempted: boolean };
+  waiting?: ConversationWait;
+  agentEvents: PlannerAgentEvent[];
   selfId: string;
   names: string[];
   botIds: readonly string[];
 }): NextRound {
-  const { now, pending, history, runtime, selfId, names, botIds } = input;
-  const agentEvents = (runtime.agentEvents ?? []).filter((event) => !event.consumed);
-  const { waiting, failedThroughSequence, currentRound } = runtime;
+  const { now, pending, history, channelRuntime, currentRound, waiting, selfId, names, botIds } =
+    input;
+  const agentEvents = input.agentEvents.filter((event) => !event.consumed);
+  const { failedThroughSequence } = channelRuntime;
   const trigger = evaluateTrigger({
     pending,
     history,
     selfId,
     names,
     botIds,
-    nextEligibleAt: runtime.silenceCooldownUntil,
+    nextEligibleAt: channelRuntime.silenceCooldownUntil,
     now,
   });
   let waitedSeconds: number | undefined;
@@ -220,7 +224,7 @@ export function getNextRound(input: {
       botOnly: trigger.botOnly,
       scoredMessageCount: trigger.scoredMessageCount,
       ...trigger.scoreDetails,
-      cooldownSeconds: Math.max(0, Math.ceil((runtime.silenceCooldownUntil - now) / 1000)),
+      cooldownSeconds: Math.max(0, Math.ceil((channelRuntime.silenceCooldownUntil - now) / 1000)),
       recheckAfterSeconds: trigger.shouldRecheck ? RECHECK_INTERVAL_MS / 1000 : null,
     });
     return { nextCheckAt: trigger.shouldRecheck ? now + RECHECK_INTERVAL_MS : undefined };
@@ -246,7 +250,7 @@ export function getNextRound(input: {
         }
       : {}),
   });
-  const throughSequence = pending.at(-1)?.sequence ?? runtime.processedThrough;
+  const throughSequence = pending.at(-1)?.sequence ?? channelRuntime.processedThrough;
   return {
     input: {
       messages: pending,

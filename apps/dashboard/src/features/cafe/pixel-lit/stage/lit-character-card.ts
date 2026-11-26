@@ -29,18 +29,9 @@ import {
   type PixelFocus,
 } from "../character/pixel-character";
 
-export type Direction4 = "down" | "right" | "up" | "left";
-
 export const CARD_PIXELS = 64;
 /** 角色在 64×64 画面里的取景：画面中心比头部中心低 10 个像素。 */
 const CARD_FOCUS: PixelFocus = { x: 0, z: 0, up: -10 };
-
-const DIRECTION_YAW: Record<Direction4, number> = {
-  down: 0,
-  right: Math.PI / 2,
-  up: Math.PI,
-  left: -Math.PI / 2,
-};
 
 /**
  * 将 3D 三渲二像素角色离屏渲染为 64×64 最近邻纹理：
@@ -192,11 +183,12 @@ export function createLitCharacterCard(outfit: OutfitName) {
       aimPixelCamera(camera, CARD_PIXELS, CARD_PIXELS, CARD_FOCUS, next);
     },
     /**
-     * direction 是角色在店里朝哪个方向（世界方向），cameraYaw 是场景相机绕竖直轴转过的角度。
-     * 角色专用相机不动，角色反过来转 cameraYaw：朝向场景镜头时总是正面。
+     * facing 是角色在店里面朝的方向（绕竖直轴的角度，0 面朝店门口 +z，π/2 面朝 +x），
+     * cameraYaw 是场景相机绕竖直轴转过的角度。角色专用相机不动，角色反过来转 cameraYaw。
+     * 脸部像素画只有正面、侧面、背面三张，相对镜头的朝向吸附到最近的 90°（镜头转动途中会跟着跳一档）。
      */
-    setDirection(direction: Direction4, cameraYaw: number) {
-      character.root.rotation.y = DIRECTION_YAW[direction] - cameraYaw;
+    setFacing(facing: number, cameraYaw: number) {
+      character.root.rotation.y = Math.round((facing - cameraYaw) / (Math.PI / 2)) * (Math.PI / 2);
     },
     setLoop(action: PixelActionName) {
       if (currentLoop === action) {

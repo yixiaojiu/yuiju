@@ -23,11 +23,9 @@ export type LitTuning = {
   windowBackdropIntensity: number;
   shaftColor: string;
   shaftStrength: number;
-  /** 吧台主光、圆桌吊灯和各处暖色补光共用的强度。 */
+  /** 吧台主光、小桌吊灯和各处暖色补光共用的强度。 */
   pendantIntensity: number;
   coneStrength: number;
-  accentColor: string;
-  accentIntensity: number;
   /** 阴影边缘的模糊半径，0 是硬边。 */
   shadowSoftness: number;
   /** 空中浮尘的亮度，0 关掉。 */
@@ -87,8 +85,6 @@ export const LIT_PRESETS: Record<LightingPresetId, LitTuning> = {
     shaftStrength: 0.2,
     pendantIntensity: 1.65,
     coneStrength: 0.08,
-    accentColor: "#9bd0ff",
-    accentIntensity: 4.8,
     exposure: 1.06,
   },
   dusk: {
@@ -107,8 +103,6 @@ export const LIT_PRESETS: Record<LightingPresetId, LitTuning> = {
     shaftStrength: 0.18,
     pendantIntensity: 2.35,
     coneStrength: 0.105,
-    accentColor: "#ffab57",
-    accentIntensity: 3.4,
     exposure: 1.1,
   },
 };

@@ -9,10 +9,10 @@ import { generateText, type ModelMessage, stepCountIs } from "ai";
 import { z } from "zod";
 import { type ContextUnit, ConversationContext } from "../context";
 import { type ConversationMessage, type ConversationScope, renderMessage } from "../message";
-import type { ConversationState } from "../storage/redis";
+import type { PlannerState } from "../storage/redis";
 import { type ConversationToolContext, createPlannerTools } from "./tools";
 
-/** 每群独立的工具循环；上下文只保留输入及 SDK 生成的模型消息、工具调用与结果。 */
+/** 角色级唯一聊天工具循环；跨群保持同一条仅追加上下文以保留前缀缓存。 */
 export class Planner {
   private context!: ConversationContext;
   /** 初始化时从合并默认值后的项目配置读取，用于模型输入中的时间展示。 */
@@ -23,11 +23,12 @@ export class Planner {
   private sequence = 0;
 
   constructor(
-    private readonly scope: ConversationScope,
+    private readonly characterId: string,
+    private readonly platform: ConversationScope["platform"],
     private readonly botIds: readonly string[],
   ) {}
 
-  async initialize(state: ConversationState["planner"]) {
+  async initialize(state: PlannerState["planner"]) {
     const config = await load_config();
     this.timezone = config.app!.timezone!;
     const windowTokens = config.llm?.models?.flash?.context_window_tokens;
@@ -35,9 +36,9 @@ export class Planner {
       throw new Error("群聊需要配置 flash.context_window_tokens");
     }
     const [persona, rules, characterPrompt, compressionPrompt] = await Promise.all([
-      renderPrompt(`character.persona.${this.scope.characterId}`),
+      renderPrompt(`character.persona.${this.characterId}`),
       renderPrompt("conversation.planner"),
-      renderPrompt(`conversation.planner.${this.scope.characterId}`),
+      renderPrompt(`conversation.planner.${this.characterId}`),
       renderPrompt("conversation.planner_compression"),
     ]);
     this.history = state.history;
@@ -45,7 +46,7 @@ export class Planner {
     this.context = new ConversationContext(
       {
         stage: "planner",
-        scope: this.scope,
+        scope: { characterId: this.characterId, platform: this.platform },
         system: `${persona}\n\n${rules}\n\n${characterPrompt}`,
         compressionPrompt,
         model: flashModel,
@@ -64,7 +65,7 @@ export class Planner {
     this.history.push({ sequence: ++this.sequence, messages: [{ role: "user", content: text }] });
   }
 
-  /** 由会话在提交队列内追加，与 plannerInputThrough 一起保存。 */
+  /** 由会话在提交队列内追加，与当前焦点群的 plannerInputThrough 一起保存。 */
   appendInput(messages: ConversationMessage[], waitedSeconds?: number): void {
     const input: ModelMessage[] = [];
     if (waitedSeconds !== undefined) {
@@ -81,13 +82,19 @@ export class Planner {
         }),
       ),
     );
-    if (input.length) this.history.push({ sequence: ++this.sequence, messages: input });
+    if (input.length) {
+      this.history.push({ sequence: ++this.sequence, messages: input });
+    }
   }
 
-  async run(execution: ConversationToolContext, saveContext: () => Promise<void>): Promise<void> {
+  async run(
+    scope: ConversationScope,
+    execution: ConversationToolContext,
+    saveContext: () => Promise<void>,
+  ): Promise<void> {
     const startedAt = performance.now();
     try {
-      const tools = await createPlannerTools(this.scope, this.timezone, this.botIds, execution);
+      const tools = createPlannerTools(scope, this.timezone, this.botIds, execution);
       const toolDescription = JSON.stringify(
         Object.fromEntries(
           Object.entries(tools).map(([name, definition]) => [
@@ -99,7 +106,11 @@ export class Planner {
           ]),
         ),
       );
-      this.appendBackground(`当前角色状态：\n${await execution.readCharacter()}`);
+      const statusBlocks = [`当前角色状态：\n${await execution.readCharacter()}`];
+      if (execution.otherChatsSummary) {
+        statusBlocks.push(`其他群聊动态：\n${execution.otherChatsSummary}`);
+      }
+      this.appendBackground(statusBlocks.join("\n\n"));
       await saveContext();
       // SDK 的 onStepEnd 会吞掉回调异常，必须在下一步请求前和最终返回时显式传播。
       let stepSaveError: Error | undefined;
@@ -111,9 +122,14 @@ export class Planner {
         allowSystemInMessages: true,
         tools,
         maxRetries: 0,
-        stopWhen: [stepCountIs(20), () => execution.waitSeconds !== undefined],
+        stopWhen: [
+          stepCountIs(20),
+          () => execution.waitSeconds !== undefined || execution.switchChannelId !== undefined,
+        ],
         prepareStep: async () => {
-          if (stepSaveError) throw stepSaveError;
+          if (stepSaveError) {
+            throw stepSaveError;
+          }
           // 每一步都从已记录历史重建请求；压缩只改变上下文，不重放已执行工具。
           const previousSummary = this.context.summary;
           try {
@@ -169,18 +185,24 @@ export class Planner {
         },
       });
 
-      if (stepSaveError) throw stepSaveError;
+      if (stepSaveError) {
+        throw stepSaveError;
+      }
       if (result.finishReason !== "stop" && result.finishReason !== "tool-calls") {
         throw new Error(`Planner 未完成：${result.finishReason}`);
       }
-      if (execution.waitSeconds === undefined && result.finishReason !== "stop") {
+      if (
+        execution.waitSeconds === undefined &&
+        execution.switchChannelId === undefined &&
+        result.finishReason !== "stop"
+      ) {
         throw new Error("Planner 达到调用上限，尚未结束本轮");
       }
     } finally {
       reportAnalyticsEvent({
         eventName: "conversation.planner",
         eventData: {
-          ...this.scope,
+          ...scope,
           durationMs: Math.round(performance.now() - startedAt),
         },
       });

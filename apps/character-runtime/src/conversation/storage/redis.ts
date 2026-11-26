@@ -12,29 +12,49 @@ import type { ConversationMessage, ConversationScope } from "../message";
 /** 实际交流按发生时间保留 30 天，延迟归档不延长保留时间。 */
 export const MESSAGE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** 会话自己的业务进度；与定时器、Promise 等进程资源分开保存。 */
-export type ConversationRuntime = {
+/** 角色级内部输入；consumed 表示已注入唯一 Planner，不代表已执行或对外发送。 */
+export type PlannerAgentEvent = ConversationInputEvent & {
+  /** 关联来源群（例如主 loop 针对某群交流的反馈）；无固定来源时省略。 */
+  channelId?: string;
+  consumed: boolean;
+};
+
+/** 单一 Planner 的业务进度与注意力归属；与定时器、Promise 等进程资源分开保存。 */
+export type PlannerRuntime = {
+  focusedChannelId: string | null;
+  /** 切焦后尚未向 Planner 宣告切换边界与准备未读积压时为 true。 */
+  focusAnnouncementPending?: boolean;
+  /** 发送前先提交标记，重启后不重放可能已产生外部副作用的轮次。 */
+  currentRound?: { channelId: string; throughSequence: number; sendAttempted: boolean };
+  waiting?: ConversationWait;
+  agentEvents?: PlannerAgentEvent[];
+};
+
+/** 单群自己的收发进度、沉默退避和暂停状态；不持有 Planner 上下文。 */
+export type ChannelRuntime = {
   sequence: number;
   processedThrough: number;
   /** 已注入 Planner 的外部输入边界，失败后不重复注入。 */
   plannerInputThrough: number;
-  /** 发送前先提交标记，重启后不重放可能已产生外部副作用的轮次。 */
-  currentRound?: { throughSequence: number; sendAttempted: boolean };
-  waiting?: ConversationWait;
   failedThroughSequence?: number;
   silentRounds: number;
   silenceCooldownUntil: number;
   /** 暂停期消息只作为背景；少于 30 条保留原文，否则分批摘要，恢复后不补跑回复。 */
   paused?: { summary: string; coveredThrough: number };
-  /** 内部输入；consumed 表示已注入 Planner 上下文，不代表已执行或对外发送。 */
-  agentEvents?: (ConversationInputEvent & { consumed: boolean })[];
+  /** 后台未读触发已通知当前焦点 Planner 的最新序号，避免因同一批旧消息重复唤醒。 */
+  notifiedThrough?: number;
 };
 
-/** Redis Hash 的四个字段；调用方只提交本次变更涉及的字段。 */
-export type ConversationState = {
-  runtime: ConversationRuntime;
-  history: ConversationMessage[];
+/** 角色级 Planner Redis Hash 的两个字段；调用方只提交本次变更涉及的字段。 */
+export type PlannerState = {
+  runtime: PlannerRuntime;
   planner: { history: ContextUnit[]; summary: Readonly<ContextSummary> };
+};
+
+/** 单群 Redis Hash 的三个字段；调用方只提交本次变更涉及的字段。 */
+export type ChannelState = {
+  runtime: ChannelRuntime;
+  history: ConversationMessage[];
   replyerSummary: Readonly<ContextSummary>;
 };
 
@@ -72,33 +92,38 @@ const messageSchema: z.ZodType<ConversationMessage> = z.discriminatedUnion("kind
     operatorId: z.string(),
   }),
 ]);
-const stateSchema: z.ZodType<ConversationState> = z.strictObject({
+
+const plannerStateSchema: z.ZodType<PlannerState> = z.strictObject({
   runtime: z.strictObject({
-    sequence: sequenceSchema,
-    processedThrough: sequenceSchema,
-    plannerInputThrough: sequenceSchema,
+    focusedChannelId: z.string().min(1).nullable(),
+    focusAnnouncementPending: z.boolean().optional(),
     currentRound: z
       .strictObject({
+        channelId: z.string().min(1),
         throughSequence: sequenceSchema,
         sendAttempted: z.boolean(),
       })
       .optional(),
     waiting: z.strictObject({ startedAt: z.number(), until: z.number() }).optional(),
-    failedThroughSequence: sequenceSchema.optional(),
-    silentRounds: sequenceSchema,
-    silenceCooldownUntil: z.number(),
-    paused: z.strictObject({ summary: z.string(), coveredThrough: sequenceSchema }).optional(),
     agentEvents: z
       .array(
         z.discriminatedUnion("type", [
-          conversationAgentEventSchema.options[0].extend({ consumed: z.boolean() }),
-          conversationAgentEventSchema.options[1].extend({ consumed: z.boolean() }),
-          stickerAnnotationEventSchema.extend({ consumed: z.boolean() }),
+          conversationAgentEventSchema.options[0].extend({
+            channelId: z.string().min(1).optional(),
+            consumed: z.boolean(),
+          }),
+          conversationAgentEventSchema.options[1].extend({
+            channelId: z.string().min(1).optional(),
+            consumed: z.boolean(),
+          }),
+          stickerAnnotationEventSchema.extend({
+            channelId: z.string().min(1).optional(),
+            consumed: z.boolean(),
+          }),
         ]),
       )
       .optional(),
   }),
-  history: z.array(messageSchema),
   planner: z.strictObject({
     history: z.array(
       z.strictObject({
@@ -108,20 +133,69 @@ const stateSchema: z.ZodType<ConversationState> = z.strictObject({
     ),
     summary: summarySchema,
   }),
+});
+
+const channelStateSchema: z.ZodType<ChannelState> = z.strictObject({
+  runtime: z.strictObject({
+    sequence: sequenceSchema,
+    processedThrough: sequenceSchema,
+    plannerInputThrough: sequenceSchema,
+    failedThroughSequence: sequenceSchema.optional(),
+    silentRounds: sequenceSchema,
+    silenceCooldownUntil: z.number(),
+    paused: z.strictObject({ summary: z.string(), coveredThrough: sequenceSchema }).optional(),
+    notifiedThrough: sequenceSchema.optional(),
+  }),
+  history: z.array(messageSchema),
   replyerSummary: summarySchema,
 });
 
-function conversationKey(scope: ConversationScope): string {
+function plannerKey(characterId: string, platform: ConversationScope["platform"]): string {
+  return `${redisKeyPrefix()}conversation:${[characterId, platform].map(encodeURIComponent).join(":")}:planner`;
+}
+
+function channelKey(scope: ConversationScope): string {
   return `${redisKeyPrefix()}conversation:${[scope.characterId, scope.platform, scope.channelId].map(encodeURIComponent).join(":")}`;
 }
 
-export async function loadConversationState(
-  scope: ConversationScope,
-): Promise<ConversationState | null> {
+export async function loadPlannerState(
+  characterId: string,
+  platform: ConversationScope["platform"],
+): Promise<PlannerState | null> {
   const redis = await getRedis();
-  const fields = await redis.hgetall(`${conversationKey(scope)}:state`);
-  if (!Object.keys(fields).length) return null;
-  return stateSchema.parse(
+  const fields = await redis.hgetall(plannerKey(characterId, platform));
+  if (!Object.keys(fields).length) {
+    return null;
+  }
+  return plannerStateSchema.parse(
+    Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, JSON.parse(value)])),
+  );
+}
+
+/** 调用方必须在写入队列内构造快照并等待提交。 */
+export async function savePlannerState(
+  characterId: string,
+  platform: ConversationScope["platform"],
+  changes: Partial<PlannerState>,
+): Promise<void> {
+  const entries = Object.entries(changes);
+  if (!entries.length) {
+    return;
+  }
+  const redis = await getRedis();
+  await redis.hset(
+    plannerKey(characterId, platform),
+    Object.fromEntries(entries.map(([name, value]) => [name, JSON.stringify(value)])),
+  );
+}
+
+export async function loadChannelState(scope: ConversationScope): Promise<ChannelState | null> {
+  const redis = await getRedis();
+  const fields = await redis.hgetall(`${channelKey(scope)}:state`);
+  if (!Object.keys(fields).length) {
+    return null;
+  }
+  return channelStateSchema.parse(
     Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, JSON.parse(value)])),
   );
 }
@@ -130,9 +204,9 @@ export async function loadConversationState(
  * 调用方必须在会话写入队列内构造快照并等待提交。
  * 收发事件与待归档记录同事务写入；这里不决定消费输入、等待或裁剪规则。
  */
-export async function saveConversationState(
+export async function saveChannelState(
   scope: ConversationScope,
-  changes: Partial<ConversationState>,
+  changes: Partial<ChannelState>,
   events: ConversationMessage[] = [],
 ): Promise<void> {
   // 在提交前拒绝不符合消息契约的事件，避免坏记录进入会话及归档缓冲。
@@ -140,7 +214,7 @@ export async function saveConversationState(
     messageSchema.parse(event);
   }
   const redis = await getRedis();
-  const key = conversationKey(scope);
+  const key = channelKey(scope);
   const transaction = redis
     .multi()
     .hset(
@@ -160,9 +234,13 @@ export async function saveConversationState(
     transaction.pexpire(`${key}:archive`, MESSAGE_RETENTION_MS);
   }
   const results = await transaction.exec();
-  if (!results) throw new Error("会话状态事务未执行");
+  if (!results) {
+    throw new Error("会话状态事务未执行");
+  }
   for (const [error] of results) {
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
   }
 }
 
@@ -202,7 +280,7 @@ export async function* pendingArchiveScopes(
 /** 取走本页后再解析和归档；失败不重新入队，新到消息不在删除范围内。 */
 export async function takePendingArchive(scope: ConversationScope, cursor: string) {
   const redis = await getRedis();
-  const key = `${conversationKey(scope)}:archive`;
+  const key = `${channelKey(scope)}:archive`;
   const [nextCursor, fields] = await redis.hscan(key, cursor, "COUNT", 100);
   const sequences = fields.filter((_, index) => index % 2 === 0);
   if (sequences.length) {

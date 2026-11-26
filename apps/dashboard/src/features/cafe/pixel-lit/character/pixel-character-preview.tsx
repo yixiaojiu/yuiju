@@ -44,7 +44,6 @@ const views = [
 /**
  * 俯视角的档位（度），和光影喫茶店场景一致。造型细节按 30° 调，其他角度帽子、刘海和脸的相对位置会差一两个像素。
  */
-const elevations = [0, 15, 30, 45];
 /** 64×64 画面的取景：画面中心比头部中心低 10 个像素。 */
 const focus: PixelFocus = { x: 0, z: 0, up: -10 };
 /**
@@ -393,17 +392,19 @@ export function PixelCharacterPreview() {
                   3D 模型
                 </button>
                 <span className="text-xs text-[#786c60]">俯视角</span>
-                {elevations.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={elevation === value}
-                    className={`rounded-md px-2.5 py-1.5 text-sm ${elevation === value ? selectedButton : quietButton}`}
-                    onClick={() => setElevation(value)}
-                  >
-                    {value}°
-                  </button>
-                ))}
+                <input
+                  type="range"
+                  min={0}
+                  max={30}
+                  step={1}
+                  value={elevation}
+                  aria-label="俯视角"
+                  className="ml-2 h-4 w-28 cursor-pointer accent-[#876950]"
+                  onChange={(event) => setElevation(event.target.valueAsNumber)}
+                />
+                <output className="w-8 text-right font-mono text-sm tabular-nums text-[#5e5145]">
+                  {elevation}°
+                </output>
               </div>
             </div>
             <div className="grid gap-3 border-t border-[#e4dccf] px-4 py-4 text-sm">

@@ -14,7 +14,7 @@ import { StickerCollection } from "./sticker/collection";
 
 export class Conversation {
   private readonly connection: OneBotConnection;
-  private readonly sessions = new Map<string, ConversationLoop>();
+  private loop!: ConversationLoop;
   private stickers!: StickerCollection;
   /** 世界活动许可与人工开关独立；世界通知可能早于会话初始化。 */
   private participationAllowed: boolean | undefined;
@@ -37,12 +37,7 @@ export class Conversation {
 
   async synchronizeStickers(): Promise<void> {
     await this.stickers.synchronize();
-    const firstGroup = this.onebot.group_white_list?.[0];
-    if (firstGroup) {
-      await this.sessions
-        .get(firstGroup.group_id)!
-        .receiveStickerAnnotations(this.stickers.pending());
-    }
+    await this.loop.receiveStickerAnnotations(this.stickers.pending());
   }
 
   /** 独立调试传入已确认的聊天权限；完整运行由主 agent 同步权限后开放聊天。 */
@@ -61,23 +56,30 @@ export class Conversation {
       ),
       this.connection,
     );
-    // 主动恢复白名单中的会话；不能等第一条新消息才重建 wait。
-    for (const group of this.onebot.group_white_list ?? []) {
-      const channelId = group.group_id;
-      const session = new ConversationLoop(
-        { characterId: this.character.id, platform: "onebot", channelId },
-        this.onebot.self_id,
-        [this.character.name, ...this.character.nicknames],
-        this.connection,
-        this.character,
-        group.collect_training_data,
-        this.onebot.bot_ids ?? [],
-        group.check_reply_quality,
-        this.stickers,
-      );
-      await session.initialize();
-      this.sessions.set(channelId, session);
-    }
+    const whitelist = this.onebot.group_white_list ?? [];
+    this.loop = new ConversationLoop(
+      this.character.id,
+      "onebot",
+      whitelist.map((group) => ({
+        channelId: group.group_id,
+        collectTrainingData: group.collect_training_data,
+        checkReplyQuality: group.check_reply_quality,
+      })),
+      this.onebot.self_id,
+      [this.character.name, ...this.character.nicknames],
+      this.connection,
+      this.character,
+      this.onebot.bot_ids ?? [],
+      this.stickers,
+    );
+    await this.loop.initialize();
+
+    const initialSettings = await readConversationSettings(this.character.id);
+    await Promise.all(
+      whitelist.map((group) =>
+        this.loop.setChannelEnabled(group.group_id, initialSettings[group.group_id] ?? true),
+      ),
+    );
     this.stopSettingsSubscription = await subscribeConversationSettings(
       this.character.id,
       async () => {
@@ -86,45 +88,51 @@ export class Conversation {
           return;
         }
         await Promise.all(
-          [...this.sessions].map(([groupId, session]) =>
-            session.setEnabled(settings[groupId] ?? true),
+          whitelist.map((group) =>
+            this.loop.setChannelEnabled(group.group_id, settings[group.group_id] ?? true),
           ),
         );
       },
     );
+
     await this.connection.start(async (channelId, message) => {
       // 入口已严格校验白名单；连接建立期间先记录，resume 后再执行模型。
-      await this.sessions.get(channelId)!.receive(message);
+      await this.loop.receive(channelId, message);
     });
+    await this.refreshGroupNames();
     await this.stickers.initialize();
-    for (const session of this.sessions.values()) {
-      await session.restoreStickerKeys();
-    }
-    const firstGroup = this.onebot.group_white_list?.[0];
-    if (firstGroup) {
-      await this.sessions
-        .get(firstGroup.group_id)!
-        .receiveStickerAnnotations(this.stickers.pending());
-    }
+    await this.loop.restoreStickerKeys();
+    await this.loop.receiveStickerAnnotations(this.stickers.pending());
     if (this.participationAllowed !== undefined) {
       await this.setParticipationAllowed(this.participationAllowed);
     }
-    for (const session of this.sessions.values()) {
-      session.resume();
-    }
+    this.loop.resume();
+  }
+
+  private async refreshGroupNames(): Promise<void> {
+    const whitelist = this.onebot.group_white_list ?? [];
+    await Promise.all(
+      whitelist.map(async (group) => {
+        try {
+          const info = await this.connection.api.getGroupInfo(group.group_id);
+          this.loop.setChannelName(group.group_id, info.group_name);
+        } catch (error) {
+          logger.warn("读取 QQ 群名称失败，暂用群号展示", {
+            channelId: group.group_id,
+            error,
+          });
+        }
+      }),
+    );
   }
 
   async stop() {
     this.stopped = true;
     this.stopSettingsSubscription?.();
     this.connection.stopReceiving();
-    // 连接保留到所有在途轮次结束，分段发送可以按原决定完成。
-    const results = await Promise.allSettled(
-      [...this.sessions.values()].map((session) => session.stop()),
-    );
-    results.push(...(await Promise.allSettled([this.stickers?.stop()])));
+    // 连接保留到在途轮次结束，分段发送可以按原决定完成。
+    const results = await Promise.allSettled([this.loop?.stop(), this.stickers?.stop()]);
     await this.connection.stop();
-    this.sessions.clear();
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length) {
       throw new AggregateError(
@@ -134,48 +142,30 @@ export class Conversation {
     }
   }
 
-  /** 各群独立整理暂停期背景；一个群的模型调用不占用另一个群的执行队列。 */
   async setParticipationAllowed(allowed: boolean): Promise<void> {
     this.participationAllowed = allowed;
-    await Promise.all(
-      [...this.sessions.values()].map((session) =>
-        session.setParticipationAllowed(allowed && this.sceneAllowed),
-      ),
-    );
+    if (this.loop) {
+      await this.loop.setParticipationAllowed(allowed && this.sceneAllowed);
+    }
   }
 
   /** 进入与退出场景只修改自己的限制，不解除睡眠或用户关闭。 */
   async setSceneParticipationAllowed(allowed: boolean): Promise<void> {
     this.sceneAllowed = allowed;
-    await Promise.all(
-      [...this.sessions.values()].map((session) =>
-        session.setParticipationAllowed(allowed && this.participationAllowed === true),
-      ),
-    );
+    if (this.loop) {
+      await this.loop.setParticipationAllowed(allowed && this.participationAllowed === true);
+    }
   }
 
-  /** 广播意图，各群独立决定是否表达；同一请求 ID 在各自会话内去重。 */
+  /** 主 loop 只提交分享意图，由唯一 Planner 决定是否、在哪个群表达。 */
   async share(event: ConversationAgentEvent): Promise<string> {
-    const groups = [...this.sessions];
-    if (!groups.length) {
+    if (!(this.onebot.group_white_list?.length ?? 0)) {
       return "当前没有已连接的 QQ 群，未提交分享。";
     }
-    const results = await Promise.allSettled(
-      groups.map(([, session]) => session.receiveAgentEvent(event)),
-    );
-    return results
-      .map((result, index) => {
-        const channelId = groups[index][0];
-        if (result.status === "fulfilled") {
-          return `QQ 群 ${channelId}：${result.value}`;
-        }
-        logger.error("广播分享意图提交失败", { error: result.reason });
-        return `QQ 群 ${channelId}：分享意图提交失败，接收结果未确认。`;
-      })
-      .join("\n");
+    return await this.loop.receiveAgentEvent(event);
   }
 
-  /** 决策反馈只交回来源群，群已退出白名单时明确告知未投递。 */
+  /** 决策反馈附带来源群交给唯一 Planner，群已退出白名单时明确告知未投递。 */
   async receiveAgentEvent(
     scope: ConversationScope,
     event: ConversationAgentEvent,
@@ -183,10 +173,9 @@ export class Conversation {
     if (scope.characterId !== this.character.id || scope.platform !== "onebot") {
       throw new Error("事件来源与当前角色的 QQ 会话不匹配");
     }
-    const session = this.sessions.get(scope.channelId);
-    if (!session) {
+    if (!this.loop.hasChannel(scope.channelId)) {
       return `未投递：来源 QQ 群 ${scope.channelId} 当前未接入。`;
     }
-    return await session.receiveAgentEvent(event);
+    return await this.loop.receiveAgentEvent(event, scope.channelId);
   }
 }

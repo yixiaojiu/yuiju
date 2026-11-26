@@ -40,6 +40,7 @@ export type ConversationToolContext = {
     relatedEventId?: string,
   ) => Promise<string>;
   connection: OneBotConnection;
+  groupName: string;
   stickers: StickerCollection;
   annotationResIds: string[];
   replyer: Replyer;
@@ -49,6 +50,10 @@ export type ConversationToolContext = {
   historyThrough: number;
   /** 本轮收到 @ 或引用时，第三版仅可放行不涉及误认交流对象、违背世界观的质检问题。 */
   receivedMentionOrReply: boolean;
+  /** 后台其他群聊的紧凑未读动态，仅在有未读时随本轮角色状态一起追加。 */
+  otherChatsSummary?: string;
+  /** 校验能否切换到目标群，避免工具执行层直接依赖全局会话状态。 */
+  canSwitchTo: (channelId: string) => { ok: true; name: string } | { ok: false; reason: string };
   /** 将平台确认的事件写入真实历史和本轮快照，再持久化。 */
   recordSent: (events: IncomingEvent[]) => Promise<void>;
   /** 每次发送或 Skill 平台写入前，等待会话保存执行标记。 */
@@ -61,22 +66,23 @@ export type ConversationToolContext = {
   failed: boolean;
   /** wait 成功时设置，Planner 停止后由 loop 安排唤醒。 */
   waitSeconds?: number;
+  /** switchChat 成功时设置，Planner 停止后由 loop 切换焦点并唤醒目标群。 */
+  switchChannelId?: string;
 };
 
 /** 工具直接执行，返回值由 SDK 转为 tool message；不另行追加执行反馈。 */
-export async function createPlannerTools(
+export function createPlannerTools(
   scope: ConversationScope,
   timezone: string,
   botIds: readonly string[],
   context: ConversationToolContext,
 ) {
-  const currentGroup = await context.connection.api.getGroupInfo(scope.channelId);
   const skills = [
     createOnebotSkill({
       api: context.connection.api,
       selfId: context.connection.selfId,
       groupId: scope.channelId,
-      groupName: currentGroup.group_name,
+      groupName: context.groupName,
       groupWhitelistIds: context.connection.groupWhitelistIds,
       async beforeWrite() {
         await context.beforeSend();
@@ -402,6 +408,18 @@ export async function createPlannerTools(
         // stopWhen 在本步所有工具完成后检查此状态，不取消并发或排队中的回复。
         context.waitSeconds = seconds;
         return `本步工具完成后暂停，等待 ${seconds} 秒后继续。`;
+      },
+    }),
+    switchChat: tool({
+      ...plannerTools.switchChat,
+      execute: async ({ channelId }) => {
+        const result = context.canSwitchTo(channelId);
+        if (!result.ok) {
+          return `无法切换：${result.reason}`;
+        }
+        // stopWhen 在本步所有工具完成后结束当前群轮次，不改变本步已提交给当前群的回复目标。
+        context.switchChannelId = channelId;
+        return `本步工具完成后将把注意力切换到群「${result.name}」（${channelId}）。`;
       },
     }),
   };

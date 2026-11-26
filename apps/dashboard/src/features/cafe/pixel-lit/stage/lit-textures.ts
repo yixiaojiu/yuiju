@@ -29,7 +29,8 @@ function createPixelTexture(
   width: number,
   height: number,
   paint: (x: number, y: number) => Rgba,
-  options: { repeatX?: number; repeatY?: number; srgb?: boolean } = {},
+  /** 铺满表面的贴图要首尾相接地重复，图案贴图只贴一次。 */
+  tiled = false,
 ) {
   const data = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y++) {
@@ -43,14 +44,13 @@ function createPixelTexture(
     }
   }
   const texture = new DataTexture(data, width, height);
-  texture.colorSpace = options.srgb === false ? "" : SRGBColorSpace;
+  texture.colorSpace = SRGBColorSpace;
   texture.magFilter = NearestFilter;
   texture.minFilter = NearestFilter;
   texture.generateMipmaps = false;
-  if (options.repeatX !== undefined || options.repeatY !== undefined) {
+  if (tiled) {
     texture.wrapS = RepeatWrapping;
     texture.wrapT = RepeatWrapping;
-    texture.repeat.set(options.repeatX ?? 1, options.repeatY ?? 1);
   }
   texture.needsUpdate = true;
   return texture;
@@ -69,8 +69,10 @@ function stampTexture(rows: readonly string[], palette: Record<string, string>) 
 }
 
 /**
- * 全局严格对齐屏幕像素密度的建筑表面像素贴图（ELEVATION = 30°，地面 Z 轴投影比为 0.5，
- * 所有 repeat 数按实际米尺寸换算，确保地面木纹、墙板、地毯、黑板上的 1 纹素 = 屏幕上的 1 正方形像素）。
+ * 场景表面的像素贴图，尺寸按米来定，和俯视角无关。
+ * 铺满表面的贴图（地板、土間、木条、台面、墙面）在材质里按世界坐标铺，一个纹素是 2 个屏幕像素宽（0.056 米）见方，
+ * 不管贴在多大的物体上、朝哪个方向、从哪个视角看，纹理的疏密都一样。
+ * 图案贴图（地毯、黑板、挂画）按物体自身的 UV 贴满一次，物体按纹素数换算成米来定尺寸。
  */
 export function createLitTextures() {
   const created: DataTexture[] = [];
@@ -79,118 +81,125 @@ export function createLitTextures() {
     return t;
   };
 
-  // 1. 地面暖木地板（11.2m × 7.2m 投影为 280 × 90 屏幕像素；贴图 32×18，repeat 8.75 × 5 => 严格 1:1 像素！）
-  const woodBase = hexToRgba("#8a5938");
-  const woodFloorColor = track(
+  // 木地板：每块板 5 纹素宽（0.28 米），沿进深方向 24 纹素长，相邻木板的接缝错开。
+  const planks = (hex: string) => {
+    const base = hexToRgba(hex);
+    return track(
+      createPixelTexture(
+        20,
+        24,
+        (x, y) => {
+          const plank = Math.floor(x / 5);
+          const lx = x % 5;
+          const seamY = (y + plank * 9) % 24;
+          if (lx === 0 || seamY === 0) {
+            return scaleRgba(base, 0.62);
+          }
+          const tone = [1.0, 0.93, 1.05, 0.96][plank % 4];
+          const grain = lx === 2 && seamY % 7 > 3 ? 0.94 : 1.0;
+          return scaleRgba(base, tone * grain);
+        },
+        true,
+      ),
+    );
+  };
+  const woodFloorColor = planks("#8a5938");
+  // 吧台内的地板比客区深一档，地面一变就分出了店员区。
+  const barFloorColor = planks("#6e4630");
+
+  // 门口土間的石砖：每块 6 纹素见方，砖缝深色，每块砖的明暗略有不同。
+  const stoneBase = hexToRgba("#8f8173");
+  const domaColor = track(
     createPixelTexture(
-      32,
-      18,
+      12,
+      12,
       (x, y) => {
-        const plank = Math.floor(x / 8);
-        const lx = x % 8;
-        const seamY = (y + plank * 7) % 18;
-        if (lx === 0 || seamY === 0) {
-          return scaleRgba(woodBase, 0.55);
+        if (x % 6 === 0 || y % 6 === 0) {
+          return scaleRgba(stoneBase, 0.66);
         }
-        const tone = [1.0, 0.93, 1.05, 0.96][plank % 4];
-        const grain = lx === 3 || lx === 5 ? 0.94 : 1.0;
-        const shimmer = 0.97 + hash2d(plank, Math.floor(seamY / 3)) * 0.05;
-        return scaleRgba(woodBase, tone * grain * shimmer);
+        return scaleRgba(stoneBase, 0.94 + hash2d(Math.floor(x / 6), Math.floor(y / 6)) * 0.12);
       },
-      { repeatX: 14, repeatY: 8 },
-    ),
-  );
-  const woodFloorRoughness = track(
-    createPixelTexture(
-      32,
-      18,
-      (x, y) => {
-        const plank = Math.floor(x / 8);
-        const lx = x % 8;
-        const seamY = (y + plank * 7) % 18;
-        const v = lx === 0 || seamY === 0 ? 245 : [116, 132, 108, 124][plank % 4];
-        return [v, v, v, 255];
-      },
-      { repeatX: 14, repeatY: 8, srgb: false },
+      true,
     ),
   );
 
-  // 2. 蜂蜜木吧台台面（像素木纹 + 半哑光粗糙度）
+  // 蜂蜜色台面：每 4 纹素一道浅木纹。
   const honeyBase = hexToRgba("#cf9352");
   const honeyWoodColor = track(
     createPixelTexture(
-      16,
-      12,
+      8,
+      8,
       (x, y) => {
         if (y % 4 === 0) {
-          return scaleRgba(honeyBase, 0.84);
+          return scaleRgba(honeyBase, 0.86);
         }
-        return scaleRgba(honeyBase, (x + y) % 5 === 0 ? 1.05 : 0.98);
+        return scaleRgba(honeyBase, (x + y) % 5 === 0 ? 1.04 : 0.99);
       },
-      { repeatX: 6, repeatY: 2 },
-    ),
-  );
-  const honeyWoodRoughness = track(
-    createPixelTexture(
-      16,
-      12,
-      (_x, y) => {
-        const v = y % 4 === 0 ? 160 : 94;
-        return [v, v, v, 255];
-      },
-      { repeatX: 6, repeatY: 2, srgb: false },
+      true,
     ),
   );
 
-  // 3. 竖条木护墙板与吧台立面（严格 4 像素一格木条）
+  // 竖条木护墙板和吧台立面：每条木板 3 纹素宽，一道暗缝一道亮边。
   const slatBase = hexToRgba("#5c3824");
   const woodSlatsColor = track(
     createPixelTexture(
-      16,
-      16,
+      6,
+      6,
       (x) => {
-        const m = x % 4;
+        const m = x % 3;
         if (m === 0) {
-          return scaleRgba(slatBase, 0.52);
+          return scaleRgba(slatBase, 0.6);
         }
         if (m === 1) {
-          return scaleRgba(slatBase, 1.1);
+          return scaleRgba(slatBase, 1.08);
         }
         return slatBase;
       },
-      { repeatX: 28, repeatY: 2.4 },
+      true,
     ),
   );
 
-  // 4. 奶油米色墙面
+  // 奶油米色墙面
   const wallBase = hexToRgba("#ead4ae");
   const creamWallColor = track(
-    createPixelTexture(16, 16, (x, y) => scaleRgba(wallBase, 0.985 + hash2d(x, y) * 0.03), {
-      repeatX: 28,
-      repeatY: 4,
-    }),
+    createPixelTexture(16, 16, (x, y) => scaleRgba(wallBase, 0.985 + hash2d(x, y) * 0.03), true),
   );
 
-  // 5. 吧台前织纹地毯（120 × 14 像素对应 4.8m × 1.12m 地面，严格 1:1 像素！）
+  // 中间小圆桌下的织纹地毯：44 × 30 纹素，按 0.056 米一个纹素是 2.46 × 1.68 米。
   const rugColor = track(
-    createPixelTexture(96, 14, (x, y) => {
-      const bx = Math.min(x, 95 - x);
-      const by = Math.min(y, 13 - y);
-      if (bx === 0 || by === 0) {
+    createPixelTexture(44, 30, (x, y) => {
+      const bx = Math.min(x, 43 - x);
+      const by = Math.min(y, 29 - y);
+      const edge = Math.min(bx, by);
+      if (edge === 0) {
         return hexToRgba("#422820");
       }
-      if (bx <= 2 || by === 1) {
+      if (edge <= 2) {
         return hexToRgba("#96453b");
       }
-      if (bx <= 4 || by === 2) {
+      if (edge === 3) {
         return (x + y) % 2 === 0 ? hexToRgba("#fce4b3") : hexToRgba("#c48b55");
       }
-      const diamond = (x % 6 === 0 && y % 3 === 0) || (x % 6 === 3 && y % 3 === 1);
+      const diamond = (x % 6 === 0 && y % 4 === 0) || (x % 6 === 3 && y % 4 === 2);
       return diamond ? hexToRgba("#b86446") : hexToRgba("#96453b");
     }),
   );
 
-  // 6. 黑板菜单（32 × 18 像素）
+  // 长椅角的长条地毯：抹茶绿，20 × 52 纹素，铺满两张小桌底下。
+  const benchRugColor = track(
+    createPixelTexture(20, 52, (x, y) => {
+      const edge = Math.min(x, 19 - x, y, 51 - y);
+      if (edge === 0) {
+        return hexToRgba("#3f4a2e");
+      }
+      if (edge === 2) {
+        return hexToRgba("#efe0be");
+      }
+      return (x + y) % 8 === 0 ? hexToRgba("#94ab70") : hexToRgba("#7f9861");
+    }),
+  );
+
+  // 黑板菜单：32 × 18 纹素，一个纹素 1 个屏幕像素宽。
   const chalkboardColor = track(
     stampTexture(
       [
@@ -225,7 +234,7 @@ export function createLitTextures() {
     ),
   );
 
-  // 7. 像素小挂画（18 × 14 像素）
+  // 小挂画：18 × 14 纹素，一个纹素 1 个屏幕像素宽。
   const paintingWarm = track(
     stampTexture(
       [
@@ -257,56 +266,17 @@ export function createLitTextures() {
     ),
   );
 
-  // 8. 置物架层板上的真像素器物条带（陶杯、茶筒、豆罐、彩书、小绿植，杜绝任何光滑圆柱！）
-  const shelfRowItems = track(
-    stampTexture(
-      [
-        "......OO.........OO.......OOOO............OO.............",
-        ".....OqqO.......ORRO.....OMMMMO..........OllO............",
-        "....OqwwqO.....ORRRRO....OqqqqO..OO.OO..OlGGlO....OO.....",
-        ".OO.OqMMqO.OO..ORRRRO....OqMMqO.OTRORcO.OlGGlO...OaaO....",
-        "OwwOOqMMqOOaaO.ORRRRO....OqMMqO.OTRORcO..OTTO...OaaaaO...",
-        "OwwqOqMMqOaaaaOORRRRO....OqMMqO.OTRORcO..OTTO...OaaaaO...",
-        "OwwOOqMMqOOaaO.ORRRRO....OqMMqO.OTRORcO..OTTO...OaaaaO...",
-        ".OO..OOOO..OO...OOOO......OOOO...OOOOO...OOOO....OOOO....",
-      ],
-      {
-        O: "#2c1b22",
-        q: "#bee2f7",
-        w: "#fcfaf5",
-        M: "#5e3a27",
-        R: "#96453b",
-        a: "#9cb87d",
-        T: "#b86446",
-        c: "#fce4b3",
-        l: "#79a35b",
-        G: "#547d44",
-      },
-    ),
-  );
-
-  // 9. 和纸格栅纹理
-  const shojiPaperColor = track(
-    createPixelTexture(
-      16,
-      16,
-      (x, y) => scaleRgba(hexToRgba("#f5eedc"), hash2d(x, y) > 0.8 ? 0.95 : 1.0),
-      { repeatX: 2, repeatY: 2 },
-    ),
-  );
-
   return {
     woodFloorColor,
-    woodFloorRoughness,
+    barFloorColor,
+    domaColor,
     honeyWoodColor,
-    honeyWoodRoughness,
     woodSlatsColor,
     creamWallColor,
     rugColor,
+    benchRugColor,
     chalkboardColor,
     paintingWarm,
-    shelfRowItems,
-    shojiPaperColor,
     dispose() {
       for (const t of created) {
         t.dispose();

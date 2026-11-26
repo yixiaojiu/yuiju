@@ -178,7 +178,9 @@ export function PixelLitCafePage() {
         <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5">
           <button
             type="button"
-            onClick={() => stageRef.current?.tiltView(-1)}
+            onPointerDown={() => stageRef.current?.holdTilt(-1)}
+            onPointerUp={() => stageRef.current?.holdTilt(0)}
+            onPointerLeave={() => stageRef.current?.holdTilt(0)}
             className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
           >
             F ▽
@@ -186,7 +188,9 @@ export function PixelLitCafePage() {
           <span className="min-w-8 text-center text-amber-50">{camera.elevation}°</span>
           <button
             type="button"
-            onClick={() => stageRef.current?.tiltView(1)}
+            onPointerDown={() => stageRef.current?.holdTilt(1)}
+            onPointerUp={() => stageRef.current?.holdTilt(0)}
+            onPointerLeave={() => stageRef.current?.holdTilt(0)}
             className="cursor-pointer rounded-md px-2 py-1 text-amber-100/80 transition hover:text-amber-50"
           >
             △ R
@@ -194,7 +198,8 @@ export function PixelLitCafePage() {
         </div>
 
         <span className="pl-1 text-[11px] text-amber-100/55">
-          WASD 四向移动 · Shift 跑步 · QE 转视角 · RF 俯视角 · 3D 三渲二像素小人
+          WASD 四向移动 · Shift 跑步 · QE 转视角（按住连续转） · 按住 RF 调俯视角（0~30°） · 3D
+          三渲二像素小人
         </span>
       </div>
     </div>

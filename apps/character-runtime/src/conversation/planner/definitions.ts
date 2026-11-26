@@ -42,6 +42,9 @@ const pokeSchema = z.object({
 const waitSchema = z.object({
   seconds: z.number().int().min(1).max(60).describe("你想等待多少秒后再判断。"),
 });
+const switchChatSchema = z.strictObject({
+  channelId: z.string().min(1).describe("你要切换过去关注的群号。"),
+});
 const noticeSchema = z.strictObject({
   description: z
     .string()
@@ -120,5 +123,10 @@ export const plannerTools = {
     description:
       "你安排一次主动定时唤醒：本步工具完成后暂停，到期即使无人发消息也会再判断。用于对方明确还没说完等具体短暂停顿。它不是结束工具，也不是等待下一条群消息；旁听、聊完、等别人回话时不调用工具即可结束。",
     inputSchema: waitSchema,
+  }),
+  switchChat: tool({
+    description:
+      "你将当前手机注意力切换到另一个白名单群聊：本步工具完成后结束当前群轮次，随即切到目标群查看未读消息并继续判断。你可以先在当前群 reply 再调用此工具，本步的回复仍会发往当前群。不能切换到当前已经所在的群或未启用、不在白名单中的群。",
+    inputSchema: switchChatSchema,
   }),
 };

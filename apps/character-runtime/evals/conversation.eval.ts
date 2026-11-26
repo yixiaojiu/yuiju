@@ -21,7 +21,7 @@ for (const scenario of conversationCases) {
       async () => {
         const scope = { characterId: "yuuno", platform: "onebot" as const, channelId: "20001" };
         const history: ConversationMessage[] = [];
-        const planner = new Planner(scope, []);
+        const planner = new Planner(scope.characterId, scope.platform, []);
         const replyer = new Replyer(scope, false, [], false);
         const connection = new OneBotConnection(
           { id: scope.characterId, name: "悠乃" },
@@ -94,6 +94,7 @@ for (const scenario of conversationCases) {
                 return `已投递给主 loop，事件 ID：${id}。尚不代表已作出决定。`;
               },
               connection,
+              groupName: "测评群",
               stickers: new StickerCollection(
                 join(tmpdir(), `yuiju-stickers-eval-${randomUUID()}.json`),
                 connection,
@@ -105,6 +106,7 @@ for (const scenario of conversationCases) {
               receivedMentionOrReply: messages.some(
                 (message) => message.kind === "message" && isDirectedMessage(message, "90001", []),
               ),
+              canSwitchTo: () => ({ ok: false, reason: "当前测评场景仅包含本群。" }),
               recordSent: async (events) => {
                 for (const event of events) {
                   history.push({ ...event, sequence: history.length + 1 });
@@ -115,7 +117,7 @@ for (const scenario of conversationCases) {
               sendAttempted: false,
               failed: false,
             };
-            await planner.run(execution, async () => {});
+            await planner.run(scope, execution, async () => {});
           }
         } finally {
           await planner.stop();
