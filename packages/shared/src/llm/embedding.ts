@@ -30,7 +30,7 @@ export async function embedTexts(
         values,
         abortSignal: options.abortSignal,
         maxRetries: 0,
-        providerOptions: { embedding: { dimensions: config.dimensions } },
+        dimensions: config.dimensions,
       });
       if (
         config.dimensions !== undefined &&

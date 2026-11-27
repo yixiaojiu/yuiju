@@ -5,7 +5,7 @@ import { createLlmAnalytics } from "@yuiju/shared/llm/analytics";
 import { flashModel } from "@yuiju/shared/llm/models";
 import { createProvider } from "@yuiju/shared/llm/provider";
 import { get_data_dir } from "@yuiju/shared/utils/path";
-import { type LanguageModel, wrapLanguageModel } from "ai";
+import { defaultSettingsMiddleware, type LanguageModel, wrapLanguageModel } from "ai";
 import { z } from "zod";
 
 /** 角色单独配置连接入口、Live2D 资源与声音；扩展不绑定某个角色。 */
@@ -76,8 +76,11 @@ export async function readInteractionModel(): Promise<{
   }
   return {
     model: wrapLanguageModel({
-      model: createProvider(llm, "yuiju-interaction").chatModel(llm.model),
-      middleware: createLlmAnalytics("yuiju-interaction", new URL(llm.base_url).host),
+      model: createProvider(llm, "yuiju-interaction").responses(llm.model),
+      middleware: [
+        defaultSettingsMiddleware({ settings: { providerOptions: { openai: { store: false } } } }),
+        createLlmAnalytics("yuiju-interaction", new URL(llm.base_url).host),
+      ],
     }),
     windowTokens: llm.context_window_tokens,
   };

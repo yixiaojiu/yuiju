@@ -1,4 +1,4 @@
-import { createTypeSafeAi } from "@ai-sdk/typesafe-ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { h } from "@satorijs/core";
 import { reportAnalyticsEvent } from "@yuiju/shared/analytics/report-event";
 import { load_config } from "@yuiju/shared/config/load";
@@ -30,7 +30,7 @@ export class Replyer {
   private systemPrompts!: ReplyerSystemPrompt[];
   /** 初始化时从合并默认值后的项目配置读取，与消息发生时间使用同一展示时区。 */
   private timezone!: string;
-  private qualityModel?: ReturnType<ReturnType<typeof createTypeSafeAi>["decisionModel"]>;
+  private qualityModel?: ReturnType<ReturnType<typeof createOpenAI>["decisionModel"]>;
   /** 与质检模型同时初始化，供每次请求埋点标记接口域名，不保存整份供应商配置。 */
   private qualityHost?: string;
   private qualityMonitor?: BusinessMonitor;
@@ -50,7 +50,7 @@ export class Replyer {
       if (!decision) {
         throw new Error("启用回复质量检查需要配置 llm.models.decision");
       }
-      this.qualityModel = createTypeSafeAi({
+      this.qualityModel = createOpenAI({
         baseURL: decision.base_url,
         apiKey: decision.api_key,
         fetch: decision.use_proxy ? fetchWithProxy : undefined,
@@ -311,13 +311,13 @@ export class Replyer {
               message: error instanceof Error ? error.message : String(error),
             });
             // 质检服务不可用时继续使用当前回复，不重跑生成，也不伪造通过结果。
-            logger.warn("Jev 调用失败，本次跳过回复质量检查", {
+            logger.warn("回复质量检查调用失败，本次跳过", {
               model: this.qualityModel.modelId,
               attempt,
               error: error instanceof Error ? error.message : String(error),
             });
           } finally {
-            // 一次 Jev 请求计一次；质检拒绝是成功返回，调用异常才计为失败。
+            // 每次质检请求独立计数；质检拒绝是成功返回，调用异常才计为失败。
             reportAnalyticsEvent({
               eventName: "llm.request",
               eventData: {

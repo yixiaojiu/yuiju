@@ -3,12 +3,12 @@ import { reportAnalyticsEvent } from "../analytics/report-event";
 
 type ModelUsage = Awaited<ReturnType<ReturnType<typeof wrapLanguageModel>["doGenerate"]>>["usage"];
 
-/** OpenAI-compatible 原始用量；缺失与显式返回 0 的含义不同。 */
+/** Responses 原始用量；缺失与显式返回 0 的含义不同。 */
 type RawUsage = {
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  prompt_tokens_details?: { cached_tokens?: number | null } | null;
-  completion_tokens_details?: { reasoning_tokens?: number | null } | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  input_tokens_details?: { cached_tokens?: number | null } | null;
+  output_tokens_details?: { reasoning_tokens?: number | null } | null;
 };
 
 /** 挂在每个供应商模型上；现有非流式生成、结构化降级与修复均按实际请求计一次。 */
@@ -56,10 +56,10 @@ export function createLlmAnalytics(group: string, host: string): LanguageModelMi
             finishReason,
             errorName,
             statusCode,
-            inputTokens: raw?.prompt_tokens ?? null,
-            outputTokens: raw?.completion_tokens ?? null,
-            cacheReadTokens: raw?.prompt_tokens_details?.cached_tokens ?? null,
-            reasoningTokens: raw?.completion_tokens_details?.reasoning_tokens ?? null,
+            inputTokens: raw?.input_tokens ?? null,
+            outputTokens: raw?.output_tokens ?? null,
+            cacheReadTokens: raw?.input_tokens_details?.cached_tokens ?? null,
+            reasoningTokens: raw?.output_tokens_details?.reasoning_tokens ?? null,
           },
         });
       }

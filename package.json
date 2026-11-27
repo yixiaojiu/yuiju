@@ -70,8 +70,7 @@
   },
   "dependencies": {
     "@ai-sdk/devtools": "^1.0.4",
-    "@ai-sdk/openai-compatible": "^3.0.57",
-    "@ai-sdk/typesafe-ai": "3.0.30",
+    "@ai-sdk/openai": "4.0.105",
     "@hono/node-server": "1.19.11",
     "@langfuse/otel": "^5.10.0",
     "@langfuse/vercel-ai-sdk": "^5.10.0",

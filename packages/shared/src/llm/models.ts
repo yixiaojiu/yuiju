@@ -1,4 +1,9 @@
-import { APICallError, type LanguageModelMiddleware, wrapLanguageModel } from "ai";
+import {
+  APICallError,
+  defaultSettingsMiddleware,
+  type LanguageModelMiddleware,
+  wrapLanguageModel,
+} from "ai";
 import { load_config } from "../config/load";
 import { logger } from "../logger/logger";
 import { createLlmAnalytics } from "./analytics";
@@ -233,8 +238,14 @@ function createGroupModel(name: ModelName, inputModalities: readonly InputModali
           providerKey: `${name}:${index}`,
           host: new URL(source.base_url).host,
           model: wrapLanguageModel({
-            model: createProvider(source, `${name}${index}`).chatModel(source.model),
-            middleware: createLlmAnalytics(name, new URL(source.base_url).host),
+            model: createProvider(source, `${name}${index}`).responses(source.model),
+            middleware: [
+              // 本地维护完整上下文；SDK 同步按无服务端存储的方式回传推理与工具结果。
+              defaultSettingsMiddleware({
+                settings: { providerOptions: { openai: { store: false } } },
+              }),
+              createLlmAnalytics(name, new URL(source.base_url).host),
+            ],
           }),
           supportsStructuredOutputs: source.supports_structured_outputs === true,
           inputModalities: source.input_modalities,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createOpenAI } from "@ai-sdk/openai";
 import { APICallError } from "ai";
 import type { Config } from "../config/schema";
 import { logger } from "../logger/logger";
@@ -34,6 +34,8 @@ export function createProvider(config: ProviderConfig, name: string) {
     "stream",
     "stream_options",
     "response_format",
+    "text",
+    "store",
     "dimensions",
     "encoding_format",
   ];
@@ -41,12 +43,11 @@ export function createProvider(config: ProviderConfig, name: string) {
     if (reserved.includes(key)) throw new Error(`request 不允许覆盖 ${key}`);
   }
 
-  return createOpenAICompatible({
+  return createOpenAI({
     name,
     baseURL: config.base_url,
     apiKey: config.api_key,
     headers: config.headers,
-    supportsStructuredOutputs: config.supports_structured_outputs === true,
     // request 提供默认参数，业务请求的同名字段优先；嵌套对象整项覆盖，embedding 同样适用。
     fetch: async (url, init) => {
       if (typeof init?.body !== "string") throw new Error("LLM 请求体必须是 JSON 字符串");
